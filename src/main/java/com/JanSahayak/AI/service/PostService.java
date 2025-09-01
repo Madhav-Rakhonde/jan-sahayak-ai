@@ -2,7 +2,6 @@ package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.DTO.PostContentUpdateDto;
 import com.JanSahayak.AI.DTO.PostCreateDto;
-import com.JanSahayak.AI.DTO.PostTaggingStatsDto;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.exception.*;
@@ -559,38 +558,7 @@ public class PostService {
         }
     }
 
-    public PostTaggingStatsDto getPostTaggingStatistics() {
-        try {
-            Object[] stats = postRepository.getTaggedPostsStatistics();
 
-            if (stats == null || stats.length < 4) {
-                log.warn("Invalid statistics returned from repository");
-                return PostTaggingStatsDto.builder()
-                        .totalPosts(countAllPosts())
-                        .taggedPosts(0L)
-                        .untaggedPosts(0L)
-                        .multipleTaggedPosts(0L)
-                        .averageTagsPerPost(0.0)
-                        .build();
-            }
-
-            PostTaggingStatsDto statsDto = PostTaggingStatsDto.builder()
-                    .totalPosts(countAllPosts())
-                    .taggedPosts((Long) stats[0])
-                    .untaggedPosts((Long) stats[1])
-                    .multipleTaggedPosts((Long) stats[2])
-                    .averageTagsPerPost((Double) stats[3])
-                    .build();
-
-            // Calculate percentages
-            statsDto.calculatePercentages();
-
-            return statsDto;
-        } catch (Exception e) {
-            log.error("Failed to get post tagging statistics", e);
-            throw new ServiceException("Failed to get post tagging statistics: " + e.getMessage(), e);
-        }
-    }
 
     /**
      * Get posts within distance using district-based location system
