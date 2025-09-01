@@ -2,6 +2,7 @@ package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.DTO.PostContentUpdateDto;
 import com.JanSahayak.AI.DTO.PostCreateDto;
+import com.JanSahayak.AI.DTO.PostTaggingStatsDto;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.exception.*;
@@ -56,7 +57,7 @@ public class PostService {
 
     @Transactional(rollbackOn = Exception.class)
     public Post createPost(PostCreateDto postDto, User user, MultipartFile mediaFile) {
-        log.info("Creating new post by user: {} (ID: {})", user.getUsername(), user.getId());
+        log.info("Creating new post by user: {} (ID: {})", user.getActualUsername(), user.getId());
 
         try {
             // Enhanced validation
@@ -101,7 +102,7 @@ public class PostService {
         } catch (ValidationException | MediaValidationException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to create post for user: {} (ID: {})", user.getUsername(), user.getId(), e);
+            log.error("Failed to create post for user: {} (ID: {})", user.getActualUsername(), user.getId(), e);
             throw new ServiceException("Failed to create post: " + e.getMessage(), e);
         }
     }
@@ -161,7 +162,7 @@ public class PostService {
             throw e;
         } catch (Exception e) {
             log.error("Failed to update post media for post ID: {} by user: {}", postId,
-                    currentUser != null ? currentUser.getUsername() : "null", e);
+                    currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to update post media: " + e.getMessage(), e);
         }
     }
@@ -211,7 +212,7 @@ public class PostService {
             throw e;
         } catch (Exception e) {
             log.error("Failed to remove post media for post ID: {} by user: {}", postId,
-                    currentUser != null ? currentUser.getUsername() : "null", e);
+                    currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to remove post media: " + e.getMessage(), e);
         }
     }
@@ -224,8 +225,8 @@ public class PostService {
 
             Post post = findById(postId);
 
-            // Enhanced user tagging validation
-            if (!isUserTaggedInPost(post, user)) {
+            // Enhanced user tagging validation using entity method
+            if (!post.hasActiveUserTag(user)) {
                 throw new SecurityException("Only tagged users can update post resolution status");
             }
 
@@ -243,25 +244,22 @@ public class PostService {
                         " to " + newStatus.getDisplayName());
             }
 
-            post.setStatus(newStatus);
-            post.setUpdatedAt(new Date());
-
-            // Update resolution fields based on new status
-            if (newStatus == PostStatus.RESOLVED) {
+            // Update resolution fields using entity methods to ensure consistency
+            if (isResolved) {
                 post.markAsResolved(updateMessage != null ? updateMessage.trim() : null);
                 log.info("Post ID: {} marked as resolved by user: {} (ID: {})",
-                        postId, user.getUsername(), user.getId());
+                        postId, user.getActualUsername(), user.getId());
             } else {
                 post.markAsUnresolved();
                 log.info("Post ID: {} marked as active by user: {} (ID: {})",
-                        postId, user.getUsername(), user.getId());
+                        postId, user.getActualUsername(), user.getId());
             }
 
             // Create status update comment if message provided
             if (updateMessage != null && !updateMessage.trim().isEmpty()) {
                 try {
                     Comment statusComment = new Comment();
-                    statusComment.setText("Status Update (" + newStatus.getDisplayName() + "): " + updateMessage.trim());
+                    statusComment.setText("Status Update (" + post.getStatus().getDisplayName() + "): " + updateMessage.trim());
                     statusComment.setUser(user);
                     statusComment.setPost(post);
                     statusComment.setCreatedAt(new Date());
@@ -277,25 +275,8 @@ public class PostService {
             throw e;
         } catch (Exception e) {
             log.error("Failed to update post resolution for post ID: {} by user: {}",
-                    postId, user != null ? user.getUsername() : "null", e);
+                    postId, user != null ? user.getActualUsername() : "null", e);
             throw new ServiceException("Failed to update post resolution: " + e.getMessage(), e);
-        }
-    }
-
-    public List<Post> getPostsForUserFeed(Long userId, Boolean isResolved) {
-        try {
-            validateUserId(userId);
-
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + userId));
-
-            List<Post> posts = userTaggingService.getPostsVisibleToUser(user, isResolved);
-            return posts != null ? posts : Collections.emptyList();
-        } catch (UserNotFoundException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to get posts for user feed: {}", userId, e);
-            throw new ServiceException("Failed to get posts for user feed: " + e.getMessage(), e);
         }
     }
 
@@ -313,46 +294,6 @@ public class PostService {
         } catch (Exception e) {
             log.error("Failed to get posts tagged with user: {}", userId, e);
             throw new ServiceException("Failed to get posts tagged with user: " + e.getMessage(), e);
-        }
-    }
-
-    public List<Post> getPostsByLocation(String location, Boolean isResolved) {
-        try {
-            validateLocationString(location);
-
-            List<Post> posts;
-            if (isResolved != null) {
-                PostStatus status = isResolved ? PostStatus.RESOLVED : PostStatus.ACTIVE;
-                posts = postRepository.findByLocationAndStatus(location.trim(), status);
-            } else {
-                posts = postRepository.findByLocationOrderByCreatedAtDesc(location.trim());
-            }
-            return posts != null ? posts : Collections.emptyList();
-        } catch (Exception e) {
-            log.error("Failed to get posts by location: {}", location, e);
-            throw new ServiceException("Failed to get posts by location: " + e.getMessage(), e);
-        }
-    }
-
-    public List<Post> getActivePostsByLocation(String location) {
-        try {
-            validateLocationString(location);
-            List<Post> posts = postRepository.findByLocationAndStatus(location.trim(), PostStatus.ACTIVE);
-            return posts != null ? posts : Collections.emptyList();
-        } catch (Exception e) {
-            log.error("Failed to get active posts by location: {}", location, e);
-            throw new ServiceException("Failed to get active posts by location: " + e.getMessage(), e);
-        }
-    }
-
-    public List<Post> getResolvedPostsByLocation(String location) {
-        try {
-            validateLocationString(location);
-            List<Post> posts = postRepository.findByLocationAndStatus(location.trim(), PostStatus.RESOLVED);
-            return posts != null ? posts : Collections.emptyList();
-        } catch (Exception e) {
-            log.error("Failed to get resolved posts by location: {}", location, e);
-            throw new ServiceException("Failed to get resolved posts by location: " + e.getMessage(), e);
         }
     }
 
@@ -405,7 +346,7 @@ public class PostService {
             List<Post> posts = postRepository.findByUserOrderByCreatedAtDesc(user);
             return posts != null ? posts : Collections.emptyList();
         } catch (Exception e) {
-            log.error("Failed to get posts by user: {}", user != null ? user.getUsername() : "null", e);
+            log.error("Failed to get posts by user: {}", user != null ? user.getActualUsername() : "null", e);
             throw new ServiceException("Failed to get posts by user: " + e.getMessage(), e);
         }
     }
@@ -416,7 +357,7 @@ public class PostService {
             List<Post> posts = postRepository.findByUserAndStatusOrderByCreatedAtDesc(user, PostStatus.ACTIVE);
             return posts != null ? posts : Collections.emptyList();
         } catch (Exception e) {
-            log.error("Failed to get active posts by user: {}", user != null ? user.getUsername() : "null", e);
+            log.error("Failed to get active posts by user: {}", user != null ? user.getActualUsername() : "null", e);
             throw new ServiceException("Failed to get active posts by user: " + e.getMessage(), e);
         }
     }
@@ -427,20 +368,12 @@ public class PostService {
             List<Post> posts = postRepository.findByUserAndStatusOrderByCreatedAtDesc(user, PostStatus.RESOLVED);
             return posts != null ? posts : Collections.emptyList();
         } catch (Exception e) {
-            log.error("Failed to get resolved posts by user: {}", user != null ? user.getUsername() : "null", e);
+            log.error("Failed to get resolved posts by user: {}", user != null ? user.getActualUsername() : "null", e);
             throw new ServiceException("Failed to get resolved posts by user: " + e.getMessage(), e);
         }
     }
 
-    public Long countAllPosts() {
-        try {
-            Long count = postRepository.count();
-            return count != null ? count : 0L;
-        } catch (Exception e) {
-            log.error("Failed to count all posts", e);
-            throw new ServiceException("Failed to count all posts: " + e.getMessage(), e);
-        }
-    }
+
 
     public Long countActivePosts() {
         try {
@@ -516,7 +449,7 @@ public class PostService {
             throw e;
         } catch (Exception e) {
             log.error("Failed to update post content: {} by user: {}",
-                    postId, currentUser != null ? currentUser.getUsername() : "null", e);
+                    postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to update post content: " + e.getMessage(), e);
         }
     }
@@ -530,7 +463,7 @@ public class PostService {
             return updatePostContent(postId, contentUpdateDto.getContent(), currentUser);
         } catch (Exception e) {
             log.error("Failed to update post content via DTO: {} by user: {}",
-                    postId, currentUser != null ? currentUser.getUsername() : "null", e);
+                    postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw e;
         }
     }
@@ -558,137 +491,6 @@ public class PostService {
         }
     }
 
-
-
-    /**
-     * Get posts within distance using district-based location system
-     * Distance calculation: 0 = same location, 25 = same state, 200 = different states
-     */
-    public List<Post> getPostsWithinDistance(Double latitude, Double longitude, Double maxDistanceKm, Boolean includeResolved) {
-        try {
-            // Enhanced validation
-            if (latitude != null && (latitude < -90 || latitude > 90)) {
-                throw new ValidationException("Invalid latitude value");
-            }
-            if (longitude != null && (longitude < -180 || longitude > 180)) {
-                throw new ValidationException("Invalid longitude value");
-            }
-            if (maxDistanceKm != null && maxDistanceKm < 0) {
-                throw new ValidationException("Max distance must be non-negative");
-            }
-
-            // Note: Since we're using district-based system, lat/lng parameters are not used
-            // This method signature is kept for API compatibility but we use location string matching
-            log.warn("getPostsWithinDistance called with coordinates, but system uses district-based locations. " +
-                    "Consider using getPostsByLocationProximity method instead.");
-
-            // Return all posts as fallback since we can't use coordinates
-            List<Post> posts;
-            if (includeResolved != null) {
-                PostStatus status = includeResolved ? PostStatus.RESOLVED : PostStatus.ACTIVE;
-                posts = postRepository.findByStatusOrderByCreatedAtDesc(status);
-            } else {
-                posts = postRepository.findAll();
-            }
-
-            return posts != null ? posts : Collections.emptyList();
-        } catch (ValidationException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to get posts within distance", e);
-            throw new ServiceException("Failed to get posts within distance: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get posts by location proximity using district-based system with enhanced validation
-     */
-    public List<Post> getPostsByLocationProximity(String userLocation, Double maxDistanceKm, Boolean includeResolved) {
-        try {
-            validateLocationString(userLocation);
-
-            if (maxDistanceKm == null || maxDistanceKm < 0) {
-                throw new ValidationException("Max distance must be non-negative");
-            }
-
-            String cleanUserLocation = userLocation.trim();
-            List<Post> posts = new ArrayList<>();
-
-            // Get exact location matches first (distance = 0)
-            if (maxDistanceKm >= 0) {
-                List<Post> exactPosts = getPostsByLocationAndStatus(cleanUserLocation, includeResolved);
-                if (exactPosts != null && !exactPosts.isEmpty()) {
-                    posts.addAll(exactPosts);
-                }
-            }
-
-            // Get same state posts if max distance allows (distance = 25)
-            if (maxDistanceKm >= 25) {
-                try {
-                    String userState = locationService.extractStateFromLocation(cleanUserLocation);
-                    if (userState != null) {
-                        List<String> sameStateLocations = locationService.getLocationsByState(userState);
-                        if (sameStateLocations != null && !sameStateLocations.isEmpty()) {
-                            for (String location : sameStateLocations) {
-                                if (!location.equals(cleanUserLocation)) {
-                                    List<Post> statePosts = getPostsByLocationAndStatus(location, includeResolved);
-                                    if (statePosts != null && !statePosts.isEmpty()) {
-                                        posts.addAll(statePosts);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to get same state posts for location: {}", cleanUserLocation, e);
-                }
-            }
-
-            // Get all posts if max distance allows (distance = 200)
-            if (maxDistanceKm >= 200) {
-                try {
-                    List<Post> allPosts;
-                    if (includeResolved != null) {
-                        PostStatus status = includeResolved ? PostStatus.RESOLVED : PostStatus.ACTIVE;
-                        allPosts = postRepository.findByStatusOrderByCreatedAtDesc(status);
-                    } else {
-                        allPosts = postRepository.findAll();
-                    }
-
-                    if (allPosts != null) {
-                        // Add posts that aren't already included
-                        for (Post post : allPosts) {
-                            if (post != null && !posts.contains(post)) {
-                                posts.add(post);
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to get country-wide posts for location: {}", cleanUserLocation, e);
-                }
-            }
-
-            // Filter only visible posts, remove duplicates and sort by created date
-            return posts.stream()
-                    .filter(post -> post != null &&
-                            post.getStatus() != null &&
-                            post.getStatus().isVisible())
-                    .distinct()
-                    .sorted((p1, p2) -> {
-                        if (p1.getCreatedAt() == null && p2.getCreatedAt() == null) return 0;
-                        if (p1.getCreatedAt() == null) return 1;
-                        if (p2.getCreatedAt() == null) return -1;
-                        return p2.getCreatedAt().compareTo(p1.getCreatedAt());
-                    })
-                    .collect(Collectors.toList());
-
-        } catch (ValidationException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to get posts by location proximity for location: {}", userLocation, e);
-            throw new ServiceException("Failed to get posts by location proximity: " + e.getMessage(), e);
-        }
-    }
 
     private List<Post> getPostsByLocationAndStatus(String location, Boolean includeResolved) {
         try {
@@ -754,7 +556,7 @@ public class PostService {
                     userTaggingService.addUserTag(post, userToTag);
                     successCount++;
                 } catch (Exception e) {
-                    log.warn("Failed to tag user: {} to post: {}", userToTag.getUsername(), postId, e);
+                    log.warn("Failed to tag user: {} to post: {}", userToTag.getActualUsername(), postId, e);
                 }
             }
 
@@ -766,7 +568,7 @@ public class PostService {
             throw e;
         } catch (Exception e) {
             log.error("Failed to tag users to post: {} by user: {}",
-                    postId, currentUser != null ? currentUser.getUsername() : "null", e);
+                    postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to tag users to post: " + e.getMessage(), e);
         }
     }
@@ -800,8 +602,8 @@ public class PostService {
                 userTaggingService.removeUserTag(post, userToRemove);
 
                 log.info("Removed user tag for user: {} (ID: {}) from post ID: {} (status: {}) by user: {}",
-                        userToRemove.getUsername(), userId, post.getId(),
-                        post.getStatus().getDisplayName(), currentUser.getUsername());
+                        userToRemove.getActualUsername(), userId, post.getId(),
+                        post.getStatus().getDisplayName(), currentUser.getActualUsername());
             } catch (Exception e) {
                 log.warn("Failed to remove user tag: {} from post: {}", userId, postId, e);
                 throw new ServiceException("Failed to remove user tag: " + e.getMessage(), e);
@@ -812,7 +614,7 @@ public class PostService {
             throw e;
         } catch (Exception e) {
             log.error("Failed to remove user tag from post: {} by user: {}",
-                    postId, currentUser != null ? currentUser.getUsername() : "null", e);
+                    postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to remove user tag from post: " + e.getMessage(), e);
         }
     }
@@ -1019,7 +821,7 @@ public class PostService {
         if (user.getId() == null) {
             throw new UserNotFoundException("User ID cannot be null");
         }
-        if (user.getUsername() == null || user.getUsername().trim().isEmpty()) {
+        if (user.getActualUsername() == null || user.getActualUsername().trim().isEmpty()) {
             throw new UserNotFoundException("User username cannot be null or empty");
         }
     }
@@ -1073,7 +875,7 @@ public class PostService {
                     user.getRole().getName() != null &&
                     roleName.equals(user.getRole().getName());
         } catch (Exception e) {
-            log.debug("Error checking role for user: {}", user != null ? user.getUsername() : "null", e);
+            log.debug("Error checking role for user: {}", user != null ? user.getActualUsername() : "null", e);
             return false;
         }
     }
@@ -1093,18 +895,6 @@ public class PostService {
         String nameWithoutExt = fileName.contains(".") ?
                 fileName.substring(0, fileName.lastIndexOf(".")) : fileName;
         return nameWithoutExt.replaceAll("[^a-zA-Z0-9._-]", "_");
-    }
-
-    private String sanitizeIpAddress(String ipAddress) {
-        if (ipAddress == null || ipAddress.trim().isEmpty()) {
-            return "unknown";
-        }
-        // Basic IP address validation and sanitization
-        String sanitized = ipAddress.trim();
-        if (sanitized.length() > 45) { // Max length for IPv6
-            sanitized = sanitized.substring(0, 45);
-        }
-        return sanitized.replaceAll("[^0-9a-fA-F:.%]", "");
     }
 
     private String generateSecureRandomString(int length) {
@@ -1156,18 +946,6 @@ public class PostService {
                 log.warn("Cleanup queue full, removing oldest entry: {}", oldFile);
             }
             log.debug("Added file to cleanup retry queue: {}", fileName);
-        }
-    }
-
-    private boolean isUserTaggedInPost(Post post, User user) {
-        try {
-            if (post == null || user == null) {
-                return false;
-            }
-            return post.hasActiveUserTag(user);
-        } catch (Exception e) {
-            log.debug("Error checking if user is tagged in post: {}", post != null ? post.getId() : "null", e);
-            return false;
         }
     }
 

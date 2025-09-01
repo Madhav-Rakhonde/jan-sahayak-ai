@@ -114,39 +114,6 @@ public class CommentController {
         }
     }
 
-    @DeleteMapping("/{commentId}")
-    public ResponseEntity<ApiResponse<String>> deleteComment(
-            @PathVariable Long commentId,
-            @CurrentUser UserPrincipal currentUser) {
-
-        try {
-            log.debug("Deleting comment {} by user {}", commentId, currentUser.getId());
-            User user = userService.getUserById(currentUser.getId());
-            commentService.deleteComment(commentId, user);
-
-            return ResponseEntity.ok(
-                    ApiResponse.success("Comment deleted successfully", "Comment has been permanently removed")
-            );
-        } catch (SecurityException e) {
-            log.warn("Unauthorized attempt to delete comment {} by user {}: {}",
-                    commentId, currentUser.getId(), e.getMessage());
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
-                    ApiResponse.error("Access denied", e.getMessage())
-            );
-        } catch (RuntimeException e) {
-            log.error("Error deleting comment {} by user {}: {}",
-                    commentId, currentUser.getId(), e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-                    ApiResponse.error("Failed to delete comment", e.getMessage())
-            );
-        } catch (Exception e) {
-            log.error("Unexpected error deleting comment {} by user {}: {}",
-                    commentId, currentUser.getId(), e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to delete comment", "An unexpected error occurred")
-            );
-        }
-    }
 
     private CommentResponse convertToCommentResponse(Comment comment) {
         try {

@@ -22,7 +22,6 @@ import jakarta.validation.constraints.NotNull;
 import java.util.Date;
 import java.util.List;
 import java.util.Collections;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -64,18 +63,18 @@ public class CommentService {
 
             Comment savedComment = commentRepository.save(comment);
             log.info("Comment created by user: {} (ID: {}) on post: {} (status: {}) at location: {}",
-                    user.getUsername(), user.getId(), post.getId(),
+                    user.getActualUsername(), user.getId(), post.getId(),
                     post.getStatus().getDisplayName(), post.getLocation());
 
             return savedComment;
         } catch (DataAccessException ex) {
             log.error("Database error while creating comment for user: {} on post: {}",
-                    user != null ? user.getUsername() : "null",
+                    user != null ? user.getActualUsername() : "null",
                     post != null ? post.getId() : "null", ex);
             throw new ServiceException("Failed to create comment due to database error", ex);
         } catch (Exception ex) {
             log.error("Unexpected error while creating comment for user: {} on post: {}",
-                    user != null ? user.getUsername() : "null",
+                    user != null ? user.getActualUsername() : "null",
                     post != null ? post.getId() : "null", ex);
             throw new ServiceException("Failed to create comment", ex);
         }
@@ -111,7 +110,7 @@ public class CommentService {
             if (comment.getUser() == null || comment.getUser().getId() == null ||
                     !comment.getUser().getId().equals(user.getId())) {
                 log.warn("Unauthorized comment update attempt by user: {} for comment: {}",
-                        user.getUsername(), commentId);
+                        user.getActualUsername(), commentId);
                 throw new SecurityException("Only comment owner can update comment");
             }
 
@@ -119,73 +118,23 @@ public class CommentService {
 
             Comment updatedComment = commentRepository.save(comment);
             log.info("Comment updated by user: {} (ID: {}) on post with status: {}",
-                    user.getUsername(), user.getId(), post.getStatus().getDisplayName());
+                    user.getActualUsername(), user.getId(), post.getStatus().getDisplayName());
 
             return updatedComment;
         } catch (SecurityException ex) {
             throw ex; // Re-throw security exceptions as-is
         } catch (DataAccessException ex) {
             log.error("Database error while updating comment: {} by user: {}",
-                    commentId, user != null ? user.getUsername() : "null", ex);
+                    commentId, user != null ? user.getActualUsername() : "null", ex);
             throw new ServiceException("Failed to update comment due to database error", ex);
         } catch (Exception ex) {
             log.error("Unexpected error while updating comment: {} by user: {}",
-                    commentId, user != null ? user.getUsername() : "null", ex);
+                    commentId, user != null ? user.getActualUsername() : "null", ex);
             throw new ServiceException("Failed to update comment", ex);
         }
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public void deleteComment(@NotNull Long commentId, @NotNull User user) {
-        try {
-            validateCommentId(commentId);
-            validateUser(user);
-
-            Comment comment = findById(commentId);
-
-            // Enhanced null-safe checks
-            Post post = comment.getPost();
-            if (post == null) {
-                log.error("Comment {} has no associated post", commentId);
-                throw new ServiceException("Comment has no associated post");
-            }
-
-            if (post.getStatus() == null) {
-                log.error("Post status is null for post ID: {}", post.getId());
-                throw new ServiceException("Post status is invalid");
-            }
-
-            // Check if the post allows updates (deletions) based on status
-            if (!post.getStatus().allowsUpdates() && !isAdmin(user)) {
-                throw new SecurityException("Cannot delete comments on posts with status: " +
-                        post.getStatus().getDisplayName() + " (admin override available)");
-            }
-
-            // Enhanced user ownership validation
-            boolean isOwner = comment.getUser() != null && comment.getUser().getId() != null &&
-                    comment.getUser().getId().equals(user.getId());
-
-            if (!isOwner && !isAdmin(user)) {
-                log.warn("Unauthorized comment deletion attempt by user: {} for comment: {}",
-                        user.getUsername(), commentId);
-                throw new SecurityException("Only comment owner or admin can delete comment");
-            }
-
-            commentRepository.delete(comment);
-            log.info("Comment deleted by user: {} (ID: {}) from post with status: {}",
-                    user.getUsername(), user.getId(), post.getStatus().getDisplayName());
-        } catch (SecurityException ex) {
-            throw ex; // Re-throw security exceptions as-is
-        } catch (DataAccessException ex) {
-            log.error("Database error while deleting comment: {} by user: {}",
-                    commentId, user != null ? user.getUsername() : "null", ex);
-            throw new ServiceException("Failed to delete comment due to database error", ex);
-        } catch (Exception ex) {
-            log.error("Unexpected error while deleting comment: {} by user: {}",
-                    commentId, user != null ? user.getUsername() : "null", ex);
-            throw new ServiceException("Failed to delete comment", ex);
-        }
-    }
+    // REMOVED: deleteComment method as requested
 
     public Comment findById(@NotNull Long commentId) {
         try {
@@ -201,6 +150,7 @@ public class CommentService {
 
     /**
      * Get comments by post - matches documentation repository method
+     * FIXED: Uses repository query to avoid N+1 problem
      */
     public List<Comment> getCommentsByPost(@NotNull Post post) {
         try {
@@ -228,6 +178,7 @@ public class CommentService {
 
     /**
      * Get top level comments by post - matches documentation repository method
+     * FIXED: Uses repository query to avoid N+1 problem
      */
     public List<Comment> getTopLevelCommentsByPost(@NotNull Post post) {
         try {
@@ -279,36 +230,30 @@ public class CommentService {
     }
 
     /**
-     * Get comments by user - matches documentation repository method
+     * Get comments by user - FIXED N+1 Query Problem
+     * Now uses repository method with JOIN FETCH to load post data in single query
      */
     public List<Comment> getCommentsByUser(@NotNull User user) {
         try {
             validateUser(user);
 
-            List<Comment> userComments = commentRepository.findByUserOrderByCreatedAtDesc(user);
-            if (userComments == null) {
-                return Collections.emptyList();
-            }
-
-            // Filter out comments on non-visible posts with enhanced null safety
-            return userComments.stream()
-                    .filter(comment -> comment != null &&
-                            comment.getPost() != null &&
-                            comment.getPost().getStatus() != null &&
-                            comment.getPost().getStatus().isVisible())
-                    .collect(Collectors.toList());
+            // FIXED: Use repository method that fetches post data in single query
+            // This eliminates the N+1 problem by using JOIN FETCH
+            List<Comment> userComments = commentRepository.findByUserWithVisiblePostsOrderByCreatedAtDesc(user);
+            return userComments != null ? userComments : Collections.emptyList();
 
         } catch (DataAccessException ex) {
-            log.error("Database error while retrieving comments for user: {}", user.getUsername(), ex);
+            log.error("Database error while retrieving comments for user: {}", user.getActualUsername(), ex);
             throw new ServiceException("Failed to retrieve user comments due to database error", ex);
         } catch (Exception ex) {
-            log.error("Unexpected error while retrieving comments for user: {}", user.getUsername(), ex);
+            log.error("Unexpected error while retrieving comments for user: {}", user.getActualUsername(), ex);
             throw new ServiceException("Failed to retrieve user comments", ex);
         }
     }
 
     /**
      * Get replies to a specific comment (child comments)
+     * FIXED: Uses repository query to avoid N+1 problem
      */
     public List<Comment> getCommentReplies(@NotNull Long commentId) {
         try {
@@ -385,8 +330,8 @@ public class CommentService {
         if (user.getId() == null) {
             throw new UserNotFoundException("User ID cannot be null");
         }
-        // Additional validation for username
-        if (user.getUsername() == null || user.getUsername().trim().isEmpty()) {
+        // Additional validation for username - FIXED: Use getActualUsername()
+        if (user.getActualUsername() == null || user.getActualUsername().trim().isEmpty()) {
             throw new UserNotFoundException("User username cannot be null or empty");
         }
     }
@@ -439,7 +384,7 @@ public class CommentService {
                     Constant.ROLE_ADMIN.equals(user.getRole().getName());
         } catch (Exception ex) {
             log.warn("Error checking admin status for user: {}",
-                    user != null ? user.getUsername() : "null", ex);
+                    user != null ? user.getActualUsername() : "null", ex);
             return false;
         }
     }

@@ -17,7 +17,6 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
 
     // Basic comment lookup methods
     List<Comment> findByPostOrderByCreatedAtAsc(Post post);
-    List<Comment> findByUserOrderByCreatedAtDesc(User user);
     // Find top-level comments (no parent comment)
     @Query("SELECT c FROM Comment c WHERE c.post = :post AND c.parentComment IS NULL ORDER BY c.createdAt ASC")
     List<Comment> findTopLevelCommentsByPost(@Param("post") Post post);
@@ -25,5 +24,13 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
     @Query("SELECT COUNT(c) FROM Comment c WHERE c.post = :post")
     Long countByPost(@Param("post") Post post);
     List<Comment> findByParentCommentOrderByCreatedAtAsc(Comment parentComment);
+
+    @Query("SELECT c FROM Comment c " +
+            "JOIN FETCH c.post p " +
+            "JOIN FETCH c.user u " +
+            "WHERE c.user = :user " +
+            "AND p.status IN ('ACTIVE', 'RESOLVED') " +
+            "ORDER BY c.createdAt DESC")
+    List<Comment> findByUserWithVisiblePostsOrderByCreatedAtDesc(@Param("user") User user);
 
 }
