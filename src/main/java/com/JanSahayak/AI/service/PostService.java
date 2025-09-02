@@ -861,11 +861,9 @@ public class PostService {
         if (post == null || currentUser == null || taggedUserId == null) {
             return false;
         }
-
         return isPostOwner(post, currentUser) ||
-                hasRole(currentUser, Constant.ROLE_ADMIN) ||
-                hasRole(currentUser, Constant.ROLE_DEPARTMENT) ||
-                currentUser.getId().equals(taggedUserId); // User can remove themselves
+                hasRole(currentUser, Constant.ROLE_ADMIN);
+        // Department users and tagged users can no longer remove tags
     }
 
     private boolean hasRole(User user, String roleName) {
