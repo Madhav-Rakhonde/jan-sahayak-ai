@@ -1,134 +1,100 @@
 package com.JanSahayak.AI.enums;
 
 import lombok.Getter;
-import lombok.Setter;
 
 @Getter
 public enum PostStatus {
 
-    ACTIVE("Active", "Post is active and awaiting response", "🟢", true, true),
-    RESOLVED("Resolved", "Issue has been resolved", "✅", false, true);
+    ACTIVE("Active", true, true),
+    RESOLVED("Resolved", false, true);
 
     private final String displayName;
-    private final String description;
-    private final String icon;
-    private final boolean allowsUpdates; // Whether status allows further updates
-    private final boolean isVisible; // Whether post is visible to users
+    private final boolean allowsUpdates;
+    private final boolean isVisible;
 
-    PostStatus(String displayName, String description, String icon, boolean allowsUpdates, boolean isVisible) {
+    PostStatus(String displayName, boolean allowsUpdates, boolean isVisible) {
         this.displayName = displayName;
-        this.description = description;
-        this.icon = icon;
         this.allowsUpdates = allowsUpdates;
         this.isVisible = isVisible;
     }
 
+    public boolean isAllowsUpdates() {
+        return allowsUpdates;
+    }
+
+    // Alternative method names for boolean fields (more conventional)
     public boolean allowsUpdates() {
         return allowsUpdates;
     }
 
-
     /**
-     * Check if post is resolved
+     * Check if this status can transition to another status
+     *
+     * @param targetStatus the target status to transition to
+     * @return true if transition is allowed, false otherwise
      */
-    public boolean isResolved() {
-        return this == RESOLVED;
+    public boolean canTransitionTo(PostStatus targetStatus) {
+        if (targetStatus == null) {
+            return false;
+        }
+
+        // Same status transitions are always allowed (no-op)
+        if (this == targetStatus) {
+            return true;
+        }
+
+        switch (this) {
+            case ACTIVE:
+                // ACTIVE posts can be transitioned to RESOLVED
+                return targetStatus == RESOLVED;
+
+            case RESOLVED:
+                // RESOLVED posts can be transitioned back to ACTIVE
+                return targetStatus == ACTIVE;
+
+            default:
+                return false;
+        }
     }
 
     /**
-     * Check if post is still active (can receive interactions)
-     */
-    public boolean isActive() {
-        return this == ACTIVE;
-    }
-
-    /**
-     * Check if post can be interacted with (comments, likes)
-     */
-    public boolean isInteractable() {
-        return isVisible;
-    }
-
-    /**
-     * Check if post is in a final state (no more updates expected)
-     */
-    public boolean isFinalState() {
-        return this == RESOLVED;
-    }
-
-    /**
-     * Check if post can be resolved by tagged users
-     */
-    public boolean canBeResolvedByUsers() {
-        return this == ACTIVE;
-    }
-
-    /**
-     * Get next possible statuses from current status
+     * Get all possible transition targets from current status
+     *
+     * @return array of possible target statuses
      */
     public PostStatus[] getPossibleTransitions() {
         switch (this) {
             case ACTIVE:
                 return new PostStatus[]{RESOLVED};
             case RESOLVED:
-                return new PostStatus[]{ACTIVE}; // Can be reopened
+                return new PostStatus[]{ACTIVE};
             default:
-                return new PostStatus[]{};
+                return new PostStatus[0];
         }
     }
 
     /**
-     * Check if transition to another status is allowed
+     * Check if this status allows any transitions
+     *
+     * @return true if transitions are possible, false otherwise
      */
-    public boolean canTransitionTo(PostStatus newStatus) {
-        PostStatus[] transitions = getPossibleTransitions();
-        for (PostStatus transition : transitions) {
-            if (transition == newStatus) {
-                return true;
-            }
-        }
-        return false;
+    public boolean allowsTransitions() {
+        return getPossibleTransitions().length > 0;
     }
-
     /**
-     * Get status category for filtering
+     * Check if this status allows interactions (comments, likes, etc.)
+     *
+     * @return true if interactions are allowed, false otherwise
      */
-    public String getCategory() {
+    public boolean isInteractable() {
         switch (this) {
             case ACTIVE:
-                return "Active";
+                return true;  // Active posts allow comments and interactions
             case RESOLVED:
-                return "Resolved";
+                return false; // Resolved posts don't allow new interactions
             default:
-                return "Other";
+                return false;
         }
     }
 
-    /**
-     * Get priority for sorting (higher number = higher priority)
-     */
-    public int getPriority() {
-        switch (this) {
-            case ACTIVE:
-                return 2;
-            case RESOLVED:
-                return 1;
-            default:
-                return 0;
-        }
-    }
-
-    /**
-     * Check if post should appear in user feeds
-     */
-    public boolean isInUserFeed() {
-        return isVisible;
-    }
-
-    /**
-     * Check if post should appear in recommendations
-     */
-    public boolean isRecommendable() {
-        return this == ACTIVE;
-    }
 }

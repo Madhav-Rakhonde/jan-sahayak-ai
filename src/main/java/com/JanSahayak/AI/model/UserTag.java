@@ -77,14 +77,15 @@ public class UserTag {
         this.deactivationReason = null;
     }
 
+    // In UserTag.java - Update these helper methods:
+
     public String getTaggedUsername() {
-        return taggedUser != null ? taggedUser.getUsername() : null;
+        return taggedUser != null ? taggedUser.getActualUsername() : null; // Changed from getUsername()
     }
 
     public String getTaggedByUsername() {
-        return taggedBy != null ? taggedBy.getUsername() : null;
+        return taggedBy != null ? taggedBy.getActualUsername() : null; // Changed from getUsername()
     }
-
     public boolean isActiveTag() {
         return isActive != null && isActive;
     }

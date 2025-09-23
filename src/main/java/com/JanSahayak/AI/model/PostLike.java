@@ -31,9 +31,7 @@ public class PostLike {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-
     @Column(name = "created_at")
     @Temporal(TemporalType.TIMESTAMP)
     private Date createdAt = new Date();
 }
-

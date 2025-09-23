@@ -1,29 +1,41 @@
 package com.JanSahayak.AI.DTO;
 
+import com.JanSahayak.AI.enums.BroadcastScope;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
 @Setter
 @Getter
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class PostCreateDto {
     @NotBlank(message = "Post content is required")
-    @Size(max = 500, message = "Content must not exceed 500 characters")
+    @Size(max = 2000, message = "Content must not exceed 2000 characters")
     private String content;
 
-    private MultipartFile image; // For imageName in Post entity
+    private MultipartFile mediaFile;
 
-    @NotBlank(message = "Location is required")
-    private String location; // Format: "City StateCode" (e.g., "Pune MH")
+    @Builder.Default
+    private BroadcastScope broadcastScope = BroadcastScope.AREA;
 
     // Optional: Support for tagging users at creation
-    private List<String> taggedUsernames; // List of @usernames to tag
+    private List<String> taggedUsernames;
+
+    // ===== Broadcasting Target Fields =====
+    @Size(max = 50, message = "Target country must not exceed 50 characters")
+    private String targetCountry;
+
+    @Size(max = 1000, message = "Target states must not exceed 1000 characters")
+    private String targetStates;
+
+    @Size(max = 2000, message = "Target districts must not exceed 2000 characters")
+    private String targetDistricts;
+
+    @Size(max = 6, min = 6, message = "Target pincode must be exactly 6 digits")
+    private String targetPincode;
 }

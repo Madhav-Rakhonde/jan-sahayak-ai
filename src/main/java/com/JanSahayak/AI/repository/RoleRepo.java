@@ -17,9 +17,4 @@ public interface RoleRepo extends JpaRepository<Role, Long> {
 
     // Basic role operations for ADMIN, USER, DEPARTMENT roles only
     Optional<Role> findByName(String name);
-
-
-
-
-
 }

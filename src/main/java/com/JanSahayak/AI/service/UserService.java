@@ -1,12 +1,16 @@
 package com.JanSahayak.AI.service;
 
+import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.DTO.UserTagSuggestionDto;
+import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.exception.*;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.repository.PostRepo;
 import com.JanSahayak.AI.repository.UserRepo;
 import com.JanSahayak.AI.repository.UserTagRepo;
+import com.JanSahayak.AI.payload.PaginationUtils;
+import com.JanSahayak.AI.payload.PostUtility;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -33,635 +37,356 @@ public class UserService implements UserDetailsService {
     private final UserRepo userRepository;
     private final PostRepo postRepository;
     private final UserTagRepo userTagRepository;
-    private final LocationService locationService;
+    private final PinCodeLookupService pincodeLookupService;
     private final PasswordEncoder passwordEncoder;
 
     @Override
-    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         try {
-            User user = userRepository.findByUsername(username)
-                    .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found: " + email));
 
             if (!user.getIsActive()) {
-                throw new UsernameNotFoundException("User account is inactive: " + username);
+                throw new UsernameNotFoundException("User account is inactive: " + email);
             }
 
             return buildUserDetails(user);
         } catch (Exception e) {
-            log.error("Failed to load user: {}", username, e);
-            throw new UsernameNotFoundException("Failed to load user: " + username);
+            log.error("Failed to load user: {}", email, e);
+            throw new UsernameNotFoundException("Failed to load user: " + email);
         }
     }
 
-    /**
-     * Find user by username - Primary method for username-based lookups
-     * Used by controllers and business logic when working with authenticated users
-     */
     public User findByUsername(String username) {
         try {
-            return userRepository.findByUsername(username)
+            User user = userRepository.findByUsername(username)
                     .orElseThrow(() -> new UserNotFoundException("User not found: " + username));
+
+            return user;
         } catch (Exception e) {
             log.error("Failed to find user by username: {}", username, e);
             throw new UserNotFoundException("Failed to find user: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Get user by username - Alias for findByUsername to maintain backward compatibility
-     * @deprecated Use findByUsername() instead for consistency
-     */
-    @Deprecated
-    public User getUserByUsername(String username) {
-        return findByUsername(username);
-    }
-
-    /**
-     * Find user by ID - Primary method for ID-based lookups
-     */
     public User findById(Long userId) {
         try {
-            return userRepository.findById(userId)
+            PostUtility.validateUserId(userId);
+
+            User user = userRepository.findById(userId)
                     .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + userId));
+
+            return user;
+        } catch (ValidationException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to find user by ID: {}", userId, e);
             throw new UserNotFoundException("Failed to find user: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Get user by ID - Alias for findById to maintain backward compatibility
-     * @deprecated Use findById() instead for consistency
-     */
-    @Deprecated
-    public User getUserById(Long userId) {
-        return findById(userId);
-    }
+    // ===== Department User Methods Using Pincode Prefix Logic =====
 
-    /**
-     * Find users by role name
-     */
-    @Cacheable(value = "users-by-role", key = "#roleName")
-    public List<User> findByRole(String roleName) {
+    public PaginatedResponse<User> findDepartmentUsersByPincode(String pincode, Long beforeId, Integer limit) {
         try {
-            return userRepository.findByRoleNameAndIsActiveTrue(roleName);
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupGeographicPagination(
+                    "findDepartmentUsersByPincode", beforeId, limit, "pincode");
+
+            if (!Constant.isValidIndianPincode(pincode)) {
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+            }
+
+            Pageable pageable = PaginationUtils.createPageable(setup);
+
+            List<User> users;
+            if (setup.hasCursor()) {
+                // Repository method needed: findByRoleNameAndPincodeAndIsActiveTrueAndIdLessThanOrderByIdDesc
+                users = userRepository.findByRoleNameAndPincodeAndIsActiveTrueAndIdLessThanOrderByIdDesc(
+                        Constant.ROLE_DEPARTMENT, pincode, setup.getSanitizedCursor(), pageable);
+            } else {
+                users = userRepository.findByRoleNameAndPincodeAndIsActiveTrueOrderByIdDesc(
+                        Constant.ROLE_DEPARTMENT, pincode, pageable);
+            }
+
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(
+                    users != null ? users : List.of(), setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("findDepartmentUsersByPincode",
+                    response.getData(), response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (Exception e) {
-            log.error("Failed to find users by role: {}", roleName, e);
-            throw new ServiceException("Failed to find users by role: " + e.getMessage(), e);
+            log.error("Failed to find department users by pincode: {}", pincode, e);
+            return PaginationUtils.handlePaginationError("findDepartmentUsersByPincode", e,
+                    PaginationUtils.validateGeographicSearchLimit(limit, "pincode"));
         }
     }
 
-    /**
-     * Get users by role name - Alias for findByRole to maintain backward compatibility
-     * @deprecated Use findByRole() instead for consistency
-     */
-    @Deprecated
-    public List<User> getUsersByRole(String roleName) {
-        return findByRole(roleName);
-    }
-
-    /**
-     * Find department users by location
-     */
-    @Cacheable(value = "department-users", key = "#location")
-    public List<User> findDepartmentUsersByLocation(String location) {
+    public PaginatedResponse<User> findDepartmentUsersByState(String state, Long beforeId, Integer limit) {
         try {
-            return userRepository.findByRoleNameAndLocationAndIsActiveTrue("ROLE_DEPARTMENT", location);
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupGeographicPagination(
+                    "findDepartmentUsersByState", beforeId, limit, "state");
+
+            if (state == null || state.trim().isEmpty()) {
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+            }
+
+            // Convert state name to pincode prefixes using PostUtility
+            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()));
+            if (statePrefixes.isEmpty()) {
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+            }
+
+            // Find department users whose pincodes start with any of these prefixes
+            List<User> departmentUsers = new ArrayList<>();
+            for (String prefix : statePrefixes) {
+                Pageable pageable = PaginationUtils.createPageable(setup);
+                List<User> users;
+                if (setup.hasCursor()) {
+                    // Repository method needed: findByRoleNameAndPincodeStartingWithAndIsActiveTrueAndIdLessThanOrderByIdDesc
+                    users = userRepository.findByRoleNameAndPincodeStartingWithAndIsActiveTrueAndIdLessThanOrderByIdDesc(
+                            Constant.ROLE_DEPARTMENT, prefix, setup.getSanitizedCursor(), pageable);
+                } else {
+                    users = userRepository.findByRoleNameAndPincodeStartingWithAndIsActiveTrueOrderByIdDesc(
+                            Constant.ROLE_DEPARTMENT, prefix, pageable);
+                }
+                if (users != null) {
+                    departmentUsers.addAll(users);
+                }
+            }
+
+            List<User> distinctUsers = departmentUsers.stream()
+                    .distinct()
+                    .limit(setup.getValidatedLimit())
+                    .collect(Collectors.toList());
+
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(distinctUsers, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("findDepartmentUsersByState",
+                    response.getData(), response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (Exception e) {
-            log.error("Failed to find department users by location: {}", location, e);
-            throw new ServiceException("Failed to find department users: " + e.getMessage(), e);
+            log.error("Failed to find department users by state: {}", state, e);
+            return PaginationUtils.handlePaginationError("findDepartmentUsersByState", e,
+                    PaginationUtils.validateGeographicSearchLimit(limit, "state"));
         }
     }
 
-    /**
-     * Get department users by location - Alias for findDepartmentUsersByLocation
-     * @deprecated Use findDepartmentUsersByLocation() instead for consistency
-     */
-    @Deprecated
-    public List<User> getDepartmentUsersByLocation(String location) {
-        return findDepartmentUsersByLocation(location);
-    }
-
-    /**
-     * Find department users by state code
-     */
-    @Cacheable(value = "department-users-state", key = "#stateCode")
-    public List<User> findDepartmentUsersByState(String stateCode) {
+    public PaginatedResponse<User> findDepartmentUsersByDistrict(String state, String district, Long beforeId, Integer limit) {
         try {
-            return userRepository.findDepartmentUsersByState(stateCode);
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupGeographicPagination(
+                    "findDepartmentUsersByDistrict", beforeId, limit, "district");
+
+            if (state == null || district == null || state.trim().isEmpty() || district.trim().isEmpty()) {
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+            }
+
+            // Convert district name to pincode prefixes using PostUtility
+            List<String> districtPrefixes = PostUtility.convertDistrictsToPincodePrefixes(
+                    List.of(district.trim()), pincodeLookupService);
+            if (districtPrefixes.isEmpty()) {
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+            }
+
+            // Find department users whose pincodes start with any of these district prefixes
+            List<User> departmentUsers = new ArrayList<>();
+            for (String prefix : districtPrefixes) {
+                Pageable pageable = PaginationUtils.createPageable(setup);
+                List<User> users;
+                if (setup.hasCursor()) {
+                    // Repository method needed: findByRoleNameAndPincodeStartingWithAndIsActiveTrueAndIdLessThanOrderByIdDesc
+                    users = userRepository.findByRoleNameAndPincodeStartingWithAndIsActiveTrueAndIdLessThanOrderByIdDesc(
+                            Constant.ROLE_DEPARTMENT, prefix, setup.getSanitizedCursor(), pageable);
+                } else {
+                    users = userRepository.findByRoleNameAndPincodeStartingWithAndIsActiveTrueOrderByIdDesc(
+                            Constant.ROLE_DEPARTMENT, prefix, pageable);
+                }
+                if (users != null) {
+                    departmentUsers.addAll(users);
+                }
+            }
+
+            // Additional filtering to ensure users are in the correct state
+            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()));
+            if (!statePrefixes.isEmpty()) {
+                String statePrefix = statePrefixes.get(0);
+                departmentUsers = departmentUsers.stream()
+                        .filter(user -> user.hasPincode() && user.getPincode().startsWith(statePrefix))
+                        .collect(Collectors.toList());
+            }
+
+            List<User> distinctUsers = departmentUsers.stream()
+                    .distinct()
+                    .limit(setup.getValidatedLimit())
+                    .collect(Collectors.toList());
+
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(distinctUsers, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("findDepartmentUsersByDistrict",
+                    response.getData(), response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (Exception e) {
-            log.error("Failed to find department users by state: {}", stateCode, e);
-            throw new ServiceException("Failed to find department users by state: " + e.getMessage(), e);
+            log.error("Failed to find department users by district: {} - {}", state, district, e);
+            return PaginationUtils.handlePaginationError("findDepartmentUsersByDistrict", e,
+                    PaginationUtils.validateGeographicSearchLimit(limit, "district"));
         }
     }
 
-    /**
-     * Get department users by state - Alias for findDepartmentUsersByState
-     * @deprecated Use findDepartmentUsersByState() instead for consistency
-     */
-    @Deprecated
-    public List<User> getDepartmentUsersByState(String stateCode) {
-        return findDepartmentUsersByState(stateCode);
-    }
+    // ===== User Search and Tagging Methods =====
 
-    /**
-     * Find all department users
-     */
-    @Cacheable(value = "all-department-users")
-    public List<User> findAllDepartmentUsers() {
+    public PaginatedResponse<UserTagSuggestionDto> searchUsersForTagging(String query, Long beforeId, Integer limit) {
         try {
-            return userRepository.findAllDepartmentUsers();
-        } catch (Exception e) {
-            log.error("Failed to find all department users", e);
-            throw new ServiceException("Failed to find all department users: " + e.getMessage(), e);
-        }
-    }
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupTaggingPagination(
+                    "searchUsersForTagging", beforeId, limit);
 
-    /**
-     * Get all department users - Alias for findAllDepartmentUsers
-     * @deprecated Use findAllDepartmentUsers() instead for consistency
-     */
-    @Deprecated
-    public List<User> getAllDepartmentUsers() {
-        return findAllDepartmentUsers();
-    }
-
-    /**
-     * Find admin users
-     */
-    @Cacheable(value = "admin-users")
-    public List<User> findAdminUsers() {
-        try {
-            return userRepository.findAdminUsers();
-        } catch (Exception e) {
-            log.error("Failed to find admin users", e);
-            throw new ServiceException("Failed to find admin users: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get admin users - Alias for findAdminUsers
-     * @deprecated Use findAdminUsers() instead for consistency
-     */
-    @Deprecated
-    public List<User> getAdminUsers() {
-        return findAdminUsers();
-    }
-
-    /**
-     * Find normal users (citizens) by location
-     */
-    public List<User> findNormalUsersByLocation(String location) {
-        try {
-            return userRepository.findNormalUsersByLocation(location);
-        } catch (Exception e) {
-            log.error("Failed to find normal users by location: {}", location, e);
-            throw new ServiceException("Failed to find normal users by location: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get normal users by location - Alias for findNormalUsersByLocation
-     * @deprecated Use findNormalUsersByLocation() instead for consistency
-     */
-    @Deprecated
-    public List<User> getNormalUsersByLocation(String location) {
-        return findNormalUsersByLocation(location);
-    }
-
-    /**
-     * Search users for tagging
-     */
-    public List<UserTagSuggestionDto> searchUsersForTagging(String query) {
-        try {
             if (query == null || query.trim().length() < 2) {
-                return Collections.emptyList();
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
             String cleanQuery = query.startsWith("@") ? query.substring(1) : query;
             if (cleanQuery.trim().length() < 2) {
-                return Collections.emptyList();
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
-            List<User> users = userRepository.searchUsersForTagging(cleanQuery.trim());
+            Pageable pageable = PaginationUtils.createPageable(setup);
 
-            return users.stream()
-                    .limit(20)
+            List<User> users;
+            if (setup.hasCursor()) {
+                // Repository method needed: searchUsersForTaggingWithCursor
+                users = userRepository.searchUsersForTaggingWithCursor(cleanQuery.trim(),
+                        setup.getSanitizedCursor(), pageable);
+            } else {
+                users = userRepository.searchUsersForTagging(cleanQuery.trim(), pageable);
+            }
+
+            List<UserTagSuggestionDto> userDtos = users.stream()
                     .map(this::convertToUserTagSuggestion)
                     .collect(Collectors.toList());
+
+            PaginatedResponse<UserTagSuggestionDto> response = PaginationUtils.createIdBasedResponse(
+                    userDtos, setup.getValidatedLimit(), UserTagSuggestionDto::getId);
+
+            PaginationUtils.logPaginationResults("searchUsersForTagging",
+                    userDtos, response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (Exception e) {
             log.error("Failed to search users for tagging with query: {}", query, e);
-            throw new ServiceException("Failed to search users for tagging: " + e.getMessage(), e);
+            return PaginationUtils.handlePaginationError("searchUsersForTagging", e,
+                    PaginationUtils.validateTaggingLimit(limit));
         }
     }
 
-    /**
-     * Find users by location proximity
-     */
-    public List<User> findUsersByLocationProximity(String location, Long excludeUserId, int limit) {
+    // ===== Geographic Distribution Methods Using Pincode Prefix Logic =====
+
+    @Cacheable(value = "user-distribution-pincode")
+    public Map<String, Long> getUserDistributionByPincode() {
         try {
-            String stateCode = locationService.extractStateCodeFromLocation(location);
-            if (stateCode == null) {
-                return Collections.emptyList();
-            }
+            List<Object[]> stats = userRepository.getUserDistributionByPincode();
 
-            Pageable pageable = PageRequest.of(0, limit);
-            return userRepository.findUsersByLocationProximity(location, stateCode, excludeUserId, pageable);
-        } catch (Exception e) {
-            log.error("Failed to find users by location proximity: {}", location, e);
-            throw new ServiceException("Failed to find users by location proximity: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get users by location proximity - Alias for findUsersByLocationProximity
-     * @deprecated Use findUsersByLocationProximity() instead for consistency
-     */
-    @Deprecated
-    public List<User> getUsersByLocationProximity(String location, Long excludeUserId, int limit) {
-        return findUsersByLocationProximity(location, excludeUserId, limit);
-    }
-
-    /**
-     * Find users who can resolve posts in location
-     */
-    public List<User> findResolversForLocation(String location) {
-        try {
-            return userRepository.findResolversForLocation(location);
-        } catch (Exception e) {
-            log.error("Failed to find resolvers for location: {}", location, e);
-            throw new ServiceException("Failed to find resolvers for location: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get resolvers for location - Alias for findResolversForLocation
-     * @deprecated Use findResolversForLocation() instead for consistency
-     */
-    @Deprecated
-    public List<User> getResolversForLocation(String location) {
-        return findResolversForLocation(location);
-    }
-
-    /**
-     * Find users who can resolve posts in state
-     */
-    public List<User> findResolversForState(String stateCode) {
-        try {
-            return userRepository.findResolversForState(stateCode);
-        } catch (Exception e) {
-            log.error("Failed to find resolvers for state: {}", stateCode, e);
-            throw new ServiceException("Failed to find resolvers for state: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get resolvers for state - Alias for findResolversForState
-     * @deprecated Use findResolversForState() instead for consistency
-     */
-    @Deprecated
-    public List<User> getResolversForState(String stateCode) {
-        return findResolversForState(stateCode);
-    }
-
-    /**
-     * Find most active users (by posting)
-     */
-    public List<User> findMostActiveUsers(int limit) {
-        try {
-            Pageable pageable = PageRequest.of(0, limit);
-            return userRepository.findMostActiveUsers(pageable);
-        } catch (Exception e) {
-            log.error("Failed to find most active users", e);
-            throw new ServiceException("Failed to find most active users: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get most active users - Alias for findMostActiveUsers
-     * @deprecated Use findMostActiveUsers() instead for consistency
-     */
-    @Deprecated
-    public List<User> getMostActiveUsers(int limit) {
-        return findMostActiveUsers(limit);
-    }
-
-    /**
-     * Find most tagged users
-     */
-    public List<User> findMostTaggedUsers(int limit) {
-        try {
-            Pageable pageable = PageRequest.of(0, limit);
-            return userRepository.findMostTaggedUsers(pageable);
-        } catch (Exception e) {
-            log.error("Failed to find most tagged users", e);
-            throw new ServiceException("Failed to find most tagged users: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get most tagged users - Alias for findMostTaggedUsers
-     * @deprecated Use findMostTaggedUsers() instead for consistency
-     */
-    @Deprecated
-    public List<User> getMostTaggedUsers(int limit) {
-        return findMostTaggedUsers(limit);
-    }
-
-    /**
-     * Find users with incomplete profiles
-     */
-    public List<User> findUsersWithIncompleteProfiles() {
-        try {
-            return userRepository.findUsersWithIncompleteProfiles();
-        } catch (Exception e) {
-            log.error("Failed to find users with incomplete profiles", e);
-            throw new ServiceException("Failed to find users with incomplete profiles: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get users with incomplete profiles - Alias for findUsersWithIncompleteProfiles
-     * @deprecated Use findUsersWithIncompleteProfiles() instead for consistency
-     */
-    @Deprecated
-    public List<User> getUsersWithIncompleteProfiles() {
-        return findUsersWithIncompleteProfiles();
-    }
-
-    /**
-     * Find inactive posters (users who haven't posted recently)
-     */
-    public List<User> findInactivePosters(int daysInactive, int limit) {
-        try {
-            LocalDateTime cutoffDate = LocalDateTime.now().minusDays(daysInactive);
-            Timestamp cutoffTimestamp = Timestamp.valueOf(cutoffDate);
-            Pageable pageable = PageRequest.of(0, limit);
-
-            return userRepository.findInactivePosters(cutoffTimestamp, pageable);
-        } catch (Exception e) {
-            log.error("Failed to find inactive posters", e);
-            throw new ServiceException("Failed to find inactive posters: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get inactive posters - Alias for findInactivePosters
-     * @deprecated Use findInactivePosters() instead for consistency
-     */
-    @Deprecated
-    public List<User> getInactivePosters(int daysInactive, int limit) {
-        return findInactivePosters(daysInactive, limit);
-    }
-
-    /**
-     * Find never tagged department users
-     */
-    public List<User> findNeverTaggedDepartmentUsers() {
-        try {
-            return userRepository.findNeverTaggedDepartmentUsers();
-        } catch (Exception e) {
-            log.error("Failed to find never tagged department users", e);
-            throw new ServiceException("Failed to find never tagged department users: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get never tagged department users - Alias for findNeverTaggedDepartmentUsers
-     * @deprecated Use findNeverTaggedDepartmentUsers() instead for consistency
-     */
-    @Deprecated
-    public List<User> getNeverTaggedDepartmentUsers() {
-        return findNeverTaggedDepartmentUsers();
-    }
-
-    /**
-     * Find high engagement department users
-     */
-    public List<User> findHighEngagementDepartmentUsers() {
-        try {
-            return userRepository.findHighEngagementDepartmentUsers();
-        } catch (Exception e) {
-            log.error("Failed to find high engagement department users", e);
-            throw new ServiceException("Failed to find high engagement department users: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get high engagement department users - Alias for findHighEngagementDepartmentUsers
-     * @deprecated Use findHighEngagementDepartmentUsers() instead for consistency
-     */
-    @Deprecated
-    public List<User> getHighEngagementDepartmentUsers() {
-        return findHighEngagementDepartmentUsers();
-    }
-
-    /**
-     * Search users by multiple criteria
-     */
-    public List<User> searchUsers(String roleName, String location, String query, int limit) {
-        try {
-            Pageable pageable = PageRequest.of(0, limit);
-            return userRepository.searchUsers(roleName, location, query, pageable);
-        } catch (Exception e) {
-            log.error("Failed to search users with criteria", e);
-            throw new ServiceException("Failed to search users: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get user statistics by role
-     */
-    @Cacheable(value = "user-stats-by-role")
-    public Map<String, Long> getUserCountByRole() {
-        try {
-            List<Object[]> stats = userRepository.getUserCountByRole();
-
-            Map<String, Long> result = new HashMap<>();
+            Map<String, Long> result = new LinkedHashMap<>();
             for (Object[] stat : stats) {
-                String roleName = (String) stat[0];
+                String pincode = (String) stat[0];
                 Long count = (Long) stat[1];
-                result.put(roleName, count);
-            }
 
-            return result;
-        } catch (Exception e) {
-            log.error("Failed to get user count by role", e);
-            throw new ServiceException("Failed to get user count by role: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Get user distribution by location
-     */
-    @Cacheable(value = "user-distribution-location")
-    public Map<String, Long> getUserDistributionByLocation() {
-        try {
-            List<Object[]> stats = userRepository.getUserDistributionByLocation();
-
-            Map<String, Long> result = new LinkedHashMap<>(); // Maintain order
-            for (Object[] stat : stats) {
-                String location = (String) stat[0];
-                Long count = (Long) stat[1];
-                result.put(location, count);
-            }
-
-            return result;
-        } catch (Exception e) {
-            log.error("Failed to get user distribution by location", e);
-            throw new ServiceException("Failed to get user distribution by location: " + e.getMessage(), e);
-        }
-    }
-
-    public Long countActiveUsers() {
-        try {
-            return userRepository.countActiveUsers();
-        } catch (Exception e) {
-            log.error("Failed to count active users", e);
-            throw new ServiceException("Failed to count active users: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Count users by role name
-     */
-    public Long countUsersByRole(String roleName) {
-        try {
-            return userRepository.countByRoleName(roleName);
-        } catch (Exception e) {
-            log.error("Failed to count users by role: {}", roleName, e);
-            throw new ServiceException("Failed to count users by role: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Validate if user can resolve posts in location
-     */
-    public boolean canUserResolvePostsInLocation(User user, String location) {
-        try {
-            String userRole = user.getRole().getName();
-
-            // Admins can resolve anywhere
-            if ("ROLE_ADMIN".equals(userRole)) {
-                return true;
-            }
-
-            // Department users can resolve in their location
-            if ("ROLE_DEPARTMENT".equals(userRole)) {
-                return user.getLocation().equals(location);
-            }
-
-            return false;
-        } catch (Exception e) {
-            log.warn("Failed to validate user resolution permissions", e);
-            return false;
-        }
-    }
-
-    /**
-     * Check if user has department role
-     */
-    public boolean isDepartmentUser(User user) {
-        try {
-            return user != null && user.getRole() != null &&
-                    "ROLE_DEPARTMENT".equals(user.getRole().getName());
-        } catch (Exception e) {
-            log.warn("Failed to check if user is department user", e);
-            return false;
-        }
-    }
-
-    /**
-     * Check if user has admin role
-     */
-    public boolean isAdminUser(User user) {
-        try {
-            return user != null && user.getRole() != null &&
-                    "ROLE_ADMIN".equals(user.getRole().getName());
-        } catch (Exception e) {
-            log.warn("Failed to check if user is admin user", e);
-            return false;
-        }
-    }
-
-    /**
-     * Check if user has normal user role
-     */
-    public boolean isNormalUser(User user) {
-        try {
-            return user != null && user.getRole() != null &&
-                    "ROLE_USER".equals(user.getRole().getName());
-        } catch (Exception e) {
-            log.warn("Failed to check if user is normal user", e);
-            return false;
-        }
-    }
-
-    /**
-     * Create new user account
-     */
-    @Transactional
-    public User createUser(User user, String rawPassword) {
-        try {
-            validateNewUser(user);
-
-            // Encrypt password
-            user.setPassword(passwordEncoder.encode(rawPassword));
-            user.setIsActive(true);
-            user.setCreatedAt(new Date());
-
-            // Validate and normalize location
-            if (user.getLocation() != null) {
-                LocationService.LocationValidationResult validation =
-                        locationService.validateAndSuggestLocation(user.getLocation());
-
-                if (validation.isValid()) {
-                    user.setLocation(validation.getNormalizedLocation());
-                } else {
-                    throw new ValidationException("Invalid location: " + validation.getErrorMessage());
+                // Validate that it's a valid Indian pincode before including
+                if (Constant.isValidIndianPincode(pincode)) {
+                    result.put(pincode, count);
                 }
             }
 
-            User savedUser = userRepository.save(user);
-            log.info("Created new user: {} with role: {}", savedUser.getUsername(), savedUser.getRole().getName());
-
-            return savedUser;
-        } catch (ValidationException e) {
-            throw e;
+            return result;
         } catch (Exception e) {
-            log.error("Failed to create user: {}", user.getUsername(), e);
-            throw new ServiceException("Failed to create user: " + e.getMessage(), e);
+            log.error("Failed to get user distribution by pincode", e);
+            throw new ServiceException("Failed to get user distribution by pincode: " + e.getMessage(), e);
         }
     }
 
+    public Map<String, Long> getUserDistributionByState() {
+        try {
+            // Get user distribution by state using pincode prefix logic
+            Map<String, Long> result = new LinkedHashMap<>();
+
+            // Get all users with valid Indian pincodes
+            List<User> usersWithPincodes = userRepository.findByPincodeIsNotNullAndIsActiveTrueAndPincodeMatches("\\d{6}");
+
+            // Filter to only valid Indian users
+            List<User> validIndianUsers = usersWithPincodes.stream()
+                    .filter(user -> user.hasPincode() && Constant.isValidIndianPincode(user.getPincode()))
+                    .collect(Collectors.toList());
+
+            // Group by state prefix (first 2 digits of pincode)
+            Map<String, Long> prefixCounts = validIndianUsers.stream()
+                    .collect(Collectors.groupingBy(
+                            user -> user.getStatePrefix(),
+                            Collectors.counting()
+                    ));
+
+            // Convert state prefixes to state names using PinCodeLookupService
+            for (Map.Entry<String, Long> entry : prefixCounts.entrySet()) {
+                String statePrefix = entry.getKey();
+                Long count = entry.getValue();
+
+                // Validate state prefix is valid for India
+                if (Constant.isValidIndianStatePrefix(statePrefix)) {
+                    // Get a sample pincode with this prefix to find the state name
+                    List<com.JanSahayak.AI.model.PincodeLookup> samplePincodes =
+                            pincodeLookupService.findByStatePrefix(statePrefix);
+
+                    String stateName = samplePincodes.isEmpty() ?
+                            "State-" + statePrefix : samplePincodes.get(0).getState();
+
+                    result.put(stateName, count);
+                }
+            }
+
+            return result;
+        } catch (Exception e) {
+            log.error("Failed to get user distribution by state", e);
+            throw new ServiceException("Failed to get user distribution by state: " + e.getMessage(), e);
+        }
+    }
+
+    // ===== Permission Methods Using Pincode Prefix Logic =====
+
     /**
-     * Update user profile
+     * Enhanced permission check for India-only app - delegates to PostUtility
      */
+    public boolean canUserResolvePostsInPincode(User user, String pincode) {
+        return PostUtility.canUserResolvePostsInPincode(user, pincode);
+    }
+
+    // ===== User Update Methods =====
+
     @Transactional
     public User updateUser(User user) {
         try {
             User existingUser = findById(user.getId());
 
-            // Update allowed fields
             if (user.getEmail() != null) {
                 existingUser.setEmail(user.getEmail());
             }
             if (user.getBio() != null) {
                 existingUser.setBio(user.getBio());
             }
-            if (user.getLocation() != null) {
-                LocationService.LocationValidationResult validation =
-                        locationService.validateAndSuggestLocation(user.getLocation());
+            if (user.getPincode() != null) {
+                // Use PostUtility for pincode validation
+                PostUtility.validateTargetPincodeForUser(user.getPincode());
 
-                if (validation.isValid()) {
-                    existingUser.setLocation(validation.getNormalizedLocation());
-                } else {
-                    throw new ValidationException("Invalid location: " + validation.getErrorMessage());
+                // Additional validation with lookup service
+                if (!pincodeLookupService.isValidPincode(user.getPincode())) {
+                    throw new ValidationException("Indian pincode not found in system: " + user.getPincode());
                 }
+                existingUser.setPincode(user.getPincode());
             }
 
             User updatedUser = userRepository.save(existingUser);
-            log.info("Updated user: {} with role: {}", updatedUser.getUsername(), updatedUser.getRole().getName());
+
+            log.info("Updated user: {} with role: {}, pincode: {}",
+                    updatedUser.getUsername(), updatedUser.getRole().getName(),
+                    updatedUser.getPincode() != null ? updatedUser.getPincode() : "none");
 
             return updatedUser;
         } catch (ValidationException e) {
@@ -672,123 +397,118 @@ public class UserService implements UserDetailsService {
         }
     }
 
-    /**
-     * Deactivate user account
-     */
-    @Transactional
-    public void deactivateUser(Long userId, String reason) {
-        try {
-            User user = findById(userId);
-            user.setIsActive(false);
+    // ===== New Paginated User Listing Methods =====
 
-            userRepository.save(user);
-            log.info("Deactivated user: {} (role: {}) for reason: {}",
-                    user.getUsername(), user.getRole().getName(), reason);
+    /**
+     * Get all active users with cursor-based pagination
+     */
+    public PaginatedResponse<User> getAllActiveUsers(Long beforeId, Integer limit) {
+        try {
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
+                    "getAllActiveUsers", beforeId, limit,
+                    Constant.DEFAULT_ACTIVE_USER_LIMIT, Constant.MAX_ACTIVE_USER_LIMIT);
+
+            Pageable pageable = PaginationUtils.createPageable(setup);
+
+            List<User> users;
+            if (setup.hasCursor()) {
+                // Repository method needed: findByIsActiveTrueAndIdLessThanOrderByIdDesc
+                users = userRepository.findByIsActiveTrueAndIdLessThanOrderByIdDesc(
+                        setup.getSanitizedCursor(), pageable);
+            } else {
+                users = userRepository.findByIsActiveTrueOrderByIdDesc(pageable);
+            }
+
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(
+                    users != null ? users : List.of(), setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("getAllActiveUsers",
+                    response.getData(), response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (Exception e) {
-            log.error("Failed to deactivate user: {}", userId, e);
-            throw new ServiceException("Failed to deactivate user: " + e.getMessage(), e);
+            log.error("Failed to get active users with pagination", e);
+            return PaginationUtils.handlePaginationError("getAllActiveUsers", e,
+                    PaginationUtils.validateLimit(limit, Constant.DEFAULT_ACTIVE_USER_LIMIT, Constant.MAX_ACTIVE_USER_LIMIT));
         }
     }
 
     /**
-     * Get user performance statistics (includes post status information)
+     * Get users by role with cursor-based pagination
      */
-    public Map<String, Object> getUserPerformanceStats(User user) {
+    public PaginatedResponse<User> getUsersByRole(String roleName, Long beforeId, Integer limit) {
         try {
-            Map<String, Object> stats = new HashMap<>();
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
+                    "getUsersByRole", beforeId, limit,
+                    Constant.DEFAULT_USER_SEARCH_LIMIT, Constant.MAX_USER_SEARCH_LIMIT);
 
-            // Basic user info
-            stats.put("userId", user.getId());
-            stats.put("username", user.getUsername());
-            stats.put("role", user.getRole().getName());
-            stats.put("location", user.getLocation());
-            stats.put("isActive", user.getIsActive());
+            Pageable pageable = PaginationUtils.createPageable(setup);
 
-            // Post statistics by status
-            Map<String, Long> postsByStatus = new HashMap<>();
-            for (PostStatus status : PostStatus.values()) {
-                long count = postRepository.countByUserAndStatus(user, status);
-                postsByStatus.put(status.getDisplayName(), count);
-            }
-            stats.put("postsByStatus", postsByStatus);
-
-            // Total posts
-            long totalPosts = postRepository.countByUser(user);
-            stats.put("totalPosts", totalPosts);
-
-            // Tagged posts statistics (if department user)
-            if (isDepartmentUser(user)) {
-                long totalTaggedPosts = userTagRepository.countByTaggedUser(user);
-                long activeTaggedPosts = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.ACTIVE);
-                long resolvedTaggedPosts = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
-
-                stats.put("totalTaggedPosts", totalTaggedPosts);
-                stats.put("activeTaggedPosts", activeTaggedPosts);
-                stats.put("resolvedTaggedPosts", resolvedTaggedPosts);
-
-                // Resolution rate
-                double resolutionRate = totalTaggedPosts > 0 ?
-                        (double) resolvedTaggedPosts / totalTaggedPosts * 100 : 0;
-                stats.put("resolutionRate", Math.round(resolutionRate * 100.0) / 100.0);
+            List<User> users;
+            if (setup.hasCursor()) {
+                // Repository method needed: findByRoleNameAndIdLessThanOrderByIdDesc
+                users = userRepository.findByRoleNameAndIdLessThanOrderByIdDesc(roleName,
+                        setup.getSanitizedCursor(), pageable);
+            } else {
+                users = userRepository.findByRoleNameOrderByIdDesc(roleName, pageable);
             }
 
-            return stats;
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(
+                    users != null ? users : List.of(), setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("getUsersByRole",
+                    response.getData(), response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (Exception e) {
-            log.error("Failed to get user performance stats for user: {}", user.getUsername(), e);
-            throw new ServiceException("Failed to get user performance stats: " + e.getMessage(), e);
+            log.error("Failed to get users by role: {}", roleName, e);
+            return PaginationUtils.handlePaginationError("getUsersByRole", e,
+                    PaginationUtils.validateUserSearchLimit(limit));
         }
     }
 
     /**
-     * Get comprehensive user analytics
+     * Get recently created users with cursor-based pagination (using createdAt instead of lastActive)
      */
-    public Map<String, Object> getUserAnalytics(User user) {
+    public PaginatedResponse<User> getRecentlyCreatedUsers(Long beforeId, Integer limit) {
         try {
-            Map<String, Object> analytics = new HashMap<>();
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
+                    "getRecentlyCreatedUsers", beforeId, limit,
+                    Constant.DEFAULT_USER_SEARCH_LIMIT, Constant.MAX_USER_SEARCH_LIMIT);
 
-            // Include performance stats
-            analytics.putAll(getUserPerformanceStats(user));
+            Pageable pageable = PaginationUtils.createPageable(setup);
 
-            // Post status breakdown with additional info
-            Map<String, Object> statusBreakdown = new HashMap<>();
-            for (PostStatus status : PostStatus.values()) {
-                long count = postRepository.countByUserAndStatus(user, status);
-                Map<String, Object> statusInfo = new HashMap<>();
-                statusInfo.put("count", count);
-                statusInfo.put("displayName", status.getDisplayName());
-                statusInfo.put("icon", status.getIcon());
-                statusInfo.put("description", status.getDescription());
-                statusInfo.put("isVisible", status.isVisible());
-                statusInfo.put("allowsUpdates", status.allowsUpdates());
-                statusBreakdown.put(status.name(), statusInfo);
+            Timestamp recentCreationThreshold = new Timestamp(
+                    System.currentTimeMillis() - Constant.RECENT_ACTIVITY_MILLIS);
+
+            List<User> users;
+            if (setup.hasCursor()) {
+                // Repository method using createdAt instead of lastActive
+                users = userRepository.findByIsActiveTrueAndCreatedAtAfterAndIdLessThanOrderByCreatedAtDesc(
+                        recentCreationThreshold, setup.getSanitizedCursor(), pageable);
+            } else {
+                users = userRepository.findByIsActiveTrueAndCreatedAtAfterOrderByCreatedAtDesc(
+                        recentCreationThreshold, pageable);
             }
-            analytics.put("detailedStatusBreakdown", statusBreakdown);
 
-            // Recent activity (last 30 days)
-            LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);
-            Timestamp cutoff = Timestamp.valueOf(thirtyDaysAgo);
-            long recentPosts = postRepository.countByUserAndCreatedAtAfter(user, cutoff);
-            analytics.put("recentPosts30Days", recentPosts);
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(
+                    users != null ? users : List.of(), setup.getValidatedLimit());
 
-            return analytics;
+            PaginationUtils.logPaginationResults("getRecentlyCreatedUsers",
+                    response.getData(), response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (Exception e) {
-            log.error("Failed to get user analytics for user: {}", user.getUsername(), e);
-            throw new ServiceException("Failed to get user analytics: " + e.getMessage(), e);
+            log.error("Failed to get recently created users", e);
+            return PaginationUtils.handlePaginationError("getRecentlyCreatedUsers", e,
+                    PaginationUtils.validateUserSearchLimit(limit));
         }
     }
 
-    // Helper Methods
+    // ===== Helper Methods =====
 
     private UserDetails buildUserDetails(User user) {
-        return org.springframework.security.core.userdetails.User.builder()
-                .username(user.getUsername())
-                .password(user.getPassword())
-                .authorities(user.getRole().getName())
-                .accountExpired(false)
-                .accountLocked(!user.getIsActive())
-                .credentialsExpired(false)
-                .disabled(!user.getIsActive())
-                .build();
+        return user;
     }
 
     private UserTagSuggestionDto convertToUserTagSuggestion(User user) {
@@ -796,40 +516,33 @@ public class UserService implements UserDetailsService {
                 .id(user.getId())
                 .username(user.getUsername())
                 .displayName(user.getDisplayName() != null ? user.getDisplayName() : user.getUsername())
-                .location(user.getLocation())
                 .profileImage(user.getProfileImage())
                 .isActive(user.getIsActive())
                 .role(user.getRole() != null ? user.getRole().getName() : null)
-                .bio(truncateText(user.getBio(), 100))
+                .bio(PostUtility.truncateText(user.getBio(), Constant.POST_CONTENT_PREVIEW_LENGTH,
+                        Constant.POST_CONTENT_TRUNCATION_SUFFIX))
                 .taggableName("@" + user.getUsername())
+                .pincode(user.getPincode())
+                .totalTaggedPosts(userTagRepository.countByTaggedUser(user))
+                .resolutionRate(calculateUserResolutionRate(user))
                 .hasLocation(user.hasLocation())
-                .totalTaggedPosts(userTagRepository.countByTaggedUser(user)) // Use actual count
-                .resolutionRate(calculateUserResolutionRate(user)) // Calculate actual resolution rate
                 .build();
     }
 
     private double calculateUserResolutionRate(User user) {
         try {
-            if (!isDepartmentUser(user)) {
+            if (!PostUtility.isDepartment(user)) {
                 return 0.0;
             }
 
             long totalTagged = userTagRepository.countByTaggedUser(user);
-            if (totalTagged == 0) {
-                return 0.0;
-            }
-
             long resolved = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
-            return Math.round((double) resolved / totalTagged * 100.0 * 100.0) / 100.0;
+
+            return PostUtility.calculateUserResolutionRate(user, totalTagged, resolved);
         } catch (Exception e) {
             log.warn("Failed to calculate resolution rate for user: {}", user.getUsername(), e);
             return 0.0;
         }
-    }
-
-    private String truncateText(String text, int maxLength) {
-        if (text == null) return "";
-        return text.length() > maxLength ? text.substring(0, maxLength) + "..." : text;
     }
 
     private void validateNewUser(User user) {
@@ -846,14 +559,17 @@ public class UserService implements UserDetailsService {
             throw new ValidationException("User role is required");
         }
 
-        // Check username uniqueness
         if (userRepository.findByUsername(user.getUsername()).isPresent()) {
             throw new ValidationException("Username already exists: " + user.getUsername());
         }
 
-        // Check email uniqueness
         if (userRepository.findByEmail(user.getEmail()).isPresent()) {
             throw new ValidationException("Email already exists: " + user.getEmail());
+        }
+
+        // Use PostUtility for Indian pincode validation
+        if (user.getPincode() != null && !user.getPincode().trim().isEmpty()) {
+            PostUtility.validateTargetPincodeForUser(user.getPincode().trim());
         }
     }
 }

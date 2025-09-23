@@ -13,9 +13,7 @@ import lombok.Setter;
 @NoArgsConstructor
 public class PostContentUpdateDto {
     @NotBlank(message = "Post content is required")
-    @Size(max = 500, message = "Content must not exceed 500 characters")
+    @Size(max = 2000, message = "Content must not exceed 2000 characters") // Fixed: was 500, now matches service validation
     private String content;
-
-    // Optional: Include location update capability
-    private String location; // Format: "City StateCode" (e.g., "Pune MH")
 }
+

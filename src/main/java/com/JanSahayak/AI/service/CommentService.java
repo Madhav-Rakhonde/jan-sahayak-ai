@@ -2,26 +2,29 @@ package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.DTO.CommentCreateDto;
 import com.JanSahayak.AI.DTO.CommentUpdateDto;
+import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.exception.CommentNotFoundException;
-import com.JanSahayak.AI.exception.PostNotFoundException;
 import com.JanSahayak.AI.exception.ServiceException;
-import com.JanSahayak.AI.exception.UserNotFoundException;
 import com.JanSahayak.AI.model.Comment;
 import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
+import com.JanSahayak.AI.payload.PaginationUtils;
+import com.JanSahayak.AI.payload.PostUtility;
 import com.JanSahayak.AI.repository.CommentRepo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
-import java.util.Collections;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -34,10 +37,9 @@ public class CommentService {
     public Comment createComment(@Valid CommentCreateDto commentDto, @NotNull User user, @NotNull Post post) {
         try {
             validateCommentDto(commentDto);
-            validateUser(user);
-            validatePost(post);
+            PostUtility.validateUser(user);
+            PostUtility.validatePost(post);
 
-            // Enhanced null-safe check for post status
             if (post.getStatus() == null) {
                 log.error("Post status is null for post ID: {}", post.getId());
                 throw new ServiceException("Post status is invalid");
@@ -64,7 +66,7 @@ public class CommentService {
             Comment savedComment = commentRepository.save(comment);
             log.info("Comment created by user: {} (ID: {}) on post: {} (status: {}) at location: {}",
                     user.getActualUsername(), user.getId(), post.getId(),
-                    post.getStatus().getDisplayName(), post.getLocation());
+                    post.getStatus().getDisplayName(), post.getPostPincode());
 
             return savedComment;
         } catch (DataAccessException ex) {
@@ -85,7 +87,7 @@ public class CommentService {
         try {
             validateCommentId(commentId);
             validateCommentDto(commentDto);
-            validateUser(user);
+            PostUtility.validateUser(user);
 
             Comment comment = findById(commentId);
 
@@ -134,8 +136,6 @@ public class CommentService {
         }
     }
 
-    // REMOVED: deleteComment method as requested
-
     public Comment findById(@NotNull Long commentId) {
         try {
             validateCommentId(commentId);
@@ -148,23 +148,43 @@ public class CommentService {
         }
     }
 
+    // ===== UPDATED METHODS WITH CURSOR-BASED PAGINATION =====
+
     /**
-     * Get comments by post - matches documentation repository method
-     * FIXED: Uses repository query to avoid N+1 problem
+     * Get comments by post with cursor-based pagination
+     * Updated method signature to include cursor and limit parameters
      */
-    public List<Comment> getCommentsByPost(@NotNull Post post) {
+    public PaginatedResponse<Comment> getCommentsByPost(@NotNull Post post, Long beforeId, Integer limit) {
         try {
-            validatePost(post);
+            PostUtility.validatePost(post);
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getCommentsByPost", beforeId, limit);
 
             // Enhanced null-safe visibility check
             if (post.getStatus() == null || !post.getStatus().isVisible()) {
                 log.warn("Attempted to retrieve comments for non-visible post: {} with status: {}",
                         post.getId(), post.getStatus() != null ? post.getStatus().getDisplayName() : "null");
-                return Collections.emptyList(); // Return empty list for non-visible posts
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
-            List<Comment> comments = commentRepository.findByPostOrderByCreatedAtAsc(post);
-            return comments != null ? comments : Collections.emptyList();
+            List<Comment> comments;
+            if (setup.hasCursor()) {
+                comments = commentRepository.findByPostAndIdLessThanOrderByCreatedAtAsc(
+                        post, setup.getSanitizedCursor(), setup.toPageable());
+            } else {
+                comments = commentRepository.findByPostOrderByCreatedAtAsc(
+                        post, setup.toPageable());
+            }
+
+            if (comments == null) {
+                comments = Collections.emptyList();
+            }
+
+            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(comments, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("getCommentsByPost", comments,
+                    response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (DataAccessException ex) {
             log.error("Database error while retrieving comments for post: {} (status: {})",
                     post.getId(), post.getStatus() != null ? post.getStatus().getDisplayName() : "null", ex);
@@ -177,22 +197,40 @@ public class CommentService {
     }
 
     /**
-     * Get top level comments by post - matches documentation repository method
-     * FIXED: Uses repository query to avoid N+1 problem
+     * Get top level comments by post with cursor-based pagination
+     * Updated method signature to include cursor and limit parameters
      */
-    public List<Comment> getTopLevelCommentsByPost(@NotNull Post post) {
+    public PaginatedResponse<Comment> getTopLevelCommentsByPost(@NotNull Post post, Long beforeId, Integer limit) {
         try {
-            validatePost(post);
+            PostUtility.validatePost(post);
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getTopLevelCommentsByPost", beforeId, limit);
 
             // Enhanced null-safe visibility check
             if (post.getStatus() == null || !post.getStatus().isVisible()) {
                 log.warn("Attempted to retrieve top-level comments for non-visible post: {} with status: {}",
                         post.getId(), post.getStatus() != null ? post.getStatus().getDisplayName() : "null");
-                return Collections.emptyList(); // Return empty list for non-visible posts
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
-            List<Comment> comments = commentRepository.findTopLevelCommentsByPost(post);
-            return comments != null ? comments : Collections.emptyList();
+            List<Comment> comments;
+            if (setup.hasCursor()) {
+                comments = commentRepository.findTopLevelCommentsByPostAndIdLessThan(
+                        post, setup.getSanitizedCursor(), setup.toPageable());
+            } else {
+                comments = commentRepository.findTopLevelCommentsByPost(
+                        post, setup.toPageable());
+            }
+
+            if (comments == null) {
+                comments = Collections.emptyList();
+            }
+
+            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(comments, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("getTopLevelCommentsByPost", comments,
+                    response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (DataAccessException ex) {
             log.error("Database error while retrieving top-level comments for post: {} (status: {})",
                     post.getId(), post.getStatus() != null ? post.getStatus().getDisplayName() : "null", ex);
@@ -205,11 +243,11 @@ public class CommentService {
     }
 
     /**
-     * Count comments by post - matches documentation repository method
+     * Count comments by post - kept as-is since it returns a count, not a list
      */
     public Long countCommentsByPost(@NotNull Post post) {
         try {
-            validatePost(post);
+            PostUtility.validatePost(post);
 
             // Enhanced null-safe visibility check
             if (post.getStatus() == null || !post.getStatus().isVisible()) {
@@ -230,18 +268,33 @@ public class CommentService {
     }
 
     /**
-     * Get comments by user - FIXED N+1 Query Problem
-     * Now uses repository method with JOIN FETCH to load post data in single query
+     * Get comments by user with cursor-based pagination
+     * Updated method signature to include cursor and limit parameters
      */
-    public List<Comment> getCommentsByUser(@NotNull User user) {
+    public PaginatedResponse<Comment> getCommentsByUser(@NotNull User user, Long beforeId, Integer limit) {
         try {
-            validateUser(user);
+            PostUtility.validateUser(user);
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getCommentsByUser", beforeId, limit);
 
-            // FIXED: Use repository method that fetches post data in single query
-            // This eliminates the N+1 problem by using JOIN FETCH
-            List<Comment> userComments = commentRepository.findByUserWithVisiblePostsOrderByCreatedAtDesc(user);
-            return userComments != null ? userComments : Collections.emptyList();
+            List<Comment> userComments;
+            if (setup.hasCursor()) {
+                userComments = commentRepository.findByUserWithVisiblePostsAndIdLessThanOrderByCreatedAtDesc(
+                        user, setup.getSanitizedCursor(), setup.toPageable());
+            } else {
+                userComments = commentRepository.findByUserWithVisiblePostsOrderByCreatedAtDesc(
+                        user, setup.toPageable());
+            }
 
+            if (userComments == null) {
+                userComments = Collections.emptyList();
+            }
+
+            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(userComments, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("getCommentsByUser", userComments,
+                    response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (DataAccessException ex) {
             log.error("Database error while retrieving comments for user: {}", user.getActualUsername(), ex);
             throw new ServiceException("Failed to retrieve user comments due to database error", ex);
@@ -252,12 +305,13 @@ public class CommentService {
     }
 
     /**
-     * Get replies to a specific comment (child comments)
-     * FIXED: Uses repository query to avoid N+1 problem
+     * Get replies to a specific comment (child comments) with cursor-based pagination
+     * Updated method signature to include cursor and limit parameters
      */
-    public List<Comment> getCommentReplies(@NotNull Long commentId) {
+    public PaginatedResponse<Comment> getCommentReplies(@NotNull Long commentId, Long beforeId, Integer limit) {
         try {
             validateCommentId(commentId);
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getCommentReplies", beforeId, limit);
 
             Comment parentComment = findById(commentId);
             Post post = parentComment.getPost();
@@ -265,23 +319,40 @@ public class CommentService {
             // Enhanced null-safe checks
             if (post == null) {
                 log.error("Parent comment {} has no associated post", commentId);
-                return Collections.emptyList();
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
             if (post.getStatus() == null) {
                 log.error("Post status is null for post ID: {}", post.getId());
-                return Collections.emptyList();
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
             // Only return replies for visible posts
             if (!post.getStatus().isVisible()) {
                 log.warn("Attempted to retrieve replies for comment on non-visible post: {} with status: {}",
                         post.getId(), post.getStatus().getDisplayName());
-                return Collections.emptyList(); // Return empty list for non-visible posts
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
-            List<Comment> replies = commentRepository.findByParentCommentOrderByCreatedAtAsc(parentComment);
-            return replies != null ? replies : Collections.emptyList();
+            List<Comment> replies;
+            if (setup.hasCursor()) {
+                replies = commentRepository.findByParentCommentAndIdLessThanOrderByCreatedAtAsc(
+                        parentComment, setup.getSanitizedCursor(), setup.toPageable());
+            } else {
+                replies = commentRepository.findByParentCommentOrderByCreatedAtAsc(
+                        parentComment, setup.toPageable());
+            }
+
+            if (replies == null) {
+                replies = Collections.emptyList();
+            }
+
+            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(replies, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("getCommentReplies", replies,
+                    response.isHasMore(), response.getNextCursor());
+
+            return response;
         } catch (DataAccessException ex) {
             log.error("Database error while retrieving replies for comment: {}", commentId, ex);
             throw new ServiceException("Failed to retrieve comment replies due to database error", ex);
@@ -291,7 +362,126 @@ public class CommentService {
         }
     }
 
-    // Enhanced validation helper methods with better null safety
+    // ===== ADDITIONAL PAGINATED METHODS =====
+
+    /**
+     * Get all comments with cursor-based pagination
+     * New method for admin/management use cases
+     */
+    public PaginatedResponse<Comment> getAllComments(Long beforeId, Integer limit) {
+        try {
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllComments", beforeId, limit);
+
+            List<Comment> comments;
+            if (setup.hasCursor()) {
+                comments = commentRepository.findByIdLessThanOrderByCreatedAtDesc(
+                        setup.getSanitizedCursor(), setup.toPageable());
+            } else {
+                comments = commentRepository.findAllByOrderByCreatedAtDesc(
+                        setup.toPageable());
+            }
+
+            if (comments == null) {
+                comments = Collections.emptyList();
+            }
+
+            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(comments, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("getAllComments", comments,
+                    response.isHasMore(), response.getNextCursor());
+
+            return response;
+        } catch (Exception ex) {
+            log.error("Unexpected error while retrieving all comments", ex);
+            throw new ServiceException("Failed to retrieve all comments", ex);
+        }
+    }
+
+    /**
+     * Get recent comments with cursor-based pagination
+     * New method for activity feeds
+     */
+    public PaginatedResponse<Comment> getRecentComments(Date fromDate, Long beforeId, Integer limit) {
+        try {
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getRecentComments", beforeId, limit);
+
+            if (fromDate == null) {
+                fromDate = new Date(System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000)); // Last 7 days
+            }
+
+            List<Comment> comments;
+            if (setup.hasCursor()) {
+                comments = commentRepository.findByCreatedAtAfterAndIdLessThanOrderByCreatedAtDesc(
+                        fromDate, setup.getSanitizedCursor(), setup.toPageable());
+            } else {
+                comments = commentRepository.findByCreatedAtAfterOrderByCreatedAtDesc(
+                        fromDate, setup.toPageable());
+            }
+
+            if (comments == null) {
+                comments = Collections.emptyList();
+            }
+
+            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(comments, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("getRecentComments", comments,
+                    response.isHasMore(), response.getNextCursor());
+
+            return response;
+        } catch (Exception ex) {
+            log.error("Unexpected error while retrieving recent comments", ex);
+            throw new ServiceException("Failed to retrieve recent comments", ex);
+        }
+    }
+
+    /**
+     * Search comments by content with cursor-based pagination
+     * New method for comment search functionality
+     */
+    public PaginatedResponse<Comment> searchComments(String searchTerm, Long beforeId, Integer limit) {
+        try {
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("searchComments", beforeId, limit);
+
+            if (searchTerm == null || searchTerm.trim().isEmpty()) {
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+            }
+
+            String cleanSearchTerm = searchTerm.trim().toLowerCase();
+
+            List<Comment> comments;
+            if (setup.hasCursor()) {
+                comments = commentRepository.findByTextContainingIgnoreCaseAndIdLessThanOrderByCreatedAtDesc(
+                        cleanSearchTerm, setup.getSanitizedCursor(), setup.toPageable());
+            } else {
+                comments = commentRepository.findByTextContainingIgnoreCaseOrderByCreatedAtDesc(
+                        cleanSearchTerm, setup.toPageable());
+            }
+
+            if (comments == null) {
+                comments = Collections.emptyList();
+            }
+
+            // Filter to only include comments on visible posts
+            List<Comment> visibleComments = comments.stream()
+                    .filter(comment -> comment.getPost() != null &&
+                            comment.getPost().getStatus() != null &&
+                            comment.getPost().getStatus().isVisible())
+                    .collect(Collectors.toList());
+
+            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(visibleComments, setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("searchComments", visibleComments,
+                    response.isHasMore(), response.getNextCursor());
+
+            return response;
+        } catch (Exception ex) {
+            log.error("Unexpected error while searching comments with term: {}", searchTerm, ex);
+            throw new ServiceException("Failed to search comments", ex);
+        }
+    }
+
+    // ===== PRIVATE VALIDATION METHODS =====
+
     private void validateCommentId(Long commentId) {
         if (commentId == null || commentId <= 0) {
             throw new IllegalArgumentException("Comment ID must be a positive number");
@@ -323,30 +513,6 @@ public class CommentService {
         }
     }
 
-    private void validateUser(User user) {
-        if (user == null) {
-            throw new UserNotFoundException("User cannot be null");
-        }
-        if (user.getId() == null) {
-            throw new UserNotFoundException("User ID cannot be null");
-        }
-        // Additional validation for username - FIXED: Use getActualUsername()
-        if (user.getActualUsername() == null || user.getActualUsername().trim().isEmpty()) {
-            throw new UserNotFoundException("User username cannot be null or empty");
-        }
-    }
-
-    private void validatePost(Post post) {
-        if (post == null) {
-            throw new PostNotFoundException("Post cannot be null");
-        }
-        if (post.getId() == null) {
-            throw new PostNotFoundException("Post ID cannot be null");
-        }
-        // Note: Removed status null check here since we check it in individual methods
-        // where it's actually needed to provide more specific error handling
-    }
-
     private void validateParentComment(Comment parentComment, Post post) {
         if (parentComment == null) {
             throw new CommentNotFoundException("Parent comment not found");
@@ -373,19 +539,6 @@ public class CommentService {
         if (!parentComment.getPost().getStatus().isInteractable()) {
             throw new IllegalArgumentException("Cannot reply to comments on posts with status: " +
                     parentComment.getPost().getStatus().getDisplayName());
-        }
-    }
-
-    private boolean isAdmin(User user) {
-        try {
-            return user != null &&
-                    user.getRole() != null &&
-                    user.getRole().getName() != null &&
-                    Constant.ROLE_ADMIN.equals(user.getRole().getName());
-        } catch (Exception ex) {
-            log.warn("Error checking admin status for user: {}",
-                    user != null ? user.getActualUsername() : "null", ex);
-            return false;
         }
     }
 }

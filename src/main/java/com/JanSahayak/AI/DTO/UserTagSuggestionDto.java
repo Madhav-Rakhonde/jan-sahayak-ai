@@ -12,7 +12,7 @@ public class UserTagSuggestionDto {
     private Long id;
     private String username;
     private String displayName;
-    private String location;
+    private String pincode;
     private String profileImage;
     private Boolean isActive;
     private String role;

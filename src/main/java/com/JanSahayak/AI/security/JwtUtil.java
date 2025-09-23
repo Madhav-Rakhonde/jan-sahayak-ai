@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
+import com.JanSahayak.AI.model.User;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -18,11 +19,9 @@ public class JwtUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(JwtUtil.class);
 
-    // Default: A secure 256-bit secret (32 characters minimum for HMAC-SHA256)
     @Value("${jwt.secret:mySecretKeyForJWTTokenGenerationThatIsLongEnoughForHS256Algorithm}")
     private String jwtSecret;
 
-    // Default: 24 hours = 86400000 milliseconds
     @Value("${jwt.expiration:86400000}")
     private long jwtExpirationInMs;
 
@@ -31,26 +30,24 @@ public class JwtUtil {
     }
 
     public String generateToken(Authentication authentication) {
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        User user = (User) authentication.getPrincipal(); // Cast directly to User
 
         Date expiryDate = new Date(System.currentTimeMillis() + jwtExpirationInMs);
 
         return Jwts.builder()
-                .setSubject(Long.toString(userPrincipal.getId()))
+                .setSubject(Long.toString(user.getId())) // Use user ID directly
                 .setIssuedAt(new Date())
                 .setExpiration(expiryDate)
                 .signWith(getSigningKey())
                 .compact();
     }
 
-    // Overloaded method to accept UserDetails directly
     public String generateToken(UserDetails userDetails) {
         Date expiryDate = new Date(System.currentTimeMillis() + jwtExpirationInMs);
 
-        // If UserDetails is UserPrincipal, use the ID; otherwise use username
         String subject;
-        if (userDetails instanceof UserPrincipal) {
-            subject = Long.toString(((UserPrincipal) userDetails).getId());
+        if (userDetails instanceof User) {
+            subject = Long.toString(((User) userDetails).getId());
         } else {
             subject = userDetails.getUsername();
         }

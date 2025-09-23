@@ -1,4 +1,5 @@
 package com.JanSahayak.AI.DTO;
+import jakarta.persistence.Column;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -23,8 +24,8 @@ public class RegisterRequest {
     private String role;
 
 
-    @NotBlank(message = "Location is required")
-    private String location;
+    @NotBlank(message = "Location is required" )
+    private String pincode;
 
 
 

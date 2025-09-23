@@ -10,10 +10,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
-
+import com.JanSahayak.AI.exception.ValidationException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
-import jakarta.validation.ValidationException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -67,8 +66,8 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
     }
 
-    @ExceptionHandler(ValidationException.class)
-    public ResponseEntity<ApiResponse<Object>> handleValidation(ValidationException ex, WebRequest request) {
+    @ExceptionHandler(jakarta.validation.ValidationException.class)
+    public ResponseEntity<ApiResponse<Object>> handleValidation(jakarta.validation.ValidationException ex, WebRequest request) {
         String requestId = generateRequestId();
         log.error("Validation error [{}]: {}", requestId, ex.getMessage());
 
@@ -196,5 +195,17 @@ public class GlobalExceptionHandler {
 
     private String generateRequestId() {
         return UUID.randomUUID().toString().substring(0, 8);
+    }
+    // Add this handler method to your existing GlobalExceptionHandler class
+
+    @ExceptionHandler(ValidationException.class)
+    public ResponseEntity<ApiResponse<Object>> handleCustomValidationException(ValidationException ex, WebRequest request) {
+        String requestId = generateRequestId();
+        log.error("Custom validation error [{}]: {}", requestId, ex.getMessage());
+
+        ApiResponse<Object> response = ApiResponse.error("Validation failed", ex.getMessage());
+        response.setRequestId(requestId);
+
+        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
     }
 }

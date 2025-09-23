@@ -34,7 +34,6 @@ public class Comment {
     @ManyToOne(fetch = FetchType.LAZY)
     private User user;
 
-    // ✅ ADDED: Self-referential relationship for reply functionality
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_comment_id")
     private Comment parentComment;

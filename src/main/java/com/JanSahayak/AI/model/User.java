@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.model;
 
 import com.JanSahayak.AI.enums.PostStatus;
+import com.JanSahayak.AI.enums.BroadcastScope;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotEmpty;
@@ -22,15 +23,17 @@ import java.util.stream.Collectors;
         indexes = {
                 @Index(name = "idx_user_username", columnList = "username"),
                 @Index(name = "idx_user_email", columnList = "email"),
-                @Index(name = "idx_user_location", columnList = "location"),
+                @Index(name = "idx_user_pincode", columnList = "pincode"),
                 @Index(name = "idx_user_is_active", columnList = "is_active"),
-                @Index(name = "idx_user_created_at", columnList = "created_at")
+                @Index(name = "idx_user_created_at", columnList = "created_at"),
+                @Index(name = "idx_user_role", columnList = "role_id")
         }
 )
 @NoArgsConstructor
 @AllArgsConstructor
 @Getter
 @Setter
+@Builder
 public class User implements UserDetails {
 
     @Id
@@ -69,82 +72,143 @@ public class User implements UserDetails {
     @Size(max = 500, message = "Address cannot exceed 500 characters")
     private String address;
 
-    @Column(length = 100)
-    @Size(max = 100, message = "Location cannot exceed 100 characters")
-    private String location; // Format: "City StateCode" (e.g., "Pune MH")
+    @Column(name = "pincode", length = 6)
+    @Size(min = 6, max = 6, message = "Pincode must be exactly 6 digits")
+    private String pincode;
 
     @Column(name = "is_active", nullable = false)
+    @Builder.Default
     private Boolean isActive = true;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     @Temporal(TemporalType.TIMESTAMP)
+    @Builder.Default
     private Date createdAt = new Date();
 
     @Column(name = "updated_at")
     @Temporal(TemporalType.TIMESTAMP)
     private Date updatedAt;
 
-    // ===== Self-referential relationship =====
+    // ===== Relationships =====
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", foreignKey = @ForeignKey(name = "fk_user_created_by"))
     private User createdBy;
 
     @OneToMany(mappedBy = "createdBy", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @Builder.Default
     private List<User> createdUsers = new ArrayList<>();
 
-    // ===== Existing Relationships =====
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private List<Post> posts = new ArrayList<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private List<Comment> comments = new ArrayList<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private List<PostLike> likes = new ArrayList<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
     private List<PostView> postViews = new ArrayList<>();
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "role_id", nullable = false,
-            foreignKey = @ForeignKey(name = "fk_user_role"))
+    @JoinColumn(name = "role_id", nullable = false, foreignKey = @ForeignKey(name = "fk_user_role"))
     private Role role;
 
-    // ===== UserTag relationships =====
     @OneToMany(mappedBy = "taggedUser", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @Builder.Default
     private List<UserTag> receivedTags = new ArrayList<>();
 
     @OneToMany(mappedBy = "taggedBy", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @Builder.Default
     private List<UserTag> createdTags = new ArrayList<>();
 
-    // ===== Helper Methods =====
+    @Transient
+    private PincodeLookup pincodeLookupData;
 
-    public List<Post> getTaggedPosts() {
-        return receivedTags.stream()
-                .filter(UserTag::getIsActive)
-                .map(UserTag::getPost)
-                .collect(Collectors.toList());
+
+    // ===== Role Helper Methods =====
+
+    /**
+     * Check if user is admin - Updated to handle both formats
+     */
+    public boolean isAdmin() {
+        if (role == null || role.getName() == null) {
+            return false;
+        }
+        String roleName = role.getName();
+        return "ROLE_ADMIN".equalsIgnoreCase(roleName) ;
     }
 
-    public List<Post> getTaggedPostsByStatus(PostStatus status) {
-        return receivedTags.stream()
-                .filter(UserTag::getIsActive)
-                .map(UserTag::getPost)
-                .filter(post -> post.getStatus() == status)
-                .collect(Collectors.toList());
+    /**
+     * Check if user is department - Updated to handle both formats
+     */
+    public boolean isDepartment() {
+        if (role == null || role.getName() == null) {
+            return false;
+        }
+        String roleName = role.getName();
+        return "ROLE_DEPARTMENT".equalsIgnoreCase(roleName);
     }
 
-    public Long getTaggedPostCount() {
-        return receivedTags.stream()
-                .filter(UserTag::getIsActive)
-                .count();
+    /**
+     * Check if user is normal user - Updated to handle both formats
+     */
+    public boolean isNormalUser() {
+        if (role == null || role.getName() == null) {
+            return false;
+        }
+        String roleName = role.getName().toLowerCase();
+        return "ROLE_USER".equals(roleName) ;
     }
 
-    public Long getCreatedTagsCount() {
-        return createdTags.stream()
-                .filter(UserTag::getIsActive)
-                .count();
+    /**
+     * Check if user can create broadcasts (admin and department only)
+     */
+    public boolean canCreateBroadcast() {
+        return isAdmin() || isDepartment();
     }
+
+    // ===== Pincode Helper Methods =====
+
+    /**
+     * Get state prefix from pincode (first 2 digits)
+     */
+    public String getStatePrefix() {
+        return hasPincode() ? pincode.substring(0, 2) : null;
+    }
+
+    /**
+     * Get district prefix from pincode (first 3 digits)
+     */
+    public String getDistrictPrefix() {
+        return hasPincode() ? pincode.substring(0, 3) : null;
+    }
+
+    /**
+     * Check if user is in the same state as given pincode
+     */
+    public boolean isInSameState(String otherPincode) {
+        if (!hasPincode() || otherPincode == null || otherPincode.length() < 2) {
+            return false;
+        }
+        return getStatePrefix().equals(otherPincode.substring(0, 2));
+    }
+
+    /**
+     * Check if user is in the same district as given pincode
+     */
+    public boolean isInSameDistrict(String otherPincode) {
+        if (!hasPincode() || otherPincode == null || otherPincode.length() < 3) {
+            return false;
+        }
+        return getDistrictPrefix().equals(otherPincode.substring(0, 3));
+    }
+
+    // ===== Basic Helper Methods =====
 
     public String getDisplayName() {
         return username;
@@ -154,16 +218,20 @@ public class User implements UserDetails {
         return "@" + username;
     }
 
-    public boolean hasLocation() {
-        return location != null && !location.trim().isEmpty();
-    }
-
     public boolean hasProfileImage() {
         return profileImage != null && !profileImage.trim().isEmpty();
     }
 
     public boolean hasBio() {
         return bio != null && !bio.trim().isEmpty();
+    }
+
+    public boolean hasPincode() {
+        return pincode != null && pincode.matches("\\d{6}");
+    }
+
+    public boolean isValidPincode() {
+        return hasPincode();
     }
 
     public int getPostCount() {
@@ -178,21 +246,40 @@ public class User implements UserDetails {
         return likes != null ? likes.size() : 0;
     }
 
-    // ===== Spring Security UserDetails Methods =====
-    // Note: Using email for login as per your requirement
+    public String getPrimaryLocation() {
+        return hasPincode() ? pincode : null;
+    }
 
+    public boolean canParticipateInLocalDiscovery() {
+        return hasPincode() && isActive != null && isActive;
+    }
+
+    // ===== Location Compatibility Methods (using pincode) =====
+
+    public boolean hasLocation() {
+        return hasPincode();
+    }
+
+    public String getLocation() {
+        return hasPincode() ? pincode : null;
+    }
+
+    // ===== Spring Security UserDetails Methods =====
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority(role.getName()));
+        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+        if (role != null && role.getName() != null) {
+            // Since Role entity stores names with ROLE_ prefix, use them directly
+            authorities.add(new SimpleGrantedAuthority(role.getName()));
+        }
+        return authorities;
     }
 
     @Override
     public String getUsername() {
-        // ✅ CONFIRMED: Returning email for login (correct implementation)
         return this.email;
     }
 
-    // Custom method to get the actual username field
     public String getActualUsername() {
         return this.username;
     }
@@ -217,7 +304,6 @@ public class User implements UserDetails {
         return isActive != null && isActive;
     }
 
-    // ===== Lifecycle Callbacks =====
     @PreUpdate
     private void preUpdate() {
         this.updatedAt = new Date();

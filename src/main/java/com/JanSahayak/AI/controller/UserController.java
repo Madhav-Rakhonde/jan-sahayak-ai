@@ -1,28 +1,28 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.PostResponse;
-import com.JanSahayak.AI.DTO.UserResponse;
-import com.JanSahayak.AI.DTO.UserStatsDto;
+import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.DTO.UserTagSuggestionDto;
 import com.JanSahayak.AI.exception.ApiResponse;
-import com.JanSahayak.AI.model.Post;
+import com.JanSahayak.AI.exception.ServiceException;
+import com.JanSahayak.AI.exception.UserNotFoundException;
+import com.JanSahayak.AI.exception.ValidationException;
 import com.JanSahayak.AI.model.User;
-import com.JanSahayak.AI.security.CurrentUser;
-import com.JanSahayak.AI.service.PostService;
+import com.JanSahayak.AI.repository.UserRepo;
 import com.JanSahayak.AI.service.UserService;
-import com.JanSahayak.AI.service.UserTaggingService;
-import com.JanSahayak.AI.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.util.Map;
-import java.util.Collections;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/users")
@@ -31,256 +31,530 @@ import java.util.stream.Collectors;
 public class UserController {
 
     private final UserService userService;
-    private final PostService postService;
-    private final UserTaggingService userTaggingService;
+    private final UserRepo userRepository;
 
-    @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
+    // ===== User Lookup Methods =====
+
+    /**
+     * Find user by username (display field)
+     * Accessible by all authenticated users
+     */
+    @GetMapping("/username/{username}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<User>> findByUsername(
+            @PathVariable @Size(min = 4, max = 100, message = "Username must be between 4 and 100 characters") String username) {
+
         try {
-            log.debug("Admin retrieving all users");
-            List<User> adminUsers = userService.findAdminUsers();
-            List<User> deptUsers = userService.findAllDepartmentUsers();
-            adminUsers.addAll(deptUsers);
+            User user = userService.findByUsername(username);
 
-            List<UserResponse> userResponses = adminUsers.stream()
-                    .map(this::convertToUserResponse)
-                    .collect(Collectors.toList());
+            return ResponseEntity.ok(ApiResponse.success(
+                    "User retrieved successfully", user));
 
-            return ResponseEntity.ok(
-                    ApiResponse.success(
-                            String.format("Retrieved %d users successfully", adminUsers.size()),
-                            userResponses
-                    )
-            );
+        } catch (UserNotFoundException e) {
+            log.warn("User not found by username: {}", username);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                    ApiResponse.error("User not found", e.getMessage()));
+        } catch (ValidationException e) {
+            log.warn("Validation error in findByUsername: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
         } catch (Exception e) {
-            log.error("Error retrieving all users: {}", e.getMessage(), e);
+            log.error("Unexpected error in findByUsername for username: {}", username, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to retrieve users", "An unexpected error occurred")
-            );
+                    ApiResponse.error("An unexpected error occurred while retrieving user"));
         }
     }
 
+    /**
+     * Find user by ID
+     * Accessible by all authenticated users
+     */
+    @GetMapping("/{userId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<User>> findById(
+            @PathVariable @Min(value = 1, message = "User ID must be positive") Long userId) {
+
+        try {
+            User user = userService.findById(userId);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "User retrieved successfully", user));
+
+        } catch (UserNotFoundException e) {
+            log.warn("User not found by ID: {}", userId);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                    ApiResponse.error("User not found", e.getMessage()));
+        } catch (ValidationException e) {
+            log.warn("Validation error in findById: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in findById for userId: {}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving user"));
+        }
+    }
+
+    // ===== Department User Search Methods =====
+
+    /**
+     * Find department users by pincode
+     * Accessible by departments and admins only
+     */
+    @GetMapping("/departments/by-pincode/{pincode}")
+    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByPincode(
+            @PathVariable @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format") String pincode,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
+
+        try {
+            PaginatedResponse<User> response = userService.findDepartmentUsersByPincode(pincode, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Department users by pincode retrieved successfully", response));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in findDepartmentUsersByPincode: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in findDepartmentUsersByPincode: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in findDepartmentUsersByPincode for pincode: {}", pincode, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving department users"));
+        }
+    }
+
+    /**
+     * Find department users by state
+     * Accessible by departments and admins only
+     */
+    @GetMapping("/departments/by-state/{state}")
+    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByState(
+            @PathVariable @Size(min = 2, max = 50, message = "State name must be between 2 and 50 characters") String state,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
+
+        try {
+            PaginatedResponse<User> response = userService.findDepartmentUsersByState(state, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Department users by state retrieved successfully", response));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in findDepartmentUsersByState: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in findDepartmentUsersByState: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in findDepartmentUsersByState for state: {}", state, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving department users"));
+        }
+    }
+
+    /**
+     * Find department users by district
+     * Accessible by departments and admins only
+     */
+    @GetMapping("/departments/by-district")
+    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByDistrict(
+            @RequestParam @Size(min = 2, max = 50, message = "State name must be between 2 and 50 characters") String state,
+            @RequestParam @Size(min = 2, max = 50, message = "District name must be between 2 and 50 characters") String district,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
+
+        try {
+            PaginatedResponse<User> response = userService.findDepartmentUsersByDistrict(state, district, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Department users by district retrieved successfully", response));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in findDepartmentUsersByDistrict: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in findDepartmentUsersByDistrict: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in findDepartmentUsersByDistrict for state: {} district: {}", state, district, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving department users"));
+        }
+    }
+
+    // ===== User Search and Tagging Methods =====
+
+    /**
+     * Search users for tagging functionality
+     * Accessible by all authenticated users
+     */
+    @GetMapping("/search/tagging")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<UserTagSuggestionDto>>> searchUsersForTagging(
+            @RequestParam @Size(min = 2, max = 50, message = "Query must be between 2 and 50 characters") String query,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
+
+        try {
+            PaginatedResponse<UserTagSuggestionDto> response = userService.searchUsersForTagging(query, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Users for tagging retrieved successfully", response));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in searchUsersForTagging: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in searchUsersForTagging: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in searchUsersForTagging for query: {}", query, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while searching users for tagging"));
+        }
+    }
+
+    // ===== Geographic Distribution Methods =====
+
+    /**
+     * Get user distribution by pincode (Analytics)
+     * Accessible by departments and admins only
+     */
+    @GetMapping("/distribution/by-pincode")
+    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Long>>> getUserDistributionByPincode() {
+
+        try {
+            Map<String, Long> distribution = userService.getUserDistributionByPincode();
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "User distribution by pincode retrieved successfully", distribution));
+
+        } catch (ServiceException e) {
+            log.error("Service error in getUserDistributionByPincode: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in getUserDistributionByPincode", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving user distribution by pincode"));
+        }
+    }
+
+    /**
+     * Get user distribution by state (Analytics)
+     * Accessible by departments and admins only
+     */
+    @GetMapping("/distribution/by-state")
+    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Long>>> getUserDistributionByState() {
+
+        try {
+            Map<String, Long> distribution = userService.getUserDistributionByState();
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "User distribution by state retrieved successfully", distribution));
+
+        } catch (ServiceException e) {
+            log.error("Service error in getUserDistributionByState: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in getUserDistributionByState", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving user distribution by state"));
+        }
+    }
+
+    // ===== Permission Check Methods =====
+
+    /**
+     * Check if user can resolve posts in a specific pincode
+     * Accessible by departments and admins only
+     */
+    @GetMapping("/permissions/resolve-posts/{pincode}")
+    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Boolean>> canUserResolvePostsInPincode(
+            @PathVariable @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format") String pincode) {
+
+        try {
+            User currentUser = getCurrentUser();
+            boolean canResolve = userService.canUserResolvePostsInPincode(currentUser, pincode);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Permission check completed successfully", canResolve));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in canUserResolvePostsInPincode: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in canUserResolvePostsInPincode: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in canUserResolvePostsInPincode for pincode: {}", pincode, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while checking permissions"));
+        }
+    }
+
+    // ===== User Update Methods =====
+
+    /**
+     * Update current user's profile
+     * Accessible by authenticated users (can only update their own profile)
+     */
+    @PutMapping("/profile")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<User>> updateUserProfile(@Valid @RequestBody UserUpdateRequest updateRequest) {
+
+        try {
+            User currentUser = getCurrentUser();
+
+            // Create user object with updates
+            User userToUpdate = User.builder()
+                    .id(currentUser.getId())
+                    .email(updateRequest.getEmail())
+                    .bio(updateRequest.getBio())
+                    .pincode(updateRequest.getPincode())
+                    .build();
+
+            User updatedUser = userService.updateUser(userToUpdate);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "User profile updated successfully", updatedUser));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in updateUserProfile: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in updateUserProfile: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in updateUserProfile", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while updating user profile"));
+        }
+    }
+
+    /**
+     * Admin method to update any user
+     * Accessible by admins only
+     */
+    @PutMapping("/{userId}")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<User>> updateUser(
+            @PathVariable @Min(value = 1, message = "User ID must be positive") Long userId,
+            @Valid @RequestBody UserUpdateRequest updateRequest) {
+
+        try {
+            // Create user object with updates
+            User userToUpdate = User.builder()
+                    .id(userId)
+                    .email(updateRequest.getEmail())
+                    .bio(updateRequest.getBio())
+                    .pincode(updateRequest.getPincode())
+                    .build();
+
+            User updatedUser = userService.updateUser(userToUpdate);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "User updated successfully", updatedUser));
+
+        } catch (UserNotFoundException e) {
+            log.warn("User not found for update: {}", userId);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                    ApiResponse.error("User not found", e.getMessage()));
+        } catch (ValidationException e) {
+            log.warn("Validation error in updateUser: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in updateUser: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in updateUser for userId: {}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while updating user"));
+        }
+    }
+
+    // ===== User Listing Methods =====
+
+    /**
+     * Get all active users with pagination
+     * Accessible by departments and admins only
+     */
     @GetMapping("/active")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllActiveUsers() {
+    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getAllActiveUsers(
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
+
         try {
-            log.debug("Admin retrieving all active users");
-            List<User> adminUsers = userService.findAdminUsers();
-            List<User> deptUsers = userService.findAllDepartmentUsers();
-            adminUsers.addAll(deptUsers);
+            PaginatedResponse<User> response = userService.getAllActiveUsers(beforeId, limit);
 
-            // Filter active users
-            List<User> activeUsers = adminUsers.stream()
-                    .filter(User::getIsActive)
-                    .collect(Collectors.toList());
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Active users retrieved successfully", response));
 
-            List<UserResponse> userResponses = activeUsers.stream()
-                    .map(this::convertToUserResponse)
-                    .collect(Collectors.toList());
-
-            return ResponseEntity.ok(
-                    ApiResponse.success(
-                            String.format("Retrieved %d active users successfully", activeUsers.size()),
-                            userResponses
-                    )
-            );
-        } catch (Exception e) {
-            log.error("Error retrieving active users: {}", e.getMessage(), e);
+        } catch (ValidationException e) {
+            log.warn("Validation error in getAllActiveUsers: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in getAllActiveUsers: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to retrieve active users", "An unexpected error occurred")
-            );
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in getAllActiveUsers", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving active users"));
         }
     }
 
-    @GetMapping("/search")
-    public ResponseEntity<ApiResponse<List<UserTagSuggestionDto>>> searchUsersForTagging(@RequestParam String query) {
+    /**
+     * Get users by role with pagination
+     * Accessible by admins only
+     */
+    @GetMapping("/by-role/{roleName}")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getUsersByRole(
+            @PathVariable @Size(min = 3, max = 20, message = "Role name must be between 3 and 20 characters") String roleName,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
+
         try {
-            if (query == null || query.trim().length() < 2) {
-                log.warn("Invalid search query: {}", query);
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-                        ApiResponse.error("Invalid search query", "Query must be at least 2 characters long")
-                );
+            PaginatedResponse<User> response = userService.getUsersByRole(roleName, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Users by role retrieved successfully", response));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in getUsersByRole: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in getUsersByRole: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in getUsersByRole for role: {}", roleName, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving users by role"));
+        }
+    }
+
+    /**
+     * Get recently created users with pagination
+     * Accessible by departments and admins only
+     */
+    @GetMapping("/recent")
+    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getRecentlyCreatedUsers(
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
+
+        try {
+            PaginatedResponse<User> response = userService.getRecentlyCreatedUsers(beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "Recently created users retrieved successfully", response));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in getRecentlyCreatedUsers: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in getRecentlyCreatedUsers: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in getRecentlyCreatedUsers", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving recently created users"));
+        }
+    }
+
+    // ===== Helper Methods =====
+
+    /**
+     * Get current authenticated user using email (login credential)
+     * @return Current user from security context
+     * @throws ValidationException if user not found or not authenticated
+     */
+    private User getCurrentUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new ValidationException("User not authenticated");
+        }
+
+        String email = authentication.getName(); // Email is used as login credential
+        if (email == null || email.trim().isEmpty()) {
+            throw new ValidationException("Invalid authentication - no email found");
+        }
+
+        try {
+            // Use findByEmail since email is the login credential
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new UserNotFoundException("User not found with email: " + email));
+
+            if (user.getIsActive() == null || !user.getIsActive()) {
+                throw new ValidationException("User account is inactive");
             }
 
-            log.debug("Searching users for tagging with query: {}", query);
-            List<UserTagSuggestionDto> suggestions = userService.searchUsersForTagging(query.trim());
+            return user;
 
-            return ResponseEntity.ok(
-                    ApiResponse.success(
-                            String.format("Found %d user suggestions", suggestions.size()),
-                            suggestions
-                    )
-            );
+        } catch (UserNotFoundException e) {
+            log.warn("User not found with email: {}", email);
+            throw new ValidationException("User not found: " + email);
         } catch (Exception e) {
-            log.error("Error searching users for tagging with query '{}': {}", query, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to search users", "An unexpected error occurred")
-            );
+            log.error("Error retrieving current user with email: {}", email, e);
+            throw new ValidationException("Error retrieving user information");
         }
     }
 
-    @GetMapping("/by-location/{location}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getUsersByLocation(@PathVariable String location) {
-        try {
-            log.debug("Admin retrieving users by location: {}", location);
-            List<User> users = userService.findNormalUsersByLocation(location);
-            List<UserResponse> userResponses = users.stream()
-                    .map(this::convertToUserResponse)
-                    .collect(Collectors.toList());
+    // ===== DTO Classes =====
 
-            return ResponseEntity.ok(
-                    ApiResponse.success(
-                            String.format("Retrieved %d users from location '%s'", users.size(), location),
-                            userResponses
-                    )
-            );
-        } catch (Exception e) {
-            log.error("Error retrieving users by location '{}': {}", location, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to retrieve users by location", "An unexpected error occurred")
-            );
-        }
-    }
+    /**
+     * DTO for user update requests
+     */
+    public static class UserUpdateRequest {
+        @jakarta.validation.constraints.Email(message = "Invalid email format")
+        private String email;
 
-    @GetMapping("/{userId}")
-    public ResponseEntity<ApiResponse<UserResponse>> getUserDetails(@PathVariable Long userId) {
-        try {
-            log.debug("Retrieving user details for ID: {}", userId);
-            User user = userService.findById(userId);
-            UserResponse userResponse = convertToUserResponse(user);
+        @Size(max = 1000, message = "Bio cannot exceed 1000 characters")
+        private String bio;
 
-            return ResponseEntity.ok(
-                    ApiResponse.success("User details retrieved successfully", userResponse)
-            );
-        } catch (RuntimeException e) {
-            log.error("User not found with ID {}: {}", userId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    ApiResponse.error("User not found", e.getMessage())
-            );
-        } catch (Exception e) {
-            log.error("Unexpected error retrieving user {}: {}", userId, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to retrieve user details", "An unexpected error occurred")
-            );
-        }
-    }
+        @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format")
+        private String pincode;
 
+        // Getters and setters
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
 
-    @PutMapping("/{userId}/activate")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<UserResponse>> activateUser(
-            @PathVariable Long userId,
-            @CurrentUser UserPrincipal currentUser) {
+        public String getBio() { return bio; }
+        public void setBio(String bio) { this.bio = bio; }
 
-        try {
-            log.debug("Admin {} activating user: {}", currentUser.getId(), userId);
-            User user = userService.findById(userId);
-            user.setIsActive(true);
-            User activatedUser = userService.updateUser(user);
-            UserResponse userResponse = convertToUserResponse(activatedUser);
-
-            return ResponseEntity.ok(
-                    ApiResponse.success("User activated successfully", userResponse)
-            );
-        } catch (SecurityException e) {
-            log.warn("Access denied for admin {} trying to activate user {}: {}",
-                    currentUser.getId(), userId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
-                    ApiResponse.error("Access denied", e.getMessage())
-            );
-        } catch (RuntimeException e) {
-            log.error("Error activating user {}: {}", userId, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-                    ApiResponse.error("Activation failed", e.getMessage())
-            );
-        } catch (Exception e) {
-            log.error("Unexpected error activating user {}: {}", userId, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to activate user", "An unexpected error occurred")
-            );
-        }
-    }
-
-    @GetMapping("/me")
-    public ResponseEntity<ApiResponse<UserResponse>> getCurrentUser(@CurrentUser UserPrincipal currentUser) {
-        try {
-            log.debug("Retrieving current user info for: {}", currentUser.getId());
-            User user = userService.findById(currentUser.getId());
-            UserResponse userResponse = convertToUserResponse(user);
-
-            return ResponseEntity.ok(
-                    ApiResponse.success("Current user information retrieved successfully", userResponse)
-            );
-        } catch (RuntimeException e) {
-            log.error("Current user not found with ID {}: {}", currentUser.getId(), e.getMessage());
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    ApiResponse.error("Current user not found", e.getMessage())
-            );
-        } catch (Exception e) {
-            log.error("Unexpected error retrieving current user {}: {}", currentUser.getId(), e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to retrieve current user information", "An unexpected error occurred")
-            );
-        }
-    }
-
-    @GetMapping("/created-by-me")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getUsersCreatedByMe(@CurrentUser UserPrincipal currentUser) {
-        try {
-            log.debug("Admin {} retrieving users created by them", currentUser.getId());
-            // Since the getUsersCreatedByAdmin method doesn't exist in UserService,
-            // we'll need to get the admin user and access their created users relationship
-            User admin = userService.findById(currentUser.getId());
-            List<User> createdUsers = admin.getCreatedUsers() != null ? admin.getCreatedUsers() : Collections.emptyList();
-
-            List<UserResponse> userResponses = createdUsers.stream()
-                    .map(this::convertToUserResponse)
-                    .collect(Collectors.toList());
-
-            return ResponseEntity.ok(
-                    ApiResponse.success(
-                            String.format("Retrieved %d users created by you", createdUsers.size()),
-                            userResponses
-                    )
-            );
-        } catch (RuntimeException e) {
-            log.error("Admin not found with ID {}: {}", currentUser.getId(), e.getMessage());
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    ApiResponse.error("Admin not found", e.getMessage())
-            );
-        } catch (Exception e) {
-            log.error("Unexpected error retrieving users created by admin {}: {}", currentUser.getId(), e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to retrieve created users", "An unexpected error occurred")
-            );
-        }
-    }
-
-    // ===== Helper Methods for Response Conversion =====
-
-    private UserResponse convertToUserResponse(User user) {
-        try {
-            UserResponse response = new UserResponse();
-            response.setId(user.getId());
-            response.setUsername(user.getUsername());
-            response.setEmail(user.getEmail());
-            response.setContactNumber(user.getContactNumber());
-            response.setProfileImage(user.getProfileImage());
-            response.setBio(user.getBio());
-            response.setWebsite(user.getWebsite());
-            response.setAddress(user.getAddress());
-            response.setLocation(user.getLocation());
-            response.setIsActive(user.getIsActive());
-            response.setCreatedAt(user.getCreatedAt());
-            response.setRole(user.getRole() != null ? user.getRole().getName() : null);
-
-            return response;
-        } catch (Exception e) {
-            log.error("Error converting user to response: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to convert user data", e);
-        }
+        public String getPincode() { return pincode; }
+        public void setPincode(String pincode) { this.pincode = pincode; }
     }
 }

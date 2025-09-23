@@ -64,7 +64,7 @@ public class AuthController {
             Role CitizenRole = roleRepository.findByName("ROLE_USER")
                     .orElseThrow(() -> new RuntimeException("Role not found"));
             user.setRole(CitizenRole);
-            user.setLocation(request.getLocation());
+            user.setPincode(request.getPincode());
 
             int maxRetries = 10;
             boolean saved = false;
@@ -117,7 +117,7 @@ public class AuthController {
             Role DepartmentRole = roleRepository.findByName("ROLE_DEPARTMENT")
                     .orElseThrow(() -> new RuntimeException("Role not found"));
             user.setRole(DepartmentRole);
-            user.setLocation(request.getLocation());
+            user.setPincode(request.getPincode());
 
             userRepository.save(user);
             log.info("Department user registered successfully: {}", user.getUsername());
@@ -160,7 +160,7 @@ public class AuthController {
             Role adminRole = roleRepository.findByName("ROLE_ADMIN")
                     .orElseThrow(() -> new RuntimeException("Role not found"));
             user.setRole(adminRole);
-            user.setLocation(request.getLocation());
+            user.setPincode(request.getPincode());
 
             userRepository.save(user);
             log.info("Admin user registered successfully: {}", user.getUsername());

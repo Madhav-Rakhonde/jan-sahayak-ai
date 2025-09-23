@@ -1,23 +1,27 @@
 package com.JanSahayak.AI.controller;
 
+import com.JanSahayak.AI.DTO.CommentCreateDto;
 import com.JanSahayak.AI.DTO.CommentUpdateDto;
-import com.JanSahayak.AI.DTO.CommentResponse;
-import com.JanSahayak.AI.exception.ApiResponse;
+import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.exception.*;
 import com.JanSahayak.AI.model.Comment;
+import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
-import com.JanSahayak.AI.security.CurrentUser;
-import com.JanSahayak.AI.security.UserPrincipal;
 import com.JanSahayak.AI.service.CommentService;
+import com.JanSahayak.AI.service.PostService;
 import com.JanSahayak.AI.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import com.JanSahayak.AI.security.CurrentUser;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Date;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/comments")
@@ -26,122 +30,313 @@ import java.util.stream.Collectors;
 public class CommentController {
 
     private final CommentService commentService;
+    private final PostService postService;
     private final UserService userService;
 
-    @GetMapping("/{commentId}")
-    public ResponseEntity<ApiResponse<CommentResponse>> getComment(@PathVariable Long commentId) {
-        try {
-            log.debug("Fetching comment with ID: {}", commentId);
-            Comment comment = commentService.findById(commentId);
-            CommentResponse response = convertToCommentResponse(comment);
+    // ===== Comment Creation Methods =====
 
-            return ResponseEntity.ok(
-                    ApiResponse.success("Comment retrieved successfully", response)
-            );
-        } catch (RuntimeException e) {
-            log.error("Error fetching comment {}: {}", commentId, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    ApiResponse.error("Comment not found", e.getMessage())
-            );
+    /**
+     * Create a new comment on a post
+     */
+    @PostMapping("/posts/{postId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Comment>> createComment(
+            @PathVariable Long postId,
+            @Valid @RequestBody CommentCreateDto commentDto,
+            @CurrentUser User currentUser) {
+        try {
+            Post post = postService.findById(postId);
+
+            Comment comment = commentService.createComment(commentDto, currentUser, post);
+
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(ApiResponse.success("Comment created successfully", comment));
+        } catch (CommentNotFoundException | PostNotFoundException | UserNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Resource not found", e.getMessage()));
+        } catch (ValidationException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("Access denied", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
         } catch (Exception e) {
-            log.error("Unexpected error fetching comment {}: {}", commentId, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to retrieve comment", "An unexpected error occurred")
-            );
+            log.error("Unexpected error creating comment for post: {}", postId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to create comment"));
         }
     }
 
-    @GetMapping("/{commentId}/replies")
-    public ResponseEntity<ApiResponse<List<CommentResponse>>> getCommentReplies(@PathVariable Long commentId) {
-        try {
-            log.debug("Fetching replies for comment ID: {}", commentId);
-            List<Comment> replies = commentService.getCommentReplies(commentId);
-            List<CommentResponse> response = replies.stream()
-                    .map(this::convertToCommentResponse)
-                    .collect(Collectors.toList());
+    // ===== Comment Update Methods =====
 
-            return ResponseEntity.ok(
-                    ApiResponse.success(
-                            String.format("Found %d replies for comment", replies.size()),
-                            response
-                    )
-            );
-        } catch (RuntimeException e) {
-            log.error("Error fetching replies for comment {}: {}", commentId, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    ApiResponse.error("Comment not found", e.getMessage())
-            );
-        } catch (Exception e) {
-            log.error("Unexpected error fetching replies for comment {}: {}", commentId, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to retrieve comment replies", "An unexpected error occurred")
-            );
-        }
-    }
-
+    /**
+     * Update an existing comment
+     */
     @PutMapping("/{commentId}")
-    public ResponseEntity<ApiResponse<CommentResponse>> updateComment(
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Comment>> updateComment(
             @PathVariable Long commentId,
             @Valid @RequestBody CommentUpdateDto commentDto,
-            @CurrentUser UserPrincipal currentUser) {
-
+            @CurrentUser User currentUser) {
         try {
-            log.debug("Updating comment {} by user {}", commentId, currentUser.getId());
-            User user = userService.getUserById(currentUser.getId());
-            Comment updatedComment = commentService.updateComment(commentId, commentDto, user);
 
-            return ResponseEntity.ok(
-                    ApiResponse.success("Comment updated successfully", convertToCommentResponse(updatedComment))
-            );
+            Comment updatedComment = commentService.updateComment(commentId, commentDto, currentUser);
+
+            return ResponseEntity.ok(ApiResponse.success("Comment updated successfully", updatedComment));
+        } catch (CommentNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Comment not found", e.getMessage()));
+        } catch (ValidationException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            log.warn("Unauthorized attempt to update comment {} by user {}: {}",
-                    commentId, currentUser.getId(), e.getMessage());
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
-                    ApiResponse.error("Access denied", e.getMessage())
-            );
-        } catch (RuntimeException e) {
-            log.error("Error updating comment {} by user {}: {}",
-                    commentId, currentUser.getId(), e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-                    ApiResponse.error("Failed to update comment", e.getMessage())
-            );
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("Access denied", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
         } catch (Exception e) {
-            log.error("Unexpected error updating comment {} by user {}: {}",
-                    commentId, currentUser.getId(), e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    ApiResponse.error("Failed to update comment", "An unexpected error occurred")
-            );
+            log.error("Unexpected error updating comment: {}", commentId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to update comment"));
         }
     }
 
+    // ===== Comment Query Methods =====
 
-    private CommentResponse convertToCommentResponse(Comment comment) {
+    /**
+     * Get a comment by ID
+     */
+    @GetMapping("/{commentId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Comment>> getCommentById(@PathVariable Long commentId) {
         try {
-            // Validate comment and its associations
-            if (comment == null) {
-                throw new IllegalArgumentException("Comment cannot be null");
-            }
-            if (comment.getUser() == null) {
-                throw new IllegalArgumentException("Comment must have an associated user");
-            }
-            if (comment.getPost() == null) {
-                throw new IllegalArgumentException("Comment must have an associated post");
-            }
-
-            return CommentResponse.builder()
-                    .id(comment.getId())
-                    .text(comment.getText())
-                    .createdAt(comment.getCreatedAt())
-                    .postId(comment.getPost().getId())
-                    .userId(comment.getUser().getId())
-                    .username(comment.getUser().getUsername())
-                    .parentCommentId(comment.getParentComment() != null ? comment.getParentComment().getId() : null)
-                    .replyCount(comment.getReplyCount())
-                    .replies(null) // Can be populated if nested structure is needed
-                    .build();
+            Comment comment = commentService.findById(commentId);
+            return ResponseEntity.ok(ApiResponse.success("Comment found", comment));
+        } catch (CommentNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Comment not found", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
         } catch (Exception e) {
-            log.error("Error converting comment to response: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to convert comment data", e);
+            log.error("Unexpected error getting comment: {}", commentId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to get comment"));
         }
     }
+
+    /**
+     * Get all comments for a post with cursor-based pagination
+     */
+    @GetMapping("/posts/{postId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getCommentsByPost(
+            @PathVariable Long postId,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
+        try {
+            Post post = postService.findById(postId);
+
+            PaginatedResponse<Comment> comments = commentService.getCommentsByPost(post, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success("Comments retrieved successfully", comments));
+        } catch (PostNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Post not found", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error getting comments for post: {}", postId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to get comments"));
+        }
+    }
+
+    /**
+     * Get top-level comments for a post with cursor-based pagination
+     */
+    @GetMapping("/posts/{postId}/top-level")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getTopLevelCommentsByPost(
+            @PathVariable Long postId,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
+        try {
+            Post post = postService.findById(postId);
+
+            PaginatedResponse<Comment> comments = commentService.getTopLevelCommentsByPost(post, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success("Top-level comments retrieved successfully", comments));
+        } catch (PostNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Post not found", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error getting top-level comments for post: {}", postId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to get top-level comments"));
+        }
+    }
+
+    /**
+     * Count comments for a post
+     */
+    @GetMapping("/posts/{postId}/count")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Long>> countCommentsByPost(@PathVariable Long postId) {
+        try {
+            Post post = postService.findById(postId);
+
+            Long count = commentService.countCommentsByPost(post);
+
+            return ResponseEntity.ok(ApiResponse.success("Comment count retrieved successfully", count));
+        } catch (PostNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Post not found", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error counting comments for post: {}", postId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to count comments"));
+        }
+    }
+
+    /**
+     * Get comments by user with cursor-based pagination
+     */
+    @GetMapping("/users/{userId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getCommentsByUser(
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
+        try {
+            User user = userService.findById(userId);
+
+            PaginatedResponse<Comment> comments = commentService.getCommentsByUser(user, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success("User comments retrieved successfully", comments));
+        } catch (UserNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("User not found", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error getting comments by user: {}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to get user comments"));
+        }
+    }
+
+    /**
+     * Get current user's comments with cursor-based pagination
+     */
+    @GetMapping("/my-comments")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getMyComments(
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit,
+            @CurrentUser User currentUser) {
+        try {
+
+            PaginatedResponse<Comment> comments = commentService.getCommentsByUser(currentUser, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success("Your comments retrieved successfully", comments));
+        } catch (UserNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("User not found", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error getting current user's comments", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to get your comments"));
+        }
+    }
+
+    /**
+     * Get replies to a comment with cursor-based pagination
+     */
+    @GetMapping("/{commentId}/replies")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getCommentReplies(
+            @PathVariable Long commentId,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
+        try {
+            PaginatedResponse<Comment> replies = commentService.getCommentReplies(commentId, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success("Comment replies retrieved successfully", replies));
+        } catch (CommentNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Comment not found", e.getMessage()));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error getting replies for comment: {}", commentId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to get comment replies"));
+        }
+    }
+
+    // ===== Admin Methods =====
+
+    /**
+     * Get all comments with cursor-based pagination (Admin only)
+     */
+    @GetMapping("/admin/all")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getAllComments(
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
+        try {
+            PaginatedResponse<Comment> comments = commentService.getAllComments(beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success("All comments retrieved successfully", comments));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error getting all comments", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to get all comments"));
+        }
+    }
+
+    /**
+     * Get recent comments with cursor-based pagination (Admin/Department)
+     */
+    @GetMapping("/admin/recent")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_DEPARTMENT')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getRecentComments(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date fromDate,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
+        try {
+            PaginatedResponse<Comment> comments = commentService.getRecentComments(fromDate, beforeId, limit);
+
+            return ResponseEntity.ok(ApiResponse.success("Recent comments retrieved successfully", comments));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error getting recent comments", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to get recent comments"));
+        }
+    }
+
+
 }
