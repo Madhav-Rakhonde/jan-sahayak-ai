@@ -18,8 +18,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,9 +47,27 @@ public class AuthController {
             final String jwt = jwtUtil.generateToken(authentication);
 
             return ResponseEntity.ok(ApiResponse.success("Login successful", new AuthResponse(jwt)));
-        } catch (Exception e) {
+
+        } catch (BadCredentialsException e) {
+            // This exception is specifically for incorrect passwords.
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("Authentication failed"));
+                    .body(ApiResponse.error("Incorrect username or password. Please try again."));
+
+        } catch (UsernameNotFoundException e) {
+            // This exception is thrown by your UserDetailsService if the email is not found.
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("No account found with this email address."));
+
+        } catch (DisabledException e) {
+            // This can be used if you have a feature to disable user accounts.
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Your account has been disabled. Please contact support."));
+
+        } catch (Exception e) {
+            // A general fallback for any other unexpected errors during authentication.
+            log.error("Authentication failed for user {}: {}", request.getEmail(), e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("An internal error occurred. Please try again later."));
         }
     }
 

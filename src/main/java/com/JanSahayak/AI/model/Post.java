@@ -69,6 +69,19 @@ public class Post {
     @Temporal(TemporalType.TIMESTAMP)
     private Date updatedAt;
 
+    @Column(name = "like_count", nullable = false)
+    @Builder.Default
+    private Integer likeCount = 0;
+
+    @Column(name = "view_count", nullable = false)
+    @Builder.Default
+    private Integer viewCount = 0;
+
+    @Column(name = "comment_count", nullable = false)
+    @Builder.Default
+    private Integer commentCount = 0;
+
+
     // ===== Broadcasting Fields =====
     @Enumerated(EnumType.STRING)
     @Column(name = "broadcast_scope")
@@ -312,16 +325,64 @@ public class Post {
     }
 
     // ===== Count Methods =====
-    public int getLikeCount() {
+
+
+    public Integer getLikeCount() {
+        return likeCount != null ? likeCount : 0;
+    }
+
+    public Integer getViewCount() {
+        return viewCount != null ? viewCount : 0;
+    }
+
+    public Integer getCommentCount() {
+        return commentCount != null ? commentCount : 0;
+    }
+
+    // Keep these for collection-based counting when needed
+    public int getActualLikeCount() {
         return likes != null ? likes.size() : 0;
     }
 
-    public int getCommentCount() {
+    public int getActualCommentCount() {
         return comments != null ? comments.size() : 0;
     }
 
-    public int getViewCount() {
+    public int getActualViewCount() {
         return views != null ? views.size() : 0;
+    }
+    /**
+     * Increment comment count
+     */
+    public void incrementCommentCount() {
+        this.commentCount = (this.commentCount != null ? this.commentCount : 0) + 1;
+    }
+
+    /**
+     * Decrement comment count
+     */
+    public void decrementCommentCount() {
+        this.commentCount = Math.max(0, (this.commentCount != null ? this.commentCount : 0) - 1);
+    }
+    /**
+     * Safely increment view count
+     */
+    public void incrementViewCount() {
+        this.viewCount = (this.viewCount != null ? this.viewCount : 0) + 1;
+    }
+
+    /**
+     * Safely increment like count
+     */
+    public void incrementLikeCount() {
+        this.likeCount = (this.likeCount != null ? this.likeCount : 0) + 1;
+    }
+
+    /**
+     * Safely decrement like count
+     */
+    public void decrementLikeCount() {
+        this.likeCount = Math.max(0, (this.likeCount != null ? this.likeCount : 0) - 1);
     }
 
     public int getTaggedUserCount() {

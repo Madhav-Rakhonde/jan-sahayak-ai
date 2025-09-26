@@ -6,6 +6,7 @@ import com.JanSahayak.AI.DTO.UserTagValidationResult;
 import com.JanSahayak.AI.exception.*;
 import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
+import com.JanSahayak.AI.payload.PostUtility;
 import com.JanSahayak.AI.security.CurrentUser;
 import com.JanSahayak.AI.service.PostService;
 import com.JanSahayak.AI.service.UserService;
@@ -490,7 +491,7 @@ public class UserTaggingController {
                         .body(ApiResponse.error("Validation failed", "Content is required"));
             }
 
-            List<String> extractedTags = userTaggingService.extractUserTags(content);
+            List<String> extractedTags = PostUtility.extractUserTags(content);
 
             return ResponseEntity.ok(ApiResponse.success("User tags extracted successfully", extractedTags));
         } catch (Exception e) {

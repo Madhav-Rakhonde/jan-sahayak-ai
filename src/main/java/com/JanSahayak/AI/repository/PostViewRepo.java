@@ -17,13 +17,20 @@ import java.sql.Timestamp;
 @Repository
 public interface PostViewRepo extends JpaRepository<PostView, Long> {
 
+    // For duplicate view prevention
+    Optional<PostView> findByPostAndUserAndViewedAtAfter(Post post, User user, Date date);
 
+    // For checking recent views
+    Optional<PostView> findByPostAndUser(Post post, User user);
 
-    // FIXED: Removed duplicate method - keeping only the Timestamp version
-    @Query("SELECT pv FROM PostView pv WHERE pv.user = :user AND pv.post = :post AND pv.viewedAt >= :recentTime")
-    Optional<PostView> findRecentViewByUserAndPost(@Param("user") User user,
-                                                   @Param("post") Post post,
-                                                   @Param("recentTime") Timestamp recentTime);
+    // For statistics
+    Long countByPostAndViewedAtAfter(Post post, Date date);
 
-
+    // For cleanup or admin purposes
+    List<PostView> findByPostOrderByViewedAtDesc(Post post, Pageable pageable);
+    /**
+     * Count total views for a post
+     */
+    @Query("SELECT COUNT(pv) FROM PostView pv WHERE pv.post = :post")
+    Long countByPost(@Param("post") Post post);
 }

@@ -261,5 +261,45 @@ public class SchemeController {
                             "An unexpected error occurred while searching infrastructure posts"));
         }
     }
+    /**
+     * Get high priority emergency posts (weather alerts, traffic updates, etc.)
+     * Only returns broadcasting posts visible to the user based on location
+     */
+    @GetMapping("/emergency/high-priority")
+    @PreAuthorize("hasRole('ROLE_USER') or hasRole('ROLE_DEPARTMENT') or hasRole('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getHighPriorityEmergencyPosts(
+            @RequestParam(value = "beforePostId", required = false) Long beforePostId,
+            @RequestParam(value = "limit", defaultValue = "20") Integer limit,
+            @CurrentUser User currentUser) {
+
+        try {
+            log.info("Fetching high priority emergency posts for user: {} (ID: {}), beforePostId: {}, limit: {}",
+                    currentUser.getActualUsername(), currentUser.getId(), beforePostId, limit);
+
+            PaginatedResponse<PostResponse> emergencyPosts = schemeService.searchHighPriorityEmergencyPosts(
+                    currentUser, beforePostId, limit);
+
+            log.info("Retrieved {} high priority emergency posts for user: {}",
+                    emergencyPosts.getData().size(), currentUser.getActualUsername());
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    "High priority emergency posts retrieved successfully", emergencyPosts));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error while fetching emergency posts: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error("Validation error", e.getMessage()));
+
+        } catch (SecurityException e) {
+            log.warn("Security error while fetching emergency posts: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    ApiResponse.error("Access denied", e.getMessage()));
+
+        } catch (Exception e) {
+            log.error("Unexpected error while fetching high priority emergency posts", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Internal server error", "Failed to retrieve emergency posts"));
+        }
+    }
 
 }

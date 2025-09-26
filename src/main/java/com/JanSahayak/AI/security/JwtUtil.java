@@ -30,12 +30,16 @@ public class JwtUtil {
     }
 
     public String generateToken(Authentication authentication) {
-        User user = (User) authentication.getPrincipal(); // Cast directly to User
+        User user = (User) authentication.getPrincipal();
 
         Date expiryDate = new Date(System.currentTimeMillis() + jwtExpirationInMs);
 
         return Jwts.builder()
-                .setSubject(Long.toString(user.getId())) // Use user ID directly
+                .setSubject(Long.toString(user.getId()))
+                .claim("username", user.getActualUsername())
+                .claim("email", user.getEmail())
+                .claim("role", user.getRole() != null ? user.getRole().getName() : null)
+                .claim("isActive", user.getIsActive())
                 .setIssuedAt(new Date())
                 .setExpiration(expiryDate)
                 .signWith(getSigningKey())
@@ -46,14 +50,29 @@ public class JwtUtil {
         Date expiryDate = new Date(System.currentTimeMillis() + jwtExpirationInMs);
 
         String subject;
+        String username = null;
+        String email = null;
+        String role = null;
+        Boolean isActive = null;
+
         if (userDetails instanceof User) {
-            subject = Long.toString(((User) userDetails).getId());
+            User user = (User) userDetails;
+            subject = Long.toString(user.getId());
+            username = user.getActualUsername();
+            email = user.getEmail();
+            role = user.getRole() != null ? user.getRole().getName() : null;
+            isActive = user.getIsActive();
         } else {
             subject = userDetails.getUsername();
+            email = userDetails.getUsername(); // Fallback for non-User implementations
         }
 
         return Jwts.builder()
                 .setSubject(subject)
+                .claim("username", username)
+                .claim("email", email)
+                .claim("role", role)
+                .claim("isActive", isActive)
                 .setIssuedAt(new Date())
                 .setExpiration(expiryDate)
                 .signWith(getSigningKey())
@@ -77,7 +96,37 @@ public class JwtUtil {
                 .parseSignedClaims(token)
                 .getPayload();
 
-        return claims.getSubject();
+        return claims.get("username", String.class);
+    }
+
+    public String getEmailFromToken(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        return claims.get("email", String.class);
+    }
+
+    public String getRoleFromToken(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        return claims.get("role", String.class);
+    }
+
+    public Boolean getIsActiveFromToken(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        return claims.get("isActive", Boolean.class);
     }
 
     public boolean validateToken(String authToken) {

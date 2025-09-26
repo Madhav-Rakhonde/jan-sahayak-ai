@@ -356,4 +356,80 @@ public class SchemeService {
             return PaginationUtils.handlePaginationError("searchInfrastructurePostsByWildcard", e, PaginationUtils.validateLimit(limit));
         }
     }
+    /**
+     * Search high priority emergency posts with specific hashtags
+     * Only returns broadcasting posts that are visible to the user based on location
+     */
+    public PaginatedResponse<PostResponse> searchHighPriorityEmergencyPosts(User currentUser,
+                                                                            Long beforePostId,
+                                                                            Integer limit) {
+        try {
+            PostUtility.validateUser(currentUser);
+
+            // Define high priority emergency patterns
+            List<String> emergencyPatterns = List.of(
+                    "#highpriority%",
+                    "%#highpriority%",
+                    "#weatheremergency%",
+                    "%#weatheremergency%",
+                    "#weatheralert%",
+                    "%#weatheralert%",
+                    "#trafficupdate%",
+                    "%#trafficupdate%",
+                    "%high%priority%",
+                    "%weather%emergency%",
+                    "%weather%alert%",
+                    "%traffic%update%"
+            );
+
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
+                    "searchHighPriorityEmergencyPosts", beforePostId, limit);
+
+            // Build specification for emergency posts with broadcast scope only
+            Specification<Post> spec = Specification.where(
+                            PostSpecification.isBroadcastPost()
+                    ).and(PostSpecification.isActiveStatus())
+                    .and(PostSpecification.hasEmergencyHashtags(emergencyPatterns));
+
+            // Add cursor-based pagination if beforePostId is provided
+            if (setup.hasCursor()) {
+                spec = spec.and((root, query, cb) -> cb.lessThan(root.get("id"), setup.getSanitizedCursor()));
+            }
+
+            // Add ordering by creation date (most recent first)
+            spec = spec.and((root, query, cb) -> {
+                query.orderBy(cb.desc(root.get("createdAt")));
+                return cb.conjunction();
+            });
+
+            // Execute query
+            Page<Post> postPage = postRepository.findAll(spec, setup.toPageable());
+            List<Post> allPosts = postPage.getContent();
+
+            // Filter posts based on user's location and broadcast visibility using PostUtility
+            List<Post> visiblePosts = allPosts.stream()
+                    .filter(post -> PostUtility.isPostVisibleToUser(post, currentUser))
+                    .collect(Collectors.toList());
+
+            // Convert to post responses
+            List<PostResponse> postResponses = visiblePosts.stream()
+                    .map(post -> postService.convertToPostResponse(post, currentUser))
+                    .collect(Collectors.toList());
+
+            // Create paginated response
+            PaginatedResponse<PostResponse> response = PaginationUtils.createIdBasedResponse(
+                    postResponses, setup.getValidatedLimit(), PostResponse::getId);
+
+            PaginationUtils.logPaginationResults("searchHighPriorityEmergencyPosts", postResponses,
+                    response.isHasMore(), response.getNextCursor());
+
+            return response;
+
+        } catch (Exception e) {
+            log.error("Failed to search high priority emergency posts for user: {}",
+                    currentUser != null ? currentUser.getActualUsername() : "null", e);
+            return PaginationUtils.handlePaginationError("searchHighPriorityEmergencyPosts", e,
+                    PaginationUtils.validateLimit(limit));
+        }
+    }
 }

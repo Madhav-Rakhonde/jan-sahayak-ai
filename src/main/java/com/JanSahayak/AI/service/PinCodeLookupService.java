@@ -462,6 +462,14 @@ public class PinCodeLookupService {
         }
         return pincodeLookupRepository.findDistinctDistrictsByStateIgnoreCaseAndIsActiveTrue(state.trim());
     }
+    public List<String> getDistrictsByStates(List<String> states) {
+        // ... returns ALL districts at once
+        return states.stream()
+                .flatMap(state -> getDistrictsByState(state).stream()) // Gets ALL districts
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList()); // Returns complete list
+    }
 
     // ===== User Helper Methods (Using Pincode Prefix Logic) =====
 
