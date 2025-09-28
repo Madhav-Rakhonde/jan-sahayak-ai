@@ -2,6 +2,7 @@ package com.JanSahayak.AI.controller;
 
 import com.JanSahayak.AI.DTO.*;
 import com.JanSahayak.AI.exception.ApiResponse;
+import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.PostView;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.security.CurrentUser;
@@ -251,8 +252,6 @@ public class PostInteractionController {
         }
     }
 
-    // ===== INTERACTION STATUS ENDPOINTS =====
-
     /**
      * Get the current user's interaction status with a specific post
      * Returns whether user has liked/viewed the post and current counts
@@ -268,20 +267,22 @@ public class PostInteractionController {
             @CurrentUser User currentUser) {
 
         try {
-            var post = postService.findById(postId);
+            Post post = postService.findById(postId);
 
-            // Note: Would need to add methods to service to check if user has liked/viewed
-            // For now, returning basic structure
+            // UPDATED: Call the new service methods to get the real status
+            boolean isLiked = postInteractionService.hasUserLikedPost(post, currentUser);
+            boolean hasViewed = postInteractionService.hasUserViewedPostRecently(post, currentUser);
+
             InteractionStatusResponse response = InteractionStatusResponse.builder()
                     .postId(postId)
                     .userId(currentUser.getId())
                     .username(currentUser.getActualUsername())
-                    .isLiked(false) // TODO: Implement check in service
-                    .hasViewed(false) // TODO: Implement check in service
+                    .isLiked(isLiked) // Now uses the real value
+                    .hasViewed(hasViewed) // Now uses the real value
                     .currentLikeCount(post.getLikeCount())
                     .currentViewCount(post.getViewCount())
                     .currentCommentCount(post.getCommentCount())
-                    .canInteract(true) // TODO: Check post status and permissions
+                    .canInteract(post.getStatus() != null && post.getStatus().isInteractable())
                     .build();
 
             log.debug("Retrieved interaction status for post: {} and user: {}",
@@ -295,4 +296,5 @@ public class PostInteractionController {
                     .body(ApiResponse.error("Failed to get interaction status", e.getMessage()));
         }
     }
+
 }

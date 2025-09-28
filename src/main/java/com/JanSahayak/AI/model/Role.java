@@ -1,5 +1,6 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -21,8 +22,8 @@ public class Role {
     @Column(nullable = false, unique = true, length = 50)
     private String name; // e.g. "ROLE_ADMIN", "ROLE_USER" ,"ROLE_DEPARTMENT"
 
-    // ✅ FIXED: Corrected mappedBy to match the field name in User entity
-    @OneToMany(mappedBy = "role", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "role", cascade = CascadeType.ALL)
+    @JsonIgnore
     private Set<User> users = new HashSet<>();
 
     // ===== Helper Methods =====

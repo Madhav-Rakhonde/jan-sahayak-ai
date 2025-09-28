@@ -316,4 +316,25 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // Add this method to your UserRepo.java
     @Query("SELECT u FROM User u WHERE u.role.name = :roleName AND u.isActive = true ORDER BY u.id DESC")
     List<User> findByRoleNameAndIsActiveTrueOrderByIdDesc(@Param("roleName") String roleName);
+
+
+    // Add this new method to your existing UserRepo interface
+    @Query("SELECT u FROM User u " +
+            "WHERE u.role.name = :roleName " +
+            "AND u.isActive = true " +
+            "AND (LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
+            "     OR LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%'))) " +
+            "AND (:beforeId IS NULL OR u.id < :beforeId) " +
+            "ORDER BY u.id DESC")
+    List<User> searchUsersByRoleAndQueryWithCursor(
+            @Param("roleName") String roleName,
+            @Param("query") String query,
+            @Param("beforeId") Long beforeId,
+            Pageable pageable
+    );
+    /**
+     * Find active user by username
+     */
+    Optional<User> findByUsernameAndIsActiveTrue(String username);
+
 }

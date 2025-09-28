@@ -1,5 +1,6 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -29,6 +30,7 @@ public class Comment {
 
     // Existing Relationships
     @ManyToOne(fetch = FetchType.LAZY)
+    @JsonBackReference
     private Post post;
 
     @ManyToOne(fetch = FetchType.LAZY)

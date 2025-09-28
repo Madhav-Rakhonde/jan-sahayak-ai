@@ -8,14 +8,17 @@ import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.security.CurrentUser;
 import com.JanSahayak.AI.service.PostService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.multipart.MultipartHttpServletRequest;
 
 import java.util.List;
 import java.util.Map;
@@ -53,27 +56,62 @@ public class PostController {
         }
     }
 
-    @PostMapping("/with-media")
+    @PostMapping(value = "/with-media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PostResponse>> createPostWithMedia(
-            @Valid @ModelAttribute PostCreateDto postDto,
-            @RequestParam(value = "media", required = false) MultipartFile mediaFile,
+            @RequestPart("content") String content,
+            @RequestPart("targetPincode") String targetPincode,
+            @RequestPart(value = "media", required = false) MultipartFile mediaFile,
             @CurrentUser User user) {
         try {
+            log.info("=== Processing multipart request ===");
+            log.info("Received - content: '{}', targetPincode: '{}'", content, targetPincode);
+
+            if (mediaFile != null) {
+                log.info("Media file: {} (size: {} bytes, content-type: {})",
+                        mediaFile.getOriginalFilename(),
+                        mediaFile.getSize(),
+                        mediaFile.getContentType());
+            }
+
+            // Validate parameters
+            if (content == null || content.trim().isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error("Validation failed", "Post content is required"));
+            }
+
+            if (targetPincode == null || targetPincode.trim().isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error("Validation failed", "Target pincode is required"));
+            }
+
+            // Create DTO
+            PostCreateDto postDto = PostCreateDto.builder()
+                    .content(content.trim())
+                    .targetPincode(targetPincode.trim())
+                    .broadcastScope(BroadcastScope.AREA)
+                    .build();
+
             Post post = postService.createPost(postDto, user, mediaFile);
             PostResponse response = postService.convertToPostResponse(post, user);
+
+            log.info("Post created successfully with ID: {}", post.getId());
+
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Post with media created successfully", response));
+
         } catch (ValidationException e) {
+            log.error("Validation error: {}", e.getMessage());
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (MediaValidationException e) {
+            log.error("Media validation error: {}", e.getMessage());
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("Media validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create post with media", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to create post with media", "Internal server error"));
+                    .body(ApiResponse.error("Failed to create post with media", e.getMessage()));
         }
     }
 
@@ -914,7 +952,7 @@ public class PostController {
     }
 
     @GetMapping("/count/active")
-    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Long>> countActivePosts() {
         try {
             Long count = postService.countActivePosts();
@@ -927,7 +965,7 @@ public class PostController {
     }
 
     @GetMapping("/count/resolved")
-    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Long>> countResolvedPosts() {
         try {
             Long count = postService.countResolvedPosts();
@@ -938,170 +976,6 @@ public class PostController {
                     .body(ApiResponse.error("Failed to count resolved posts", "Internal server error"));
         }
     }
-
-    @GetMapping("/multiple-user-tags")
-    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getPostsWithMultipleUserTags(
-            @RequestParam(required = false) Long beforeId,
-            @RequestParam(required = false) Integer limit,
-            @CurrentUser User user) {
-        try {
-            PaginatedResponse<Post> posts = postService.getPostsWithMultipleUserTags(beforeId, limit);
-            PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
-            return ResponseEntity.ok(ApiResponse.success("Posts with multiple user tags retrieved successfully", response));
-        } catch (Exception e) {
-            log.error("Failed to get posts with multiple user tags", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to get posts with multiple user tags", "Internal server error"));
-        }
-    }
-
-    @GetMapping("/trending")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getTrendingPosts(
-            @RequestParam(defaultValue = "7") int days,
-            @RequestParam(required = false) Long beforeId,
-            @RequestParam(required = false) Integer limit,
-            @CurrentUser User user) {
-        try {
-            PaginatedResponse<Post> posts = postService.getTrendingPosts(days, beforeId, limit);
-            PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
-            return ResponseEntity.ok(ApiResponse.success("Trending posts retrieved successfully", response));
-        } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Failed to get trending posts", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to get trending posts", "Internal server error"));
-        }
-    }
-
-    // ===== User Tagging Endpoints =====
-
-    @PostMapping("/{postId}/tags/users")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PostResponse>> tagUsersToPost(
-            @PathVariable Long postId,
-            @RequestBody List<Long> userIds,
-            @CurrentUser User user) {
-        try {
-            Post post = postService.tagUsersToPost(postId, userIds, user);
-            PostResponse response = postService.convertToPostResponse(post, user);
-            return ResponseEntity.ok(ApiResponse.success("Users tagged to post successfully", response));
-        } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
-        } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
-        } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Failed to tag users to post: {}", postId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to tag users to post", "Internal server error"));
-        }
-    }
-
-    @DeleteMapping("/{postId}/tags/users/{userId}")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PostResponse>> removeUserTagFromPost(
-            @PathVariable Long postId,
-            @PathVariable Long userId,
-            @CurrentUser User user) {
-        try {
-            Post post = postService.removeUserTagFromPost(postId, userId, user);
-            PostResponse response = postService.convertToPostResponse(post, user);
-            return ResponseEntity.ok(ApiResponse.success("User tag removed from post successfully", response));
-        } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
-        } catch (UserNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("User not found", e.getMessage()));
-        } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Failed to remove user tag from post: {}", postId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to remove user tag from post", "Internal server error"));
-        }
-    }
-
-    // ===== Media Utility Endpoints =====
-
-    @GetMapping("/media/constraints")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getMediaConstraints() {
-        try {
-            Map<String, Object> constraints = postService.getMediaConstraints();
-            return ResponseEntity.ok(ApiResponse.success("Media constraints retrieved successfully", constraints));
-        } catch (Exception e) {
-            log.error("Failed to get media constraints", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to get media constraints", "Internal server error"));
-        }
-    }
-
-    @GetMapping("/media/{fileName}/path")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<String>> getMediaFilePath(
-            @PathVariable String fileName) {
-        try {
-            String filePath = postService.getMediaFilePath(fileName);
-            if (filePath == null) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiResponse.error("Media file not found", "File does not exist"));
-            }
-            return ResponseEntity.ok(ApiResponse.success("Media file path retrieved successfully", filePath));
-        } catch (Exception e) {
-            log.error("Failed to get media file path: {}", fileName, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to get media file path", "Internal server error"));
-        }
-    }
-
-    @GetMapping("/media/{fileName}/type")
-    public ResponseEntity<ApiResponse<String>> getMediaType(
-            @PathVariable String fileName) {
-        try {
-            String mediaType = postService.getMediaType(fileName);
-            return ResponseEntity.ok(ApiResponse.success("Media type retrieved successfully", mediaType));
-        } catch (Exception e) {
-            log.error("Failed to get media type for file: {}", fileName, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to get media type", "Internal server error"));
-        }
-    }
-
-    @GetMapping("/media/{fileName}/is-image")
-    public ResponseEntity<ApiResponse<Boolean>> isImageFile(
-            @PathVariable String fileName) {
-        try {
-            boolean isImage = postService.isImageFile(fileName);
-            return ResponseEntity.ok(ApiResponse.success("Image file check completed", isImage));
-        } catch (Exception e) {
-            log.error("Failed to check if file is image: {}", fileName, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to check image file", "Internal server error"));
-        }
-    }
-
-    @GetMapping("/media/{fileName}/is-video")
-    public ResponseEntity<ApiResponse<Boolean>> isVideoFile(
-            @PathVariable String fileName) {
-        try {
-            boolean isVideo = postService.isVideoFile(fileName);
-            return ResponseEntity.ok(ApiResponse.success("Video file check completed", isVideo));
-        } catch (Exception e) {
-            log.error("Failed to check if file is video: {}", fileName, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Failed to check video file", "Internal server error"));
-        }
-    }
-
     // ===== File Cleanup Endpoints =====
 
     @PostMapping("/cleanup/files")

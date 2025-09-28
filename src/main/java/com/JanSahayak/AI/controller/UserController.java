@@ -404,7 +404,7 @@ public class UserController {
      * Accessible by departments and admins only
      */
     @GetMapping("/active")
-    @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getAllActiveUsers(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {

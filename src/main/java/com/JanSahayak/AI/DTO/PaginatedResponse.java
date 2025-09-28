@@ -10,6 +10,7 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+
 public class PaginatedResponse<T> {
     private List<T> data;
     private boolean hasMore;

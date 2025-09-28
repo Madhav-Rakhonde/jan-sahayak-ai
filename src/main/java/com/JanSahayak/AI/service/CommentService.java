@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.DTO.CommentCreateDto;
+import com.JanSahayak.AI.DTO.CommentDto;
 import com.JanSahayak.AI.DTO.CommentUpdateDto;
 import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.config.Constant;
@@ -12,10 +13,10 @@ import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.payload.PostUtility;
 import com.JanSahayak.AI.repository.CommentRepo;
+import com.JanSahayak.AI.repository.PostRepo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,31 +33,28 @@ import java.util.stream.Collectors;
 public class CommentService {
 
     private final CommentRepo commentRepository;
+    private final PostRepo postRepository;
 
+    /**
+     * Create a new comment and return CommentDto to prevent LazyInitializationException
+     */
     @Transactional(rollbackFor = Exception.class)
-    public Comment createComment(@Valid CommentCreateDto commentDto, @NotNull User user, @NotNull Post post) {
+    public CommentDto createComment(@Valid CommentCreateDto commentDto, @NotNull User user, @NotNull Post post) {
         try {
             validateCommentDto(commentDto);
             PostUtility.validateUser(user);
             PostUtility.validatePost(post);
 
-            if (post.getStatus() == null) {
-                log.error("Post status is null for post ID: {}", post.getId());
-                throw new ServiceException("Post status is invalid");
-            }
-
-            // Check if post allows new comments (should be interactable)
-            if (!post.getStatus().isInteractable()) {
+            if (post.getStatus() == null || !post.getStatus().isInteractable()) {
                 throw new ServiceException("Cannot add comments to posts with status: " + post.getStatus().getDisplayName());
             }
 
             Comment comment = new Comment();
-            comment.setText(commentDto.getText().trim()); // Trim whitespace
+            comment.setText(commentDto.getText().trim());
             comment.setUser(user);
             comment.setPost(post);
             comment.setCreatedAt(new Date());
 
-            // Set parent comment if this is a reply
             if (commentDto.getParentCommentId() != null) {
                 Comment parentComment = findById(commentDto.getParentCommentId());
                 validateParentComment(parentComment, post);
@@ -64,20 +62,18 @@ public class CommentService {
             }
 
             Comment savedComment = commentRepository.save(comment);
-            log.info("Comment created by user: {} (ID: {}) on post: {} (status: {}) at location: {}",
-                    user.getActualUsername(), user.getId(), post.getId(),
-                    post.getStatus().getDisplayName(), post.getPostPincode());
+            post.incrementCommentCount();
+            postRepository.save(post);
 
-            return savedComment;
+            log.info("Comment created by user: {} on post: {}", user.getActualUsername(), post.getId());
+
+            // Convert to DTO before returning to prevent LazyInitializationException
+            return CommentDto.fromComment(savedComment);
         } catch (DataAccessException ex) {
-            log.error("Database error while creating comment for user: {} on post: {}",
-                    user != null ? user.getActualUsername() : "null",
-                    post != null ? post.getId() : "null", ex);
+            log.error("Database error while creating comment for user: {} on post: {}", user.getActualUsername(), post.getId(), ex);
             throw new ServiceException("Failed to create comment due to database error", ex);
         } catch (Exception ex) {
-            log.error("Unexpected error while creating comment for user: {} on post: {}",
-                    user != null ? user.getActualUsername() : "null",
-                    post != null ? post.getId() : "null", ex);
+            log.error("Unexpected error while creating comment for user: {} on post: {}", user.getActualUsername(), post.getId(), ex);
             throw new ServiceException("Failed to create comment", ex);
         }
     }
@@ -90,48 +86,21 @@ public class CommentService {
             PostUtility.validateUser(user);
 
             Comment comment = findById(commentId);
-
-            // Enhanced null-safe checks
             Post post = comment.getPost();
-            if (post == null) {
-                log.error("Comment {} has no associated post", commentId);
-                throw new ServiceException("Comment has no associated post");
-            }
 
-            if (post.getStatus() == null) {
-                log.error("Post status is null for post ID: {}", post.getId());
-                throw new ServiceException("Post status is invalid");
+            if (post == null || post.getStatus() == null || !post.getStatus().allowsUpdates()) {
+                throw new SecurityException("Cannot update comments on this post.");
             }
-
-            // Check if the post allows updates based on status
-            if (!post.getStatus().allowsUpdates()) {
-                throw new SecurityException("Cannot update comments on posts with status: " + post.getStatus().getDisplayName());
-            }
-
-            // Enhanced user ownership validation
-            if (comment.getUser() == null || comment.getUser().getId() == null ||
-                    !comment.getUser().getId().equals(user.getId())) {
-                log.warn("Unauthorized comment update attempt by user: {} for comment: {}",
-                        user.getActualUsername(), commentId);
-                throw new SecurityException("Only comment owner can update comment");
+            if (comment.getUser() == null || !comment.getUser().getId().equals(user.getId())) {
+                throw new SecurityException("Only the comment owner can update the comment.");
             }
 
             comment.setText(commentDto.getText().trim());
-
             Comment updatedComment = commentRepository.save(comment);
-            log.info("Comment updated by user: {} (ID: {}) on post with status: {}",
-                    user.getActualUsername(), user.getId(), post.getStatus().getDisplayName());
-
+            log.info("Comment updated by user: {}", user.getActualUsername());
             return updatedComment;
-        } catch (SecurityException ex) {
-            throw ex; // Re-throw security exceptions as-is
-        } catch (DataAccessException ex) {
-            log.error("Database error while updating comment: {} by user: {}",
-                    commentId, user != null ? user.getActualUsername() : "null", ex);
-            throw new ServiceException("Failed to update comment due to database error", ex);
         } catch (Exception ex) {
-            log.error("Unexpected error while updating comment: {} by user: {}",
-                    commentId, user != null ? user.getActualUsername() : "null", ex);
+            log.error("Error updating comment {}: {}", commentId, ex.getMessage());
             throw new ServiceException("Failed to update comment", ex);
         }
     }
@@ -148,13 +117,13 @@ public class CommentService {
         }
     }
 
-    // ===== UPDATED METHODS WITH CURSOR-BASED PAGINATION =====
+    // ===== UPDATED METHODS WITH DTO PATTERN TO PREVENT LazyInitializationException =====
 
     /**
-     * Get comments by post with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
+     * Get comments by post with cursor-based pagination - returns CommentDto to prevent LazyInitializationException
      */
-    public PaginatedResponse<Comment> getCommentsByPost(@NotNull Post post, Long beforeId, Integer limit) {
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getCommentsByPost(@NotNull Post post, Long beforeId, Integer limit) {
         try {
             PostUtility.validatePost(post);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getCommentsByPost", beforeId, limit);
@@ -163,7 +132,7 @@ public class CommentService {
             if (post.getStatus() == null || !post.getStatus().isVisible()) {
                 log.warn("Attempted to retrieve comments for non-visible post: {} with status: {}",
                         post.getId(), post.getStatus() != null ? post.getStatus().getDisplayName() : "null");
-                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+                return PaginationUtils.createEmptyCommentDtoResponse(setup.getValidatedLimit());
             }
 
             List<Comment> comments;
@@ -179,7 +148,10 @@ public class CommentService {
                 comments = Collections.emptyList();
             }
 
-            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(comments, setup.getValidatedLimit());
+            // Convert Comments to CommentDtos within transaction to prevent LazyInitializationException
+            List<CommentDto> commentDtos = convertCommentsToDto(comments);
+
+            PaginatedResponse<CommentDto> response = PaginationUtils.createCommentDtoResponse(commentDtos, setup.getValidatedLimit());
 
             PaginationUtils.logPaginationResults("getCommentsByPost", comments,
                     response.isHasMore(), response.getNextCursor());
@@ -197,10 +169,10 @@ public class CommentService {
     }
 
     /**
-     * Get top level comments by post with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
+     * Get top level comments by post with cursor-based pagination - returns CommentDto to prevent LazyInitializationException
      */
-    public PaginatedResponse<Comment> getTopLevelCommentsByPost(@NotNull Post post, Long beforeId, Integer limit) {
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getTopLevelCommentsByPost(@NotNull Post post, Long beforeId, Integer limit) {
         try {
             PostUtility.validatePost(post);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getTopLevelCommentsByPost", beforeId, limit);
@@ -209,7 +181,7 @@ public class CommentService {
             if (post.getStatus() == null || !post.getStatus().isVisible()) {
                 log.warn("Attempted to retrieve top-level comments for non-visible post: {} with status: {}",
                         post.getId(), post.getStatus() != null ? post.getStatus().getDisplayName() : "null");
-                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+                return PaginationUtils.createEmptyCommentDtoResponse(setup.getValidatedLimit());
             }
 
             List<Comment> comments;
@@ -225,7 +197,10 @@ public class CommentService {
                 comments = Collections.emptyList();
             }
 
-            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(comments, setup.getValidatedLimit());
+            // Convert Comments to CommentDtos within transaction to prevent LazyInitializationException
+            List<CommentDto> commentDtos = convertCommentsToDto(comments);
+
+            PaginatedResponse<CommentDto> response = PaginationUtils.createCommentDtoResponse(commentDtos, setup.getValidatedLimit());
 
             PaginationUtils.logPaginationResults("getTopLevelCommentsByPost", comments,
                     response.isHasMore(), response.getNextCursor());
@@ -268,10 +243,10 @@ public class CommentService {
     }
 
     /**
-     * Get comments by user with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
+     * Get comments by user with cursor-based pagination - returns CommentDto to prevent LazyInitializationException
      */
-    public PaginatedResponse<Comment> getCommentsByUser(@NotNull User user, Long beforeId, Integer limit) {
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getCommentsByUser(@NotNull User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getCommentsByUser", beforeId, limit);
@@ -289,7 +264,10 @@ public class CommentService {
                 userComments = Collections.emptyList();
             }
 
-            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(userComments, setup.getValidatedLimit());
+            // Convert Comments to CommentDtos within transaction to prevent LazyInitializationException
+            List<CommentDto> commentDtos = convertCommentsToDto(userComments);
+
+            PaginatedResponse<CommentDto> response = PaginationUtils.createCommentDtoResponse(commentDtos, setup.getValidatedLimit());
 
             PaginationUtils.logPaginationResults("getCommentsByUser", userComments,
                     response.isHasMore(), response.getNextCursor());
@@ -305,10 +283,10 @@ public class CommentService {
     }
 
     /**
-     * Get replies to a specific comment (child comments) with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
+     * Get replies to a specific comment (child comments) with cursor-based pagination - returns CommentDto to prevent LazyInitializationException
      */
-    public PaginatedResponse<Comment> getCommentReplies(@NotNull Long commentId, Long beforeId, Integer limit) {
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getCommentReplies(@NotNull Long commentId, Long beforeId, Integer limit) {
         try {
             validateCommentId(commentId);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getCommentReplies", beforeId, limit);
@@ -319,19 +297,19 @@ public class CommentService {
             // Enhanced null-safe checks
             if (post == null) {
                 log.error("Parent comment {} has no associated post", commentId);
-                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+                return PaginationUtils.createEmptyCommentDtoResponse(setup.getValidatedLimit());
             }
 
             if (post.getStatus() == null) {
                 log.error("Post status is null for post ID: {}", post.getId());
-                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+                return PaginationUtils.createEmptyCommentDtoResponse(setup.getValidatedLimit());
             }
 
             // Only return replies for visible posts
             if (!post.getStatus().isVisible()) {
                 log.warn("Attempted to retrieve replies for comment on non-visible post: {} with status: {}",
                         post.getId(), post.getStatus().getDisplayName());
-                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+                return PaginationUtils.createEmptyCommentDtoResponse(setup.getValidatedLimit());
             }
 
             List<Comment> replies;
@@ -347,7 +325,10 @@ public class CommentService {
                 replies = Collections.emptyList();
             }
 
-            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(replies, setup.getValidatedLimit());
+            // Convert Comments to CommentDtos within transaction to prevent LazyInitializationException
+            List<CommentDto> replyDtos = convertCommentsToDto(replies);
+
+            PaginatedResponse<CommentDto> response = PaginationUtils.createCommentDtoResponse(replyDtos, setup.getValidatedLimit());
 
             PaginationUtils.logPaginationResults("getCommentReplies", replies,
                     response.isHasMore(), response.getNextCursor());
@@ -362,13 +343,13 @@ public class CommentService {
         }
     }
 
-    // ===== ADDITIONAL PAGINATED METHODS =====
+    // ===== ADDITIONAL PAGINATED METHODS UPDATED WITH DTO PATTERN =====
 
     /**
-     * Get all comments with cursor-based pagination
-     * New method for admin/management use cases
+     * Get all comments with cursor-based pagination - returns CommentDto to prevent LazyInitializationException
      */
-    public PaginatedResponse<Comment> getAllComments(Long beforeId, Integer limit) {
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getAllComments(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllComments", beforeId, limit);
 
@@ -385,7 +366,10 @@ public class CommentService {
                 comments = Collections.emptyList();
             }
 
-            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(comments, setup.getValidatedLimit());
+            // Convert Comments to CommentDtos within transaction to prevent LazyInitializationException
+            List<CommentDto> commentDtos = convertCommentsToDto(comments);
+
+            PaginatedResponse<CommentDto> response = PaginationUtils.createCommentDtoResponse(commentDtos, setup.getValidatedLimit());
 
             PaginationUtils.logPaginationResults("getAllComments", comments,
                     response.isHasMore(), response.getNextCursor());
@@ -398,10 +382,10 @@ public class CommentService {
     }
 
     /**
-     * Get recent comments with cursor-based pagination
-     * New method for activity feeds
+     * Get recent comments with cursor-based pagination - returns CommentDto to prevent LazyInitializationException
      */
-    public PaginatedResponse<Comment> getRecentComments(Date fromDate, Long beforeId, Integer limit) {
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getRecentComments(Date fromDate, Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getRecentComments", beforeId, limit);
 
@@ -422,7 +406,10 @@ public class CommentService {
                 comments = Collections.emptyList();
             }
 
-            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(comments, setup.getValidatedLimit());
+            // Convert Comments to CommentDtos within transaction to prevent LazyInitializationException
+            List<CommentDto> commentDtos = convertCommentsToDto(comments);
+
+            PaginatedResponse<CommentDto> response = PaginationUtils.createCommentDtoResponse(commentDtos, setup.getValidatedLimit());
 
             PaginationUtils.logPaginationResults("getRecentComments", comments,
                     response.isHasMore(), response.getNextCursor());
@@ -435,15 +422,15 @@ public class CommentService {
     }
 
     /**
-     * Search comments by content with cursor-based pagination
-     * New method for comment search functionality
+     * Search comments by content with cursor-based pagination - returns CommentDto to prevent LazyInitializationException
      */
-    public PaginatedResponse<Comment> searchComments(String searchTerm, Long beforeId, Integer limit) {
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> searchComments(String searchTerm, Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("searchComments", beforeId, limit);
 
             if (searchTerm == null || searchTerm.trim().isEmpty()) {
-                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+                return PaginationUtils.createEmptyCommentDtoResponse(setup.getValidatedLimit());
             }
 
             String cleanSearchTerm = searchTerm.trim().toLowerCase();
@@ -461,16 +448,18 @@ public class CommentService {
                 comments = Collections.emptyList();
             }
 
-            // Filter to only include comments on visible posts
-            List<Comment> visibleComments = comments.stream()
+            // Filter to only include comments on visible posts and convert to DTOs within transaction
+            List<CommentDto> visibleCommentDtos = comments.stream()
                     .filter(comment -> comment.getPost() != null &&
                             comment.getPost().getStatus() != null &&
                             comment.getPost().getStatus().isVisible())
+                    .map(CommentDto::fromComment)
+                    .filter(dto -> dto != null)
                     .collect(Collectors.toList());
 
-            PaginatedResponse<Comment> response = PaginationUtils.createCommentResponse(visibleComments, setup.getValidatedLimit());
+            PaginatedResponse<CommentDto> response = PaginationUtils.createCommentDtoResponse(visibleCommentDtos, setup.getValidatedLimit());
 
-            PaginationUtils.logPaginationResults("searchComments", visibleComments,
+            PaginationUtils.logPaginationResults("searchComments", visibleCommentDtos,
                     response.isHasMore(), response.getNextCursor());
 
             return response;
@@ -478,6 +467,30 @@ public class CommentService {
             log.error("Unexpected error while searching comments with term: {}", searchTerm, ex);
             throw new ServiceException("Failed to search comments", ex);
         }
+    }
+
+    // ===== HELPER METHODS FOR DTO CONVERSION =====
+
+    /**
+     * Helper method to convert Comments to CommentDtos within transaction to prevent LazyInitializationException
+     */
+    private List<CommentDto> convertCommentsToDto(List<Comment> comments) {
+        if (comments == null || comments.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return comments.stream()
+                .map(comment -> {
+                    try {
+                        return CommentDto.fromComment(comment);
+                    } catch (Exception e) {
+                        log.warn("Failed to convert comment {} to DTO: {}",
+                                comment.getId(), e.getMessage());
+                        return null;
+                    }
+                })
+                .filter(dto -> dto != null) // Filter out any null DTOs
+                .collect(Collectors.toList());
     }
 
     // ===== PRIVATE VALIDATION METHODS =====

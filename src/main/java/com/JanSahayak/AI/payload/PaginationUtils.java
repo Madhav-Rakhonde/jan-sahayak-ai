@@ -1,5 +1,6 @@
 package com.JanSahayak.AI.payload;
 
+import com.JanSahayak.AI.DTO.CommentDto;
 import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.model.User;
@@ -640,5 +641,23 @@ public class PaginationUtils {
 
             return new PaginationSetup(validatedLimit, sanitizedCursor);
         }
+    }
+
+    public static PaginatedResponse<CommentDto> createCommentDtoResponse(List<CommentDto> commentDtos, int requestedLimit) {
+        return createIdBasedResponse(commentDtos, requestedLimit, CommentDto::getId);
+    }
+
+    /**
+     * Create empty paginated response for CommentDto
+     */
+    public static PaginatedResponse<CommentDto> createEmptyCommentDtoResponse(int requestedLimit) {
+        return PaginatedResponse.of(Collections.emptyList(), false, null, requestedLimit);
+    }
+
+    /**
+     * Extract ID cursor from CommentDto
+     */
+    public static Long extractCommentDtoIdCursor(CommentDto commentDto) {
+        return commentDto != null ? commentDto.getId() : null;
     }
 }

@@ -18,8 +18,6 @@ public class PostCreateDto {
     @Size(max = 2000, message = "Content must not exceed 2000 characters")
     private String content;
 
-    private MultipartFile mediaFile;
-
     @Builder.Default
     private BroadcastScope broadcastScope = BroadcastScope.AREA;
 

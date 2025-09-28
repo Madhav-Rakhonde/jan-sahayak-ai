@@ -36,6 +36,7 @@ public class PostService {
     private final UserTaggingService userTaggingService;
     private final UserRepo userRepository;
     private final PostViewRepo postViewRepository;
+    private final PostLikeRepo postLikeRepository;
     private final CommentRepo commentRepository;
     private final PinCodeLookupService pinCodeLookupService;
     private final UserTagRepo userTagRepository;
@@ -1343,6 +1344,11 @@ public class PostService {
             if (post == null) {
                 return null;
             }
+            boolean isLiked = false;
+            if (currentUser != null) {
+                // Check the database to see if a "like" record exists for this post and user.
+                isLiked = postLikeRepository.findByPostAndUser(post, currentUser).isPresent();
+            }
 
             PostResponse.PostResponseBuilder builder = PostResponse.builder()
                     // Basic Post Information
@@ -1384,7 +1390,7 @@ public class PostService {
                     .taggedUserCount(post.getTaggedUserCount())
 
                     // User Interaction Status (defaults - implement actual logic if needed)
-                    .isLikedByCurrentUser(false) // TODO: Check if current user liked this post
+                    .isLikedByCurrentUser(isLiked)
                     .isViewedByCurrentUser(false) // TODO: Check if current user viewed this post
 
                     // Status Information

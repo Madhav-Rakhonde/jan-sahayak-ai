@@ -15,40 +15,28 @@ import java.util.List;
 @Repository
 public interface CommentRepo extends JpaRepository<Comment, Long> {
 
-    // Basic comment lookup methods
-    List<Comment> findByPostOrderByCreatedAtAsc(Post post);
-
-    // Find top-level comments (no parent comment)
-    @Query("SELECT c FROM Comment c WHERE c.post = :post AND c.parentComment IS NULL ORDER BY c.createdAt ASC")
-    List<Comment> findTopLevelCommentsByPost(@Param("post") Post post);
-
-    // Count comments
+    // Count comments for a post
     @Query("SELECT COUNT(c) FROM Comment c WHERE c.post = :post")
     Long countByPost(@Param("post") Post post);
 
-    List<Comment> findByParentCommentOrderByCreatedAtAsc(Comment parentComment);
+    // ======== CORRECTED TOP-LEVEL COMMENT METHODS ========
+    // This is the corrected non-paginated method for fetching top-level comments.
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post = :post AND c.parentComment IS NULL ORDER BY c.createdAt ASC")
+    List<Comment> findTopLevelCommentsByPost(@Param("post") Post post);
 
-    // FIXED: Replace the problematic method with proper @Query
-    @Query("SELECT c FROM Comment c " +
-            "JOIN FETCH c.post p " +
-            "JOIN FETCH c.user u " +
-            "WHERE c.user = :user " +
-            "AND p.status IN ('ACTIVE', 'RESOLVED') " +
-            "AND p.user.isActive = true " +
-            "ORDER BY c.createdAt DESC")
-    List<Comment> findByUserWithVisiblePostsOrderByCreatedAtDesc(@Param("user") User user);
+    // This is the corrected paginated method for fetching top-level comments.
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post = :post AND c.parentComment IS NULL ORDER BY c.createdAt ASC")
+    List<Comment> findTopLevelCommentsByPost(@Param("post") Post post, Pageable pageable);
 
-    // Paginated versions with proper @Query annotations
+    // This is the corrected paginated method with a cursor for fetching top-level comments.
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post = :post AND c.parentComment IS NULL AND c.id < :beforeId ORDER BY c.createdAt ASC")
+    List<Comment> findTopLevelCommentsByPostAndIdLessThan(@Param("post") Post post, @Param("beforeId") Long beforeId, Pageable pageable);
+
+    // ======== OTHER PAGINATED METHODS ========
     List<Comment> findByPostOrderByCreatedAtAsc(Post post, Pageable pageable);
 
     @Query("SELECT c FROM Comment c WHERE c.post = :post AND c.id < :beforeId ORDER BY c.createdAt ASC")
     List<Comment> findByPostAndIdLessThanOrderByCreatedAtAsc(@Param("post") Post post, @Param("beforeId") Long beforeId, Pageable pageable);
-
-    @Query("SELECT c FROM Comment c WHERE c.post = :post AND c.parentComment IS NULL ORDER BY c.createdAt ASC")
-    List<Comment> findTopLevelCommentsByPost(@Param("post") Post post, Pageable pageable);
-
-    @Query("SELECT c FROM Comment c WHERE c.post = :post AND c.parentComment IS NULL AND c.id < :beforeId ORDER BY c.createdAt ASC")
-    List<Comment> findTopLevelCommentsByPostAndIdLessThan(@Param("post") Post post, @Param("beforeId") Long beforeId, Pageable pageable);
 
     @Query("SELECT c FROM Comment c " +
             "JOIN FETCH c.post p " +
@@ -59,7 +47,6 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
             "ORDER BY c.createdAt DESC")
     List<Comment> findByUserWithVisiblePostsOrderByCreatedAtDesc(@Param("user") User user, Pageable pageable);
 
-    // FIXED: The problematic method with cursor support
     @Query("SELECT c FROM Comment c " +
             "JOIN FETCH c.post p " +
             "JOIN FETCH c.user u " +

@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.DTO.PostResponse;
 import com.JanSahayak.AI.DTO.UserTagSuggestionDto;
 import com.JanSahayak.AI.DTO.UserTagValidationResult;
 import com.JanSahayak.AI.config.Constant;
@@ -24,6 +25,8 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
+import static com.JanSahayak.AI.payload.PostUtility.calculateTimeAgo;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -33,6 +36,7 @@ public class UserTaggingService {
     private final PostRepo postRepository;
     private final UserTagRepo userTagRepository;
     private final PinCodeLookupService pincodeLookupService;
+    private final PostLikeRepo postLikeRepo;
 
     @Transactional
     public void processUserTags(Post post) {
@@ -93,7 +97,7 @@ public class UserTaggingService {
                             newTags.size(), post.getId(), post.getStatus().getDisplayName());
                 }
             }
-        } catch (ValidationException e) {
+        } catch (jakarta.validation.ValidationException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to process user tags for post: {}", post.getId(), e);
@@ -132,7 +136,7 @@ public class UserTaggingService {
             } else {
                 log.debug("User tag already exists for user: {} on post: {}", user.getActualUsername(), post.getId());
             }
-        } catch (ValidationException | ServiceException e) {
+        } catch (jakarta.validation.ValidationException | ServiceException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to add user tag for user: {} to post: {}", user.getActualUsername(), post.getId(), e);
@@ -164,7 +168,7 @@ public class UserTaggingService {
                 log.warn("Attempted to remove non-existent user tag: {} from post: {}",
                         user.getActualUsername(), post.getId());
             }
-        } catch (ValidationException | ServiceException e) {
+        } catch (jakarta.validation.ValidationException | ServiceException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to remove user tag for user: {} from post: {}", user.getActualUsername(), post.getId(), e);
@@ -177,7 +181,7 @@ public class UserTaggingService {
         try {
             PostUtility.validatePost(post);
             if (newContent == null) {
-                throw new ValidationException("New content cannot be null");
+                throw new jakarta.validation.ValidationException("New content cannot be null");
             }
 
             // Check if post allows tag updates based on status
@@ -242,7 +246,7 @@ public class UserTaggingService {
 
             log.info("Updated post tags - removed {} old tags, added {} new tags for post ID: {} (status: {})",
                     currentTags.size(), newTags.size(), post.getId(), post.getStatus().getDisplayName());
-        } catch (ValidationException | ServiceException e) {
+        } catch (jakarta.validation.ValidationException | ServiceException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to update post tags for post: {}", post.getId(), e);
@@ -252,11 +256,9 @@ public class UserTaggingService {
 
     // ===== Geographic-Aware Query Methods Using Pincode Prefix Logic =====
 
-    /**
-     * Get posts visible to user with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
-     */
-    public PaginatedResponse<Post> getPostsVisibleToUser(User user, Boolean isResolved, Long beforeId, Integer limit) {
+    // CHANGED: This method now returns a response containing DTOs instead of raw entities.
+    @Transactional(readOnly = true)
+    public PaginatedResponse<PostResponse> getPostsVisibleToUser(User user, Boolean isResolved, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsVisibleToUser", beforeId, limit);
@@ -277,24 +279,19 @@ public class UserTaggingService {
                     posts = userTagRepository.findPostsWhereUserIsTaggedOrderByIdDesc(user, setup.toPageable());
                 }
             }
+            posts = (posts == null) ? Collections.emptyList() : posts;
 
-            if (posts == null) {
-                posts = Collections.emptyList();
-            }
-
-            // Filter posts based on geographic visibility using pincode prefix logic
             List<Post> filteredPosts = posts.stream()
-                    .filter(post -> post != null &&
-                            PostUtility.isPostStatusVisible(post) &&
-                            PostUtility.isPostGeographicallyRelevantToUser(post, user))
+                    .filter(post -> post != null && PostUtility.isPostStatusVisible(post) && PostUtility.isPostGeographicallyRelevantToUser(post, user))
                     .collect(Collectors.toList());
 
-            PaginatedResponse<Post> response = PaginationUtils.createPostResponse(filteredPosts, setup.getValidatedLimit());
+            List<PostResponse> postDtos = filteredPosts.stream()
+                    .map(post -> convertToPostResponse(post, user))
+                    .collect(Collectors.toList());
 
-            PaginationUtils.logPaginationResults("getPostsVisibleToUser",
-                    response.getData(), response.isHasMore(), response.getNextCursor());
+            PaginatedResponse<Post> entityResponse = PaginationUtils.createPostResponse(filteredPosts, setup.getValidatedLimit());
 
-            return response;
+            return PaginatedResponse.of(postDtos, entityResponse.isHasMore(), entityResponse.getNextCursor(), setup.getValidatedLimit());
         } catch (ValidationException e) {
             throw e;
         } catch (Exception e) {
@@ -303,11 +300,9 @@ public class UserTaggingService {
         }
     }
 
-    /**
-     * Get active posts visible to user with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
-     */
-    public PaginatedResponse<Post> getActivePostsVisibleToUser(User user, Long beforeId, Integer limit) {
+    // CORRECTED: Method now returns a PaginatedResponse of DTOs
+    @Transactional(readOnly = true)
+    public PaginatedResponse<PostResponse> getActivePostsVisibleToUser(User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActivePostsVisibleToUser", beforeId, limit);
@@ -318,25 +313,19 @@ public class UserTaggingService {
             } else {
                 activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, PostStatus.ACTIVE, setup.toPageable());
             }
+            activePosts = (activePosts == null) ? Collections.emptyList() : activePosts;
 
-            if (activePosts == null) {
-                activePosts = Collections.emptyList();
-            }
-
-            // Filter posts based on geographic visibility using pincode prefix logic
             List<Post> filteredPosts = activePosts.stream()
-                    .filter(post -> post != null &&
-                            post.getStatus() == PostStatus.ACTIVE &&
-                            PostUtility.isPostStatusVisible(post) &&
-                            PostUtility.isPostGeographicallyRelevantToUser(post, user))
+                    .filter(post -> post != null && post.getStatus() == PostStatus.ACTIVE && PostUtility.isPostStatusVisible(post))
                     .collect(Collectors.toList());
 
-            PaginatedResponse<Post> response = PaginationUtils.createPostResponse(filteredPosts, setup.getValidatedLimit());
+            List<PostResponse> postDtos = filteredPosts.stream()
+                    .map(post -> convertToPostResponse(post, user))
+                    .collect(Collectors.toList());
 
-            PaginationUtils.logPaginationResults("getActivePostsVisibleToUser",
-                    response.getData(), response.isHasMore(), response.getNextCursor());
+            PaginatedResponse<Post> entityResponse = PaginationUtils.createPostResponse(filteredPosts, setup.getValidatedLimit());
 
-            return response;
+            return PaginatedResponse.of(postDtos, entityResponse.isHasMore(), entityResponse.getNextCursor(), setup.getValidatedLimit());
         } catch (ValidationException e) {
             throw e;
         } catch (Exception e) {
@@ -345,11 +334,9 @@ public class UserTaggingService {
         }
     }
 
-    /**
-     * Get resolved posts visible to user with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
-     */
-    public PaginatedResponse<Post> getResolvedPostsVisibleToUser(User user, Long beforeId, Integer limit) {
+    // CORRECTED: Method now returns a PaginatedResponse of DTOs
+    @Transactional(readOnly = true)
+    public PaginatedResponse<PostResponse> getResolvedPostsVisibleToUser(User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getResolvedPostsVisibleToUser", beforeId, limit);
@@ -360,25 +347,19 @@ public class UserTaggingService {
             } else {
                 resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, PostStatus.RESOLVED, setup.toPageable());
             }
+            resolvedPosts = (resolvedPosts == null) ? Collections.emptyList() : resolvedPosts;
 
-            if (resolvedPosts == null) {
-                resolvedPosts = Collections.emptyList();
-            }
-
-            // Filter posts based on geographic visibility using pincode prefix logic
             List<Post> filteredPosts = resolvedPosts.stream()
-                    .filter(post -> post != null &&
-                            post.getStatus() == PostStatus.RESOLVED &&
-                            PostUtility.isPostStatusVisible(post) &&
-                            PostUtility.isPostGeographicallyRelevantToUser(post, user))
+                    .filter(post -> post != null && post.getStatus() == PostStatus.RESOLVED && PostUtility.isPostStatusVisible(post))
                     .collect(Collectors.toList());
 
-            PaginatedResponse<Post> response = PaginationUtils.createPostResponse(filteredPosts, setup.getValidatedLimit());
+            List<PostResponse> postDtos = filteredPosts.stream()
+                    .map(post -> convertToPostResponse(post, user))
+                    .collect(Collectors.toList());
 
-            PaginationUtils.logPaginationResults("getResolvedPostsVisibleToUser",
-                    response.getData(), response.isHasMore(), response.getNextCursor());
+            PaginatedResponse<Post> entityResponse = PaginationUtils.createPostResponse(filteredPosts, setup.getValidatedLimit());
 
-            return response;
+            return PaginatedResponse.of(postDtos, entityResponse.isHasMore(), entityResponse.getNextCursor(), setup.getValidatedLimit());
         } catch (ValidationException e) {
             throw e;
         } catch (Exception e) {
@@ -387,10 +368,6 @@ public class UserTaggingService {
         }
     }
 
-    /**
-     * Get tagged users in post with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
-     */
     public PaginatedResponse<User> getTaggedUsersInPost(Post post, Long beforeId, Integer limit) {
         try {
             PostUtility.validatePost(post);
@@ -423,7 +400,7 @@ public class UserTaggingService {
                     response.getData(), response.isHasMore(), response.getNextCursor());
 
             return response;
-        } catch (ValidationException e) {
+        } catch (jakarta.validation.ValidationException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to get tagged users in post: {}", post.getId(), e);
@@ -444,7 +421,7 @@ public class UserTaggingService {
                     post.getId(), post.getStatus().getDisplayName());
 
             return tagged;
-        } catch (ValidationException e) {
+        } catch (jakarta.validation.ValidationException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to check if user {} is tagged in post: {}", user.getActualUsername(), post.getId(), e);
@@ -452,42 +429,25 @@ public class UserTaggingService {
         }
     }
 
-    // ===== Statistics Methods with Geographic Awareness =====
-
     public Map<String, Long> getTaggingStatistics(User user) {
         try {
             PostUtility.validateUser(user);
 
-            // Get first page of tagged posts for statistics
-            PaginatedResponse<Post> taggedPosts = getPostsVisibleToUser(user, null, null, 1000);
-            PaginatedResponse<Post> activePosts = getActivePostsVisibleToUser(user, null, 1000);
-            PaginatedResponse<Post> resolvedPosts = getResolvedPostsVisibleToUser(user, null, 1000);
+            Long totalTagged = userTagRepository.countByTaggedUser(user);
+            Long activeTagged = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.ACTIVE);
+            Long resolvedTagged = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
 
             Map<String, Long> result = new HashMap<>();
-            result.put("totalTaggedPosts", (long) taggedPosts.getData().size());
-            result.put("activeTaggedPosts", (long) activePosts.getData().size());
-            result.put("resolvedTaggedPosts", (long) resolvedPosts.getData().size());
+            result.put("totalTaggedPosts", totalTagged != null ? totalTagged : 0L);
+            result.put("activeTaggedPosts", activeTagged != null ? activeTagged : 0L);
+            result.put("resolvedTaggedPosts", resolvedTagged != null ? resolvedTagged : 0L);
 
-            // Calculate resolution rate
-            double resolutionRate = taggedPosts.getData().isEmpty() ? 0.0 :
-                    (double) resolvedPosts.getData().size() / taggedPosts.getData().size() * 100;
+            double resolutionRate = (totalTagged == null || totalTagged == 0) ? 0.0 :
+                    (double) (resolvedTagged != null ? resolvedTagged : 0L) / totalTagged * 100;
             result.put("resolutionRate", Math.round(resolutionRate));
 
-            // Additional statistics by post status
-            Map<PostStatus, Long> statusCounts = taggedPosts.getData().stream()
-                    .filter(Objects::nonNull)
-                    .filter(post -> post.getStatus() != null)
-                    .collect(Collectors.groupingBy(Post::getStatus, Collectors.counting()));
-
-            for (PostStatus status : PostStatus.values()) {
-                result.put("posts" + status.name(), statusCounts.getOrDefault(status, 0L));
-            }
-
-            log.debug("Generated tagging statistics for user: {} - {} total tagged posts",
-                    user.getActualUsername(), taggedPosts.getData().size());
-
             return result;
-        } catch (ValidationException e) {
+        } catch (jakarta.validation.ValidationException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to get tagging statistics for user: {}", user.getActualUsername(), e);
@@ -495,12 +455,6 @@ public class UserTaggingService {
         }
     }
 
-    // ===== Geographic-Aware User Tag Suggestions =====
-
-    /**
-     * Get user tag suggestions with cursor-based pagination
-     * Updated method signature to include cursor and limit parameters
-     */
     public PaginatedResponse<UserTagSuggestionDto> getUserTagSuggestions(String query, Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupTaggingPagination("getUserTagSuggestions", beforeId, limit);
@@ -509,7 +463,6 @@ public class UserTaggingService {
                 return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
-            // Remove @ if present
             String cleanQuery = query.startsWith("@") ? query.substring(1) : query;
 
             if (cleanQuery.trim().length() < 2) {
@@ -594,7 +547,6 @@ public class UserTaggingService {
                     .filter(username -> !validUsernames.contains(username))
                     .collect(Collectors.toList());
 
-            // Check for inactive users
             List<User> allUsers = userRepository.findByUsernameIn(extractedUsernames);
             if (allUsers == null) {
                 allUsers = Collections.emptyList();
@@ -610,7 +562,6 @@ public class UserTaggingService {
                     .filter(username -> !validUsernames.contains(username))
                     .collect(Collectors.toList());
 
-            // Check for duplicates
             List<String> duplicateUsernames = extractedUsernames.stream()
                     .filter(username -> Collections.frequency(extractedUsernames, username) > 1)
                     .distinct()
@@ -654,49 +605,37 @@ public class UserTaggingService {
         }
     }
 
-    /**
-     * Get comprehensive tagging analytics for a user with geographic context
-     */
+    @Transactional(readOnly = true)
     public Map<String, Object> getComprehensiveTaggingAnalytics(User user) {
         try {
             PostUtility.validateUser(user);
-
             Map<String, Object> analytics = new HashMap<>();
-
-            // Basic tagging statistics (already geographic-aware)
             Map<String, Long> basicStats = getTaggingStatistics(user);
             analytics.putAll(basicStats);
 
-            // Post status breakdown for tagged posts
-            PaginatedResponse<Post> allTaggedPosts = getPostsVisibleToUser(user, null, null, 1000);
+            PaginatedResponse<PostResponse> allTaggedPosts = getPostsVisibleToUser(user, null, null, 1000); // Now gets PostResponse
             Map<String, Object> statusBreakdown = new HashMap<>();
 
             for (PostStatus status : PostStatus.values()) {
                 long count = allTaggedPosts.getData().stream()
                         .filter(post -> post != null && post.getStatus() == status)
                         .count();
-
                 Map<String, Object> statusInfo = new HashMap<>();
                 statusInfo.put("count", count);
                 statusInfo.put("displayName", status.getDisplayName());
                 statusInfo.put("allowsUpdates", status.allowsUpdates());
                 statusInfo.put("isVisible", status.isVisible());
-
                 statusBreakdown.put(status.name(), statusInfo);
             }
             analytics.put("statusBreakdown", statusBreakdown);
 
-            // Recent tagging activity (last 30 days)
             Date thirtyDaysAgo = new Date(System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000));
             Long recentTags = userTagRepository.countByTaggedUserAndTaggedAtAfter(user, thirtyDaysAgo);
             analytics.put("recentTags30Days", recentTags != null ? recentTags : 0L);
 
-            // Average resolution time for resolved posts
-            PaginatedResponse<Post> resolvedPosts = getResolvedPostsVisibleToUser(user, null, 1000);
+            PaginatedResponse<PostResponse> resolvedPosts = getResolvedPostsVisibleToUser(user, null, 1000); // Now gets PostResponse
             OptionalDouble avgResolutionTime = resolvedPosts.getData().stream()
-                    .filter(post -> post != null &&
-                            post.getResolvedAt() != null &&
-                            post.getCreatedAt() != null)
+                    .filter(post -> post != null && post.getResolvedAt() != null && post.getCreatedAt() != null)
                     .mapToLong(post -> post.getResolvedAt().getTime() - post.getCreatedAt().getTime())
                     .average();
 
@@ -713,8 +652,6 @@ public class UserTaggingService {
             throw new ServiceException("Failed to get comprehensive tagging analytics: " + e.getMessage(), e);
         }
     }
-
-    // ===== Helper Methods =====
 
     private Long getUserTagCount(User user) {
         try {
@@ -746,5 +683,205 @@ public class UserTaggingService {
             log.warn("Failed to calculate resolution rate for user: {}", user.getActualUsername(), e);
             return 0.0;
         }
+    }
+
+    // CHANGED: This method now returns a Map containing DTOs.
+    @Transactional(readOnly = true)
+    public Map<String, Object> getActivePostsByUsername(String username, Long beforeId, Integer limit) {
+        try {
+            if (username == null || username.trim().isEmpty()) {
+                throw new ValidationException("Username cannot be empty");
+            }
+
+            String cleanUsername = username.startsWith("@") ? username.substring(1) : username;
+            User user = userRepository.findByUsernameAndIsActiveTrue(cleanUsername)
+                    .orElseThrow(() -> new UserNotFoundException("User not found: " + cleanUsername));
+
+            PaginatedResponse<PostResponse> posts = getActivePostsVisibleToUser(user, beforeId, limit);
+            Long totalActiveCount = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.ACTIVE);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("username", cleanUsername);
+            result.put("userId", user.getId());
+            result.put("displayName", user.getDisplayName());
+            result.put("posts", posts); // This now contains PostResponse DTOs
+            result.put("count", totalActiveCount != null ? totalActiveCount : 0L);
+
+            log.info("Retrieved {} active tagged posts for username: {} (total: {})",
+                    posts.getData().size(), cleanUsername, totalActiveCount);
+
+            return result;
+        } catch (UserNotFoundException | ValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to get active posts by username: {}", username, e);
+            throw new ServiceException("Failed to get active posts by username: " + e.getMessage(), e);
+        }
+    }
+
+    // CORRECTED: This method now correctly uses the DTO-returning service method
+    @Transactional(readOnly = true)
+    public Map<String, Object> getResolvedPostsByUsername(String username, Long beforeId, Integer limit) {
+        try {
+            if (username == null || username.trim().isEmpty()) {
+                throw new ValidationException("Username cannot be empty");
+            }
+
+            String cleanUsername = username.startsWith("@") ? username.substring(1) : username;
+            User user = userRepository.findByUsernameAndIsActiveTrue(cleanUsername)
+                    .orElseThrow(() -> new UserNotFoundException("User not found: " + cleanUsername));
+
+            PaginatedResponse<PostResponse> posts = getResolvedPostsVisibleToUser(user, beforeId, limit);
+            Long totalResolvedCount = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("username", cleanUsername);
+            result.put("userId", user.getId());
+            result.put("displayName", user.getDisplayName());
+            result.put("posts", posts); // This now contains PostResponse DTOs
+            result.put("count", totalResolvedCount != null ? totalResolvedCount : 0L);
+
+            log.info("Retrieved {} resolved tagged posts for username: {} (total: {})",
+                    posts.getData().size(), cleanUsername, totalResolvedCount);
+
+            return result;
+        } catch (UserNotFoundException | ValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to get resolved posts by username: {}", username, e);
+            throw new ServiceException("Failed to get resolved posts by username: " + e.getMessage(), e);
+        }
+    }
+
+    private PostResponse convertToPostResponse(Post post, User currentUser) {
+        if (post == null) {
+            return null;
+        }
+
+        try {
+            Long userId = null;
+            String username = null;
+            String userDisplayName = null;
+            String userPincode = null;
+            String userProfileImage = null;
+
+            if (post.getUser() != null) {
+                userId = post.getUser().getId();
+                username = post.getUser().getActualUsername();
+                userDisplayName = post.getUser().getDisplayName();
+                userPincode = post.getUser().getPincode();
+                userProfileImage = post.getUser().getProfileImage();
+            }
+
+            boolean isLiked = false;
+            if (currentUser != null) {
+                isLiked = postLikeRepo.findByPostAndUser(post, currentUser).isPresent();
+            }
+
+            PostResponse.PostResponseBuilder builder = PostResponse.builder()
+                    .id(post.getId())
+                    .content(post.getContent())
+                    .status(post.getStatus())
+                    .createdAt(post.getCreatedAt())
+                    .updatedAt(post.getUpdatedAt())
+                    .imageName(post.getImageName())
+                    .hasImage(post.hasImage())
+                    .mediaType(post.hasImage() ? getSimpleMediaType(post.getImageName()) : null)
+                    .isResolved(post.isResolved())
+                    .resolvedAt(post.getResolvedAt())
+                    .userId(userId)
+                    .username(username)
+                    .userDisplayName(userDisplayName != null ? userDisplayName : username)
+                    .userProfileImage(userProfileImage)
+                    .userPincode(userPincode)
+                    .broadcastScope(post.getBroadcastScope())
+                    .broadcastScopeDescription(post.getBroadcastScopeDescription())
+                    .isBroadcastPost(post.isBroadcastPost())
+                    .targetCountry(post.getTargetCountry())
+                    .targetStates(post.getTargetStatesList())
+                    .targetDistricts(post.getTargetDistrictsList())
+                    .targetPincodes(post.getTargetPincodesList())
+                    .likeCount(post.getLikeCount())
+                    .commentCount(post.getCommentCount())
+                    .viewCount(post.getViewCount())
+                    .isLikedByCurrentUser(isLiked)
+                    .isViewedByCurrentUser(false)
+                    .isVisibleToCurrentUser(currentUser != null ? PostUtility.isPostVisibleToUser(post, currentUser) : false)
+                    .statusDisplayName(post.getStatus() != null ? post.getStatus().getDisplayName() : null)
+                    .canBeResolved(post.getStatus() == PostStatus.ACTIVE)
+                    .allowsUpdates(PostUtility.postAllowsUpdates(post))
+                    .isEligibleForDisplay(PostUtility.isPostEligibleForDisplay(post))
+                    .timeAgo(calculateTimeAgo(post.getCreatedAt()));
+
+            try {
+                List<UserTag> activeTags = userTagRepository.findByPostAndIsActiveTrue(post);
+                List<String> taggedUsernames = activeTags.stream()
+                        .map(tag -> tag.getTaggedUser().getActualUsername())
+                        .collect(Collectors.toList());
+
+                List<PostResponse.TaggedUserInfo> taggedUserInfos = activeTags.stream()
+                        .map(this::convertToTaggedUserInfo)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+
+                builder.taggedUsernames(taggedUsernames)
+                        .taggedUsers(taggedUserInfos)
+                        .taggedUserCount(activeTags.size());
+
+            } catch (Exception e) {
+                log.warn("Failed to get tagged users for post: {}", post.getId(), e);
+                builder.taggedUsernames(Collections.emptyList())
+                        .taggedUsers(Collections.emptyList())
+                        .taggedUserCount(0);
+            }
+
+            return builder.build();
+
+        } catch (Exception e) {
+            log.error("Failed to convert post to response: {} for user: {}",
+                    post.getId(), currentUser != null ? currentUser.getActualUsername() : "null", e);
+            return null;
+        }
+    }
+
+    private PostResponse.TaggedUserInfo convertToTaggedUserInfo(UserTag userTag) {
+        if (userTag == null || userTag.getTaggedUser() == null) {
+            return null;
+        }
+
+        try {
+            User taggedUser = userTag.getTaggedUser();
+            User taggedBy = userTag.getTaggedBy();
+
+            return PostResponse.TaggedUserInfo.builder()
+                    .tagId(userTag.getId())
+                    .userId(taggedUser.getId())
+                    .username(taggedUser.getActualUsername())
+                    .displayName(taggedUser.getDisplayName())
+                    .profileImage(taggedUser.getProfileImage())
+                    .pincode(taggedUser.getPincode())
+                    .isActive(userTag.getIsActive())
+                    .taggedAt(userTag.getTaggedAt())
+                    .deactivatedAt(userTag.getDeactivatedAt())
+                    .deactivationReason(userTag.getDeactivationReason())
+                    .taggedByUserId(taggedBy != null ? taggedBy.getId() : null)
+                    .taggedByUsername(taggedBy != null ? taggedBy.getActualUsername() : null)
+                    .build();
+        } catch (Exception e) {
+            log.warn("Failed to convert tagged user info for tag: {}", userTag.getId(), e);
+            return null;
+        }
+    }
+    private String getSimpleMediaType(String fileName) {
+        if (fileName == null) return "unknown";
+        String extension = fileName.toLowerCase();
+        if (extension.contains(".jpg") || extension.contains(".jpeg") ||
+                extension.contains(".png") || extension.contains(".webp")) {
+            return "image";
+        }
+        if (extension.contains(".mp4") || extension.contains(".mov")) {
+            return "video";
+        }
+        return "unknown";
     }
 }

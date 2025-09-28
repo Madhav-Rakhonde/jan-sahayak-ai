@@ -572,4 +572,34 @@ public class UserService implements UserDetailsService {
             PostUtility.validateTargetPincodeForUser(user.getPincode().trim());
         }
     }
+
+    // Add this new method to your UserService class
+    public PaginatedResponse<User> searchUsersByRoleAndQuery(String roleName, String query, Long beforeId, Integer limit) {
+        try {
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
+                    "searchUsersByRoleAndQuery", beforeId, limit);
+
+            String searchQuery = (query == null) ? "" : query.trim();
+
+            List<User> users = userRepository.searchUsersByRoleAndQueryWithCursor(
+                    roleName, searchQuery, setup.getSanitizedCursor(), setup.toPageable());
+
+            return PaginationUtils.createUserResponse(users, setup.getValidatedLimit());
+        } catch (Exception e) {
+            log.error("Failed to search users for role '{}' and query '{}'", roleName, query, e);
+            throw new ServiceException("Failed to search users: " + e.getMessage(), e);
+        }
+    }
+
+
+    // Add this new method to your UserService class
+    public long countTotalUsers() {
+        try {
+            return userRepository.count();
+        } catch (Exception e) {
+            log.error("Failed to count total users", e);
+            throw new ServiceException("Could not retrieve user count.", e);
+        }
+    }
+
 }

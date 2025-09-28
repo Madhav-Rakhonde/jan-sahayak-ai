@@ -13,6 +13,8 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import com.JanSahayak.AI.exception.ValidationException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
+import org.springframework.web.multipart.MultipartException;
+
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -204,6 +206,28 @@ public class GlobalExceptionHandler {
         log.error("Custom validation error [{}]: {}", requestId, ex.getMessage());
 
         ApiResponse<Object> response = ApiResponse.error("Validation failed", ex.getMessage());
+        response.setRequestId(requestId);
+
+        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ApiResponse<Object>> handleMultipartException(MultipartException ex, WebRequest request) {
+        String requestId = generateRequestId();
+        log.error("Multipart parsing error [{}]: {}", requestId, ex.getMessage(), ex);
+
+        String userMessage;
+        if (ex.getCause() instanceof IllegalStateException) {
+            userMessage = "The uploaded file could not be processed. Please try again with a different file.";
+        } else if (ex.getMessage() != null && ex.getMessage().contains("size")) {
+            userMessage = "The uploaded file is too large. Maximum size allowed is 512MB.";
+        } else if (ex.getMessage() != null && ex.getMessage().contains("parse")) {
+            userMessage = "There was an error processing your file upload. Please check the file format and try again.";
+        } else {
+            userMessage = "File upload failed. Please try again with a valid file.";
+        }
+
+        ApiResponse<Object> response = ApiResponse.error("File upload failed", userMessage);
         response.setRequestId(requestId);
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);

@@ -113,7 +113,7 @@ public class AuthController {
         }
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN')")
     @PostMapping("/register/department")
     @Transactional
     public ResponseEntity<ApiResponse<String>> registerDepartment(@RequestBody RegisterRequest request) {
@@ -156,7 +156,7 @@ public class AuthController {
         }
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN')")
     @PostMapping("/register/admin")
     @Transactional
     public ResponseEntity<ApiResponse<String>> registerAdmin(@RequestBody RegisterRequest request) {

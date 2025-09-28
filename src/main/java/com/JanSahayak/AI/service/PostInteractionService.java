@@ -166,4 +166,33 @@ public class PostInteractionService {
             throw new ServiceException("Failed to toggle post like: " + e.getMessage(), e);
         }
     }
+
+    // Add these new methods inside your PostInteractionService class
+
+    /**
+     * Checks if a user has liked a specific post.
+     * @param post The post to check.
+     * @param user The user to check.
+     * @return true if the user has liked the post, false otherwise.
+     */
+    public boolean hasUserLikedPost(Post post, User user) {
+        if (post == null || user == null) {
+            return false;
+        }
+        return postLikeRepository.findByPostAndUser(post, user).isPresent();
+    }
+
+    /**
+     * Checks if a user has viewed a specific post within the last hour.
+     * @param post The post to check.
+     * @param user The user to check.
+     * @return true if the user has viewed the post recently, false otherwise.
+     */
+    public boolean hasUserViewedPostRecently(Post post, User user) {
+        if (post == null || user == null) {
+            return false;
+        }
+        Date preventionThreshold = new Date(System.currentTimeMillis() - Constant.VIEW_DUPLICATE_PREVENTION_MILLIS);
+        return postViewRepository.findByPostAndUserAndViewedAtAfter(post, user, preventionThreshold).isPresent();
+    }
 }

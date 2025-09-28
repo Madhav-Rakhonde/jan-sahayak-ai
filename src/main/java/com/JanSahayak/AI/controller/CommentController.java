@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.controller;
 
 import com.JanSahayak.AI.DTO.CommentCreateDto;
+import com.JanSahayak.AI.DTO.CommentDto;
 import com.JanSahayak.AI.DTO.CommentUpdateDto;
 import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.exception.*;
@@ -21,7 +22,6 @@ import com.JanSahayak.AI.security.CurrentUser;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Date;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/comments")
@@ -36,18 +36,18 @@ public class CommentController {
     // ===== Comment Creation Methods =====
 
     /**
-     * Create a new comment on a post
+     * Create a new comment on a post - Updated to return CommentDto to prevent LazyInitializationException
      */
     @PostMapping("/posts/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Comment>> createComment(
+    public ResponseEntity<ApiResponse<CommentDto>> createComment(
             @PathVariable Long postId,
             @Valid @RequestBody CommentCreateDto commentDto,
             @CurrentUser User currentUser) {
         try {
             Post post = postService.findById(postId);
 
-            Comment comment = commentService.createComment(commentDto, currentUser, post);
+            CommentDto comment = commentService.createComment(commentDto, currentUser, post);
 
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Comment created successfully", comment));
@@ -130,18 +130,18 @@ public class CommentController {
     }
 
     /**
-     * Get all comments for a post with cursor-based pagination
+     * Get all comments for a post with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
      */
     @GetMapping("/posts/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getCommentsByPost(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentsByPost(
             @PathVariable Long postId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
         try {
             Post post = postService.findById(postId);
 
-            PaginatedResponse<Comment> comments = commentService.getCommentsByPost(post, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getCommentsByPost(post, beforeId, limit);
 
             return ResponseEntity.ok(ApiResponse.success("Comments retrieved successfully", comments));
         } catch (PostNotFoundException e) {
@@ -158,18 +158,18 @@ public class CommentController {
     }
 
     /**
-     * Get top-level comments for a post with cursor-based pagination
+     * Get top-level comments for a post with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
      */
     @GetMapping("/posts/{postId}/top-level")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getTopLevelCommentsByPost(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getTopLevelCommentsByPost(
             @PathVariable Long postId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
         try {
             Post post = postService.findById(postId);
 
-            PaginatedResponse<Comment> comments = commentService.getTopLevelCommentsByPost(post, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsByPost(post, beforeId, limit);
 
             return ResponseEntity.ok(ApiResponse.success("Top-level comments retrieved successfully", comments));
         } catch (PostNotFoundException e) {
@@ -211,18 +211,18 @@ public class CommentController {
     }
 
     /**
-     * Get comments by user with cursor-based pagination
+     * Get comments by user with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
      */
     @GetMapping("/users/{userId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getCommentsByUser(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentsByUser(
             @PathVariable Long userId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
         try {
             User user = userService.findById(userId);
 
-            PaginatedResponse<Comment> comments = commentService.getCommentsByUser(user, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getCommentsByUser(user, beforeId, limit);
 
             return ResponseEntity.ok(ApiResponse.success("User comments retrieved successfully", comments));
         } catch (UserNotFoundException e) {
@@ -239,17 +239,17 @@ public class CommentController {
     }
 
     /**
-     * Get current user's comments with cursor-based pagination
+     * Get current user's comments with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
      */
     @GetMapping("/my-comments")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getMyComments(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getMyComments(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
             @CurrentUser User currentUser) {
         try {
 
-            PaginatedResponse<Comment> comments = commentService.getCommentsByUser(currentUser, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getCommentsByUser(currentUser, beforeId, limit);
 
             return ResponseEntity.ok(ApiResponse.success("Your comments retrieved successfully", comments));
         } catch (UserNotFoundException e) {
@@ -266,16 +266,16 @@ public class CommentController {
     }
 
     /**
-     * Get replies to a comment with cursor-based pagination
+     * Get replies to a comment with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
      */
     @GetMapping("/{commentId}/replies")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getCommentReplies(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentReplies(
             @PathVariable Long commentId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
         try {
-            PaginatedResponse<Comment> replies = commentService.getCommentReplies(commentId, beforeId, limit);
+            PaginatedResponse<CommentDto> replies = commentService.getCommentReplies(commentId, beforeId, limit);
 
             return ResponseEntity.ok(ApiResponse.success("Comment replies retrieved successfully", replies));
         } catch (CommentNotFoundException e) {
@@ -294,15 +294,15 @@ public class CommentController {
     // ===== Admin Methods =====
 
     /**
-     * Get all comments with cursor-based pagination (Admin only)
+     * Get all comments with cursor-based pagination (Admin only) - Updated to return CommentDto to prevent LazyInitializationException
      */
     @GetMapping("/admin/all")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getAllComments(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getAllComments(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
         try {
-            PaginatedResponse<Comment> comments = commentService.getAllComments(beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getAllComments(beforeId, limit);
 
             return ResponseEntity.ok(ApiResponse.success("All comments retrieved successfully", comments));
         } catch (ServiceException e) {
@@ -316,16 +316,16 @@ public class CommentController {
     }
 
     /**
-     * Get recent comments with cursor-based pagination (Admin/Department)
+     * Get recent comments with cursor-based pagination (Admin/Department) - Updated to return CommentDto to prevent LazyInitializationException
      */
     @GetMapping("/admin/recent")
     @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_DEPARTMENT')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<Comment>>> getRecentComments(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getRecentComments(
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date fromDate,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
         try {
-            PaginatedResponse<Comment> comments = commentService.getRecentComments(fromDate, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getRecentComments(fromDate, beforeId, limit);
 
             return ResponseEntity.ok(ApiResponse.success("Recent comments retrieved successfully", comments));
         } catch (ServiceException e) {
@@ -338,5 +338,26 @@ public class CommentController {
         }
     }
 
+    /**
+     * Search comments by content with cursor-based pagination - Added new endpoint that returns CommentDto
+     */
+    @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> searchComments(
+            @RequestParam String searchTerm,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
+        try {
+            PaginatedResponse<CommentDto> comments = commentService.searchComments(searchTerm, beforeId, limit);
 
+            return ResponseEntity.ok(ApiResponse.success("Comments search completed successfully", comments));
+        } catch (ServiceException e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error searching comments with term: {}", searchTerm, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error", "Failed to search comments"));
+        }
+    }
 }

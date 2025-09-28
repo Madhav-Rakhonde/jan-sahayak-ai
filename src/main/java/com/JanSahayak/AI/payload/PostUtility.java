@@ -770,9 +770,16 @@ public class PostUtility {
 
     public static void validateFileContent(MultipartFile file, String extension) {
         try {
-            byte[] header = new byte[Math.min(512, (int) file.getSize())];
-            file.getInputStream().read(header, 0, header.length);
-            file.getInputStream().reset();
+            // Get the file bytes directly instead of using InputStream
+            byte[] fileBytes = file.getBytes();
+
+            if (fileBytes.length == 0) {
+                throw new MediaValidationException("File is empty");
+            }
+
+            // Read first 512 bytes or entire file if smaller
+            int headerSize = Math.min(512, fileBytes.length);
+            byte[] header = Arrays.copyOf(fileBytes, headerSize);
 
             String hexHeader = bytesToHex(header).toUpperCase();
 
@@ -788,15 +795,41 @@ public class PostUtility {
                         throw new MediaValidationException("File content doesn't match PNG format");
                     }
                     break;
+                case ".webp":
+                    // WebP files start with "RIFF" followed by file size, then "WEBP"
+                    if (!hexHeader.startsWith("52494646") || !hexHeader.contains("57454250")) {
+                        throw new MediaValidationException("File content doesn't match WebP format");
+                    }
+                    break;
                 case ".mp4":
-                    if (!hexHeader.contains("667479") && !hexHeader.contains("6D6F6F76")) {
+                    // MP4 files have various signatures, check for common ones
+                    if (!hexHeader.contains("667479") && // "ftyp"
+                            !hexHeader.contains("6D6F6F76") && // "moov"
+                            !hexHeader.contains("6D646174") && // "mdat"
+                            !hexHeader.contains("66726565")) { // "free"
                         log.warn("MP4 file signature validation inconclusive for file: {}", file.getOriginalFilename());
+                    }
+                    break;
+                case ".mov":
+                    // MOV files are similar to MP4
+                    if (!hexHeader.contains("667479") && // "ftyp"
+                            !hexHeader.contains("6D6F6F76") && // "moov"
+                            !hexHeader.contains("717420") && // "qt "
+                            !hexHeader.contains("6D646174")) { // "mdat"
+                        log.warn("MOV file signature validation inconclusive for file: {}", file.getOriginalFilename());
                     }
                     break;
                 default:
                     log.debug("No content validation implemented for extension: {}", extension);
             }
+
+            log.debug("File content validation passed for: {} (extension: {})",
+                    file.getOriginalFilename(), extension);
+
         } catch (IOException e) {
+            throw new MediaValidationException("Failed to read file content: " + e.getMessage());
+        } catch (Exception e) {
+            log.error("Unexpected error during file content validation: {}", e.getMessage(), e);
             throw new MediaValidationException("Failed to validate file content: " + e.getMessage());
         }
     }
