@@ -730,7 +730,9 @@ public class PostUtility {
 
             log.info("Media file uploaded successfully: {} (size: {} bytes)",
                     uniqueFileName, file.getSize());
-            return uniqueFileName;
+
+
+            return "/uploads/posts/" + uniqueFileName;
 
         } catch (IOException e) {
             log.error("Failed to upload media file for user: {}", userId, e);

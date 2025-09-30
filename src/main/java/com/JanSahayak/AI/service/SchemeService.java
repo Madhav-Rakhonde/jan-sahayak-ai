@@ -3,7 +3,6 @@ package com.JanSahayak.AI.service;
 import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.DTO.PostResponse;
 import com.JanSahayak.AI.config.Constant;
-import com.JanSahayak.AI.exception.ServiceException;
 import com.JanSahayak.AI.exception.ValidationException;
 import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
@@ -113,12 +112,10 @@ public class SchemeService {
             List<PostResponse> postResponses = postPage.getContent().stream()
                     .map(post -> postService.convertToPostResponse(post, currentUser))
                     .collect(Collectors.toList());
-
-            // Create paginated response using utility method
             PaginatedResponse<PostResponse> response = PaginationUtils.createIdBasedResponse(
                     postResponses, setup.getValidatedLimit(), PostResponse::getId);
 
-            // Override hasMore from page information if available
+            // Override hasMore from page information if 6
             if (postPage.hasNext() != response.isHasMore()) {
                 response = PaginatedResponse.of(
                         postResponses,
@@ -374,12 +371,12 @@ public class SchemeService {
                     "%#weatheremergency%",
                     "#weatheralert%",
                     "%#weatheralert%",
-                    "#trafficupdate%",
-                    "%#trafficupdate%",
+//                    "#trafficupdate%",
+//                    "%#trafficupdate%",
                     "%high%priority%",
                     "%weather%emergency%",
-                    "%weather%alert%",
-                    "%traffic%update%"
+                    "%weather%alert%"
+//                    "%traffic%update%"
             );
 
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(

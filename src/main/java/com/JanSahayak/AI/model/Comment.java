@@ -43,7 +43,6 @@ public class Comment {
     @OneToMany(mappedBy = "parentComment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<Comment> replies = new ArrayList<>();
 
-    // ===== Helper Methods =====
 
     /**
      * Check if this is a top-level comment (not a reply)

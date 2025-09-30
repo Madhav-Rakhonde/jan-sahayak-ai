@@ -36,7 +36,6 @@ public class PostSearchController {
      * GET /api/search/posts
      */
     @GetMapping("/posts")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> searchPosts(
             @RequestParam String query,
             @RequestParam(required = false) Long beforePostId,

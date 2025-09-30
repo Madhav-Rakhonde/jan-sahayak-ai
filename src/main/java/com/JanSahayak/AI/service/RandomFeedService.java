@@ -45,8 +45,7 @@ public class RandomFeedService {
             log.info("Getting random active feed for anonymous user, beforeId: {}, limit: {}",
                     setup.getSanitizedCursor(), setup.getValidatedLimit());
 
-            // For randomized feed, we need to fetch more posts than requested to ensure good variety
-            // after filtering and randomization
+
             int fetchMultiplier = 6; // Fetch 6x more posts for better randomization
             int fetchLimit = setup.getValidatedLimit() * fetchMultiplier;
 

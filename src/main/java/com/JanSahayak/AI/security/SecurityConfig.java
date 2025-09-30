@@ -13,6 +13,7 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -68,16 +69,17 @@ public class SecurityConfig {
                 .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authz -> authz
-                        // Public endpoints - No authentication required
+                        .requestMatchers("/uploads/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/public/**").permitAll()
+                        .requestMatchers("/api/auth/**","/api/search/posts/anonymous" ).permitAll()
                         .requestMatchers("/api/districts/**").permitAll()
+                        .requestMatchers("/api/media/test").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/posts/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/posts/validate-tags").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/users/search").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/users/{userId}").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/recommendations/posts").permitAll() // Anonymous recommendations
-
-                        // Admin only endpoints
+                        .requestMatchers(HttpMethod.POST, "/api/recommendations/posts").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/users").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/users/active").hasRole("ADMIN")
@@ -86,7 +88,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/users/{userId}/activate").hasRole("ADMIN")
 
                         // Authenticated endpoints
-                        .requestMatchers("/api/posts").authenticated() // POST, PUT, DELETE
+                        .requestMatchers("/api/posts").authenticated()
                         .requestMatchers("/api/comments/**").authenticated()
                         .requestMatchers("/api/notifications/**").authenticated()
                         .requestMatchers("/api/recommendations/interactions/**").authenticated()
@@ -113,6 +115,11 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer() {
+        return (web) -> web.ignoring()
+                .requestMatchers("/uploads/**");
     }
 }
 
