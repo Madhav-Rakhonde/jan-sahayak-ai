@@ -2,6 +2,7 @@ package com.JanSahayak.AI.repository;
 
 import com.JanSahayak.AI.model.Comment;
 import com.JanSahayak.AI.model.Post;
+import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -18,6 +19,25 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
     // Count comments for a post
     @Query("SELECT COUNT(c) FROM Comment c WHERE c.post = :post")
     Long countByPost(@Param("post") Post post);
+    // Add these methods to CommentRepo.java
+
+    List<Comment> findBySocialPostAndIdLessThanOrderByCreatedAtAsc(
+            SocialPost socialPost, Long id, Pageable pageable);
+
+    List<Comment> findBySocialPostOrderByCreatedAtAsc(
+            SocialPost socialPost, Pageable pageable);
+
+    Long countBySocialPost(SocialPost socialPost);
+
+    @Query("SELECT c FROM Comment c WHERE c.socialPost = :socialPost AND c.parentComment IS NULL")
+    List<Comment> findTopLevelCommentsBySocialPost(
+            @Param("socialPost") SocialPost socialPost, Pageable pageable);
+
+    @Query("SELECT c FROM Comment c WHERE c.socialPost = :socialPost AND c.parentComment IS NULL AND c.id < :id")
+    List<Comment> findTopLevelCommentsBySocialPostAndIdLessThan(
+            @Param("socialPost") SocialPost socialPost,
+            @Param("id") Long id,
+            Pageable pageable);
 
     // ======== CORRECTED TOP-LEVEL COMMENT METHODS ========
     // This is the corrected non-paginated method for fetching top-level comments.

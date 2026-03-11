@@ -2,6 +2,7 @@ package com.JanSahayak.AI.repository;
 
 import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.PostLike;
+import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -41,6 +42,14 @@ public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
      */
     @Query("SELECT COUNT(pl) FROM PostLike pl WHERE pl.post = :post")
     Long countByPost(@Param("post") Post post);
+
+    // Add these methods to PostLikeRepo.java
+
+    Optional<PostLike> findBySocialPostAndUser(SocialPost socialPost, User user);
+
+    List<PostLike> findBySocialPost(SocialPost socialPost);
+
+    Long countBySocialPost(SocialPost socialPost);
 
 
 }

@@ -1,0 +1,48 @@
+# Curated Bad Words List for Indian Social Media App
+# Last Updated: 2025-01-15
+
+# ===== English Abusive Words =====
+fuck
+fucking
+fucked
+fucker
+shitting
+bitch
+bitches
+asshole
+crap
+dick
+pussy
+cock
+slut
+whore
+
+# ===== Hindi/Urdu Abusive Words (Transliterated) =====
+mc
+bc
+madarchod
+behenchod
+bhenchod
+chutiya
+chutiye
+chod
+chodu
+bhosdi
+bhosdike
+gandu
+gand
+harami
+kamina
+kutta
+kutti
+randi
+saala
+saali
+bhadwa
+bhadwe
+
+
+motherfucker
+son of a bitch
+piece of shit
+

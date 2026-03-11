@@ -15,14 +15,11 @@ import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.payload.PostUtility;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.validation.ValidationException;
 import java.util.*;
-import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
 import static com.JanSahayak.AI.payload.PostUtility.calculateTimeAgo;

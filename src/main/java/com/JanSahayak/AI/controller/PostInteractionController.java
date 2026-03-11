@@ -1,300 +1,517 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.*;
+import com.JanSahayak.AI.config.Constant;
+
 import com.JanSahayak.AI.exception.ApiResponse;
-import com.JanSahayak.AI.model.Post;
-import com.JanSahayak.AI.model.PostView;
-import com.JanSahayak.AI.model.User;
+import com.JanSahayak.AI.exception.ResourceNotFoundException;
+import com.JanSahayak.AI.model.*;
+import com.JanSahayak.AI.model.PostShare.ShareType;
 import com.JanSahayak.AI.security.CurrentUser;
 import com.JanSahayak.AI.service.PostInteractionService;
-import com.JanSahayak.AI.service.PostService;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.Map;
+
 /**
- * REST Controller for handling post interactions including views and likes.
- * Provides endpoints for recording post views and toggling post likes with atomic counter updates.
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║         PostInteractionController  —  Non-comment Interactions           ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                          ║
+ * ║  Owns: VIEWS · LIKES · DISLIKES · SAVES · SHARES                        ║
+ * ║  Comments are handled exclusively by CommentController (/api/comments)   ║
+ * ║                                                                          ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║  Post type is selected via {postType} path variable:                     ║
+ * ║    "posts"        →  regular Issue / Broadcast Post                      ║
+ * ║    "social-posts" →  SocialPost                                          ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║  ROOT CAUSE FIX (detached-entity / post_id cannot be null):             ║
+ * ║  The controller NO LONGER calls postRepo / socialPostRepo directly for   ║
+ * ║  any write operation. It passes only the ID to the service's *ById       ║
+ * ║  methods, which load the entity INSIDE the @Transactional boundary.      ║
+ * ║  This keeps the entity managed throughout the entire operation and        ║
+ * ║  prevents the FK (social_post_id / post_id) from resolving to null.      ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 @RestController
-@RequestMapping("/api/posts/interactions")
+@RequestMapping("/api/interactions")
 @RequiredArgsConstructor
 @Slf4j
 public class PostInteractionController {
 
-    private final PostInteractionService postInteractionService;
-    private final PostService postService;
+    // ── Service (all interaction logic lives here) ─────────────────────────────
+    // NOTE: PostRepo / SocialPostRepo are intentionally NOT injected here.
+    // All entity resolution for write paths happens inside the service transaction.
+    // Read-only count/status GETs use the service's getSocialPostById / getPostById.
+    private final PostInteractionService interactionService;
 
-    // ===== POST VIEW ENDPOINTS =====
+    // =========================================================================
+    // VIEWS
+    // =========================================================================
 
-    /**
-     * Record a post view by the current authenticated user
-     * Prevents duplicate views within 1 hour and updates view counter atomically
-     *
-     * POST /api/posts/interactions/{postId}/view
-     *
-     * @param postId The ID of the post being viewed
-     * @return ApiResponse with PostView if recorded, null if duplicate prevented
-     */
-    @PostMapping("/{postId}/view")
-    public ResponseEntity<ApiResponse<PostViewResponse>> recordPostView(
-            @PathVariable @NotNull Long postId,
+    @PostMapping("/{postType}/{id}/view")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> recordView(
+            @PathVariable String postType,
+            @PathVariable Long id,
             @CurrentUser User currentUser) {
 
+        log.debug("[View] postType={} id={} user={}", postType, id, currentUser.getActualUsername());
+
         try {
-            var post = postService.findById(postId);
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                Post post = interactionService.getPostById(id);
+                PostView view = interactionService.recordPostViewById(id, currentUser);
+                if (view == null) return ResponseEntity.noContent().build();
+                return ok("View recorded", Map.of("viewCount", post.getViewCount()));
 
-            PostView postView = postInteractionService.recordPostViewWithCounterUpdate(post, currentUser);
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                PostView view = interactionService.recordSocialPostViewById(id, currentUser);
+                if (view == null) return ResponseEntity.noContent().build();
+                SocialPost sp = interactionService.getSocialPostById(id);
+                return ok("View recorded", Map.of("viewCount", sp.getViewCount()));
 
-            if (postView != null) {
-                PostViewResponse response = PostViewResponse.builder()
-                        .viewId(postView.getId())
-                        .postId(postView.getPost().getId())
-                        .userId(postView.getUser().getId())
-                        .username(postView.getUser().getActualUsername())
-                        .viewedAt(postView.getViewedAt())
-                        .viewDuration(postView.getViewDuration())
-                        .newViewCount(postView.getPost().getViewCount())
-                        .build();
-
-                log.debug("Post view recorded successfully for post: {} by user: {}",
-                        postId, currentUser.getActualUsername());
-
-                return ResponseEntity.ok(ApiResponse.success("Post view recorded", response));
             } else {
-                log.debug("Post view prevented (duplicate within 1 hour) for post: {} by user: {}",
-                        postId, currentUser.getActualUsername());
-
-                return ResponseEntity.ok(ApiResponse.success("View already recorded recently", null));
+                return badPostType(postType);
             }
-
         } catch (Exception e) {
-            log.error("Failed to record post view for post: {}", postId, e);
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Failed to record post view", e.getMessage()));
+            log.error("[View] Failed: postType={} id={}", postType, id, e);
+            return err("Failed to record view", e.getMessage());
         }
     }
 
-    /**
-     * Record a post view with duration tracking
-     * Allows specifying how long the user viewed the post
-     *
-     * POST /api/posts/interactions/{postId}/view/duration
-     *
-     * @param postId The ID of the post being viewed
-     * @param request Request body containing view duration in seconds
-     * @return ApiResponse with PostView if recorded
-     */
-    @PostMapping("/{postId}/view/duration")
-    public ResponseEntity<ApiResponse<PostViewResponse>> recordPostViewWithDuration(
-            @PathVariable @NotNull Long postId,
-            @RequestBody @Valid ViewDurationRequest request,
+    // =========================================================================
+    // LIKES
+    // =========================================================================
+
+    @PostMapping("/{postType}/{id}/like")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> likePost(
+            @PathVariable String postType,
+            @PathVariable Long id,
             @CurrentUser User currentUser) {
 
+        log.debug("[Like] postType={} id={} user={}", postType, id, currentUser.getActualUsername());
+
         try {
-            var post = postService.findById(postId);
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                boolean liked = interactionService.likePostById(id, currentUser);
+                Post post = interactionService.getPostById(id);
+                return ok("Like toggled", reactionBody("liked", liked, post.getLikeCount(), post.getDislikeCount()));
 
-            PostView postView = postInteractionService.recordPostViewWithCounterUpdate(post, currentUser);
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                boolean liked = interactionService.likeSocialPostById(id, currentUser);
+                SocialPost sp = interactionService.getSocialPostById(id);
+                return ok("Like toggled", reactionBody("liked", liked, sp.getLikeCount(), sp.getDislikeCount()));
 
-            if (postView != null && request.getDuration() != null && request.getDuration() > 0) {
-                // Update the view with duration (would need to add this method to service)
-                postView.setViewDuration(request.getDuration());
-
-                PostViewResponse response = PostViewResponse.builder()
-                        .viewId(postView.getId())
-                        .postId(postView.getPost().getId())
-                        .userId(postView.getUser().getId())
-                        .username(postView.getUser().getActualUsername())
-                        .viewedAt(postView.getViewedAt())
-                        .viewDuration(postView.getViewDuration())
-                        .newViewCount(postView.getPost().getViewCount())
-                        .isLongView(postView.isLongView())
-                        .isQuickView(postView.isQuickView())
-                        .build();
-
-                log.debug("Post view with duration recorded for post: {} by user: {} ({}s)",
-                        postId, currentUser.getActualUsername(), request.getDuration());
-
-                return ResponseEntity.ok(ApiResponse.success("Post view with duration recorded", response));
-            } else if (postView != null) {
-                PostViewResponse response = PostViewResponse.builder()
-                        .viewId(postView.getId())
-                        .postId(postView.getPost().getId())
-                        .userId(postView.getUser().getId())
-                        .username(postView.getUser().getActualUsername())
-                        .viewedAt(postView.getViewedAt())
-                        .newViewCount(postView.getPost().getViewCount())
-                        .build();
-
-                return ResponseEntity.ok(ApiResponse.success("Post view recorded", response));
             } else {
-                return ResponseEntity.ok(ApiResponse.success("View already recorded recently", null));
+                return badPostType(postType);
             }
-
         } catch (Exception e) {
-            log.error("Failed to record post view with duration for post: {}", postId, e);
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Failed to record post view", e.getMessage()));
+            log.error("[Like] Failed: postType={} id={}", postType, id, e);
+            return err("Failed to toggle like", e.getMessage());
         }
     }
 
-    // ===== POST LIKE ENDPOINTS =====
+    // =========================================================================
+    // DISLIKES
+    // =========================================================================
 
-    /**
-     * Toggle like status for a post by the current authenticated user
-     * If user hasn't liked: adds like and increments counter
-     * If user has liked: removes like and decrements counter
-     *
-     * POST /api/posts/interactions/{postId}/like
-     *
-     * @param postId The ID of the post to toggle like on
-     * @return ApiResponse with like status and updated counts
-     */
-    @PostMapping("/{postId}/like")
-    public ResponseEntity<ApiResponse<PostLikeResponse>> togglePostLike(
-            @PathVariable @NotNull Long postId,
+    @PostMapping("/{postType}/{id}/dislike")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> dislikePost(
+            @PathVariable String postType,
+            @PathVariable Long id,
+            @CurrentUser User currentUser) {
+
+        log.debug("[Dislike] postType={} id={} user={}", postType, id, currentUser.getActualUsername());
+
+        try {
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                boolean disliked = interactionService.dislikePostById(id, currentUser);
+                Post post = interactionService.getPostById(id);
+                return ok("Dislike toggled", reactionBody("disliked", disliked, post.getLikeCount(), post.getDislikeCount()));
+
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                boolean disliked = interactionService.dislikeSocialPostById(id, currentUser);
+                SocialPost sp = interactionService.getSocialPostById(id);
+                return ok("Dislike toggled", reactionBody("disliked", disliked, sp.getLikeCount(), sp.getDislikeCount()));
+
+            } else {
+                return badPostType(postType);
+            }
+        } catch (Exception e) {
+            log.error("[Dislike] Failed: postType={} id={}", postType, id, e);
+            return err("Failed to toggle dislike", e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // SAVE (toggle)
+    // =========================================================================
+
+    @PostMapping("/{postType}/{id}/save")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> toggleSave(
+            @PathVariable String postType,
+            @PathVariable Long id,
+            @CurrentUser User currentUser) {
+
+        log.debug("[Save] postType={} id={} user={}", postType, id, currentUser.getActualUsername());
+
+        try {
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                boolean saved = interactionService.toggleBroadcastPostSaveById(id, currentUser);
+                Post post = interactionService.getPostById(id);
+                return ok("Save toggled", Map.of("saved", saved, "saveCount", post.getSaveCount()));
+
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                boolean saved = interactionService.toggleSocialPostSaveById(id, currentUser);
+                SocialPost sp = interactionService.getSocialPostById(id);
+                return ok("Save toggled", Map.of("saved", saved, "saveCount", sp.getSaveCount()));
+
+            } else {
+                return badPostType(postType);
+            }
+        } catch (Exception e) {
+            log.error("[Save] Failed: postType={} id={}", postType, id, e);
+            return err("Failed to toggle save", e.getMessage());
+        }
+    }
+
+    @GetMapping("/saved")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Page<SavedPost>>> getSavedPosts(
+            @CurrentUser User currentUser,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        try {
+            return ok("Saved posts retrieved",
+                    interactionService.getSavedPostsForUser(currentUser, page, size));
+        } catch (Exception e) {
+            log.error("[Save] getSavedPosts failed for user={}", currentUser.getActualUsername(), e);
+            return err("Failed to retrieve saved posts", e.getMessage());
+        }
+    }
+
+    @GetMapping("/saved/cursor")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Page<SavedPost>>> getSavedPostsCursor(
+            @CurrentUser User currentUser,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(defaultValue = "20") int size) {
+
+        try {
+            return ok("Saved posts retrieved",
+                    interactionService.getSavedPostsForUserWithCursor(currentUser, beforeId, size));
+        } catch (Exception e) {
+            log.error("[Save] getSavedPostsCursor failed for user={}", currentUser.getActualUsername(), e);
+            return err("Failed to retrieve saved posts", e.getMessage());
+        }
+    }
+
+    @GetMapping("/saved/social-posts")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Page<SavedPost>>> getSavedSocialPosts(
+            @CurrentUser User currentUser,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        try {
+            return ok("Saved social posts retrieved",
+                    interactionService.getSavedSocialPostsForUser(currentUser, page, size));
+        } catch (Exception e) {
+            log.error("[Save] getSavedSocialPosts failed for user={}", currentUser.getActualUsername(), e);
+            return err("Failed to retrieve saved social posts", e.getMessage());
+        }
+    }
+
+    @GetMapping("/saved/posts")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Page<SavedPost>>> getSavedBroadcastPosts(
+            @CurrentUser User currentUser,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        try {
+            return ok("Saved broadcast posts retrieved",
+                    interactionService.getSavedBroadcastPostsForUser(currentUser, page, size));
+        } catch (Exception e) {
+            log.error("[Save] getSavedBroadcastPosts failed for user={}", currentUser.getActualUsername(), e);
+            return err("Failed to retrieve saved broadcast posts", e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // SHARE
+    // =========================================================================
+
+    @PostMapping("/{postType}/{id}/share")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> recordShare(
+            @PathVariable String postType,
+            @PathVariable Long id,
+            @RequestParam(required = false) ShareType shareType,
+            @CurrentUser User currentUser) {
+
+        log.debug("[Share] postType={} id={} shareType={} user={}", postType, id, shareType, currentUser.getActualUsername());
+
+        try {
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                interactionService.recordPostShareById(id, currentUser, shareType);
+                Post post = interactionService.getPostById(id);
+                return ok("Share recorded", Map.of("shareCount", post.getShareCount()));
+
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                interactionService.recordSocialPostShareById(id, currentUser, shareType);
+                SocialPost sp = interactionService.getSocialPostById(id);
+                return ok("Share recorded", Map.of("shareCount", sp.getShareCount()));
+
+            } else {
+                return badPostType(postType);
+            }
+        } catch (Exception e) {
+            log.error("[Share] Failed: postType={} id={}", postType, id, e);
+            return err("Failed to record share", e.getMessage());
+        }
+    }
+
+    @GetMapping("/{postType}/{id}/share/breakdown")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<List<Object[]>>> getShareBreakdown(
+            @PathVariable String postType,
+            @PathVariable Long id) {
+
+        try {
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                return ok("Share breakdown retrieved",
+                        interactionService.getShareBreakdownForPost(interactionService.getPostById(id)));
+
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                return ok("Share breakdown retrieved",
+                        interactionService.getShareBreakdownForSocialPost(interactionService.getSocialPostById(id)));
+
+            } else {
+                return badPostType(postType);
+            }
+        } catch (Exception e) {
+            log.error("[Share] getShareBreakdown failed: postType={} id={}", postType, id, e);
+            return err("Failed to retrieve share breakdown", e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // COUNTS
+    // =========================================================================
+
+    @GetMapping("/{postType}/{id}/counts")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getCounts(
+            @PathVariable String postType,
+            @PathVariable Long id) {
+
+        try {
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                Post post = interactionService.getPostById(id);
+                return ok("Counts retrieved", Map.of(
+                        "likeCount",    post.getLikeCount(),
+                        "dislikeCount", post.getDislikeCount(),
+                        "commentCount", post.getCommentCount(),
+                        "viewCount",    post.getViewCount(),
+                        "saveCount",    post.getSaveCount(),
+                        "shareCount",   post.getShareCount()
+                ));
+
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                SocialPost sp = interactionService.getSocialPostById(id);
+                return ok("Counts retrieved", Map.of(
+                        "likeCount",    sp.getLikeCount(),
+                        "dislikeCount", sp.getDislikeCount(),
+                        "commentCount", sp.getCommentCount(),
+                        "viewCount",    sp.getViewCount(),
+                        "saveCount",    sp.getSaveCount(),
+                        "shareCount",   sp.getShareCount()
+                ));
+
+            } else {
+                return badPostType(postType);
+            }
+        } catch (Exception e) {
+            log.error("[Counts] Failed: postType={} id={}", postType, id, e);
+            return err("Failed to retrieve counts", e.getMessage());
+        }
+    }
+
+    @GetMapping("/{postType}/{id}/counts/likes")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getLikeCount(
+            @PathVariable String postType,
+            @PathVariable Long id) {
+
+        try {
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                return ok("Like count retrieved", Map.of("likeCount", interactionService.getPostById(id).getLikeCount()));
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                return ok("Like count retrieved", Map.of("likeCount", interactionService.getSocialPostById(id).getLikeCount()));
+            } else {
+                return badPostType(postType);
+            }
+        } catch (Exception e) {
+            log.error("[Counts] getLikeCount failed: postType={} id={}", postType, id, e);
+            return err("Failed to retrieve like count", e.getMessage());
+        }
+    }
+
+    @GetMapping("/{postType}/{id}/counts/dislikes")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getDislikeCount(
+            @PathVariable String postType,
+            @PathVariable Long id) {
+
+        try {
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                return ok("Dislike count retrieved", Map.of("dislikeCount", interactionService.getPostById(id).getDislikeCount()));
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                return ok("Dislike count retrieved", Map.of("dislikeCount", interactionService.getSocialPostById(id).getDislikeCount()));
+            } else {
+                return badPostType(postType);
+            }
+        } catch (Exception e) {
+            log.error("[Counts] getDislikeCount failed: postType={} id={}", postType, id, e);
+            return err("Failed to retrieve dislike count", e.getMessage());
+        }
+    }
+
+    @GetMapping("/{postType}/{id}/counts/comments")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getCommentCount(
+            @PathVariable String postType,
+            @PathVariable Long id) {
+
+        try {
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                return ok("Comment count retrieved", Map.of("commentCount", interactionService.getPostById(id).getCommentCount()));
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                return ok("Comment count retrieved", Map.of("commentCount", interactionService.getSocialPostById(id).getCommentCount()));
+            } else {
+                return badPostType(postType);
+            }
+        } catch (Exception e) {
+            log.error("[Counts] getCommentCount failed: postType={} id={}", postType, id, e);
+            return err("Failed to retrieve comment count", e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // REACTION STATUS
+    // =========================================================================
+
+    @GetMapping("/{postType}/{id}/my-status")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getMyReactionStatus(
+            @PathVariable String postType,
+            @PathVariable Long id,
             @CurrentUser User currentUser) {
 
         try {
-            var post = postService.findById(postId);
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                Post post = interactionService.getPostById(id);
+                return ok("Reaction status retrieved", Map.of(
+                        "liked",    interactionService.hasUserLikedPost(post, currentUser),
+                        "disliked", interactionService.hasUserDislikedPost(post, currentUser),
+                        "saved",    interactionService.hasSavedBroadcastPost(post, currentUser)
+                ));
 
-            boolean likeAdded = postInteractionService.togglePostLikeWithCounterUpdate(post, currentUser);
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                SocialPost sp = interactionService.getSocialPostById(id);
+                return ok("Reaction status retrieved", Map.of(
+                        "liked",    interactionService.hasUserLikedSocialPost(sp, currentUser),
+                        "disliked", interactionService.hasUserDislikedSocialPost(sp, currentUser),
+                        "saved",    interactionService.hasSavedSocialPost(sp, currentUser)
+                ));
 
-            PostLikeResponse response = PostLikeResponse.builder()
-                    .postId(postId)
-                    .userId(currentUser.getId())
-                    .username(currentUser.getActualUsername())
-                    .isLiked(likeAdded)
-                    .newLikeCount(post.getLikeCount())
-                    .action(likeAdded ? "LIKED" : "UNLIKED")
-                    .build();
-
-            String message = likeAdded ? "Post liked successfully" : "Post unliked successfully";
-
-            log.debug("Post like toggled for post: {} by user: {} - Action: {}",
-                    postId, currentUser.getActualUsername(), response.getAction());
-
-            return ResponseEntity.ok(ApiResponse.success(message, response));
-
+            } else {
+                return badPostType(postType);
+            }
         } catch (Exception e) {
-            log.error("Failed to toggle post like for post: {}", postId, e);
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Failed to toggle post like", e.getMessage()));
+            log.error("[Status] getMyReactionStatus failed: postType={} id={}", postType, id, e);
+            return err("Failed to retrieve reaction status", e.getMessage());
         }
     }
 
-    // ===== BATCH INTERACTION ENDPOINTS =====
-
-    /**
-     * Record multiple post views in a single request
-     * Useful for tracking views when user scrolls through multiple posts
-     *
-     * POST /api/posts/interactions/views/batch
-     *
-     * @param request Request body containing list of post IDs and optional durations
-     * @return ApiResponse with batch view results
-     */
-    @PostMapping("/views/batch")
-    public ResponseEntity<ApiResponse<BatchViewResponse>> recordBatchViews(
-            @RequestBody @Valid BatchViewRequest request,
+    @GetMapping("/{postType}/{id}/my-status/liked")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> hasUserLiked(
+            @PathVariable String postType,
+            @PathVariable Long id,
             @CurrentUser User currentUser) {
 
         try {
-            if (request.getPostIds() == null || request.getPostIds().isEmpty()) {
-                return ResponseEntity.badRequest()
-                        .body(ApiResponse.error("Post IDs list cannot be empty"));
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                return ok("Like status retrieved",
+                        Map.of("liked", interactionService.hasUserLikedPost(interactionService.getPostById(id), currentUser)));
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                return ok("Like status retrieved",
+                        Map.of("liked", interactionService.hasUserLikedSocialPost(interactionService.getSocialPostById(id), currentUser)));
+            } else {
+                return badPostType(postType);
             }
-
-            if (request.getPostIds().size() > 50) {
-                return ResponseEntity.badRequest()
-                        .body(ApiResponse.error("Cannot process more than 50 posts at once"));
-            }
-
-            BatchViewResponse.BatchViewResponseBuilder responseBuilder = BatchViewResponse.builder();
-            int successCount = 0;
-            int skippedCount = 0;
-
-            for (Long postId : request.getPostIds()) {
-                try {
-                    var post = postService.findById(postId);
-                    PostView postView = postInteractionService.recordPostViewWithCounterUpdate(post, currentUser);
-
-                    if (postView != null) {
-                        successCount++;
-                    } else {
-                        skippedCount++;
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to record view for post: {} in batch operation", postId, e);
-                    skippedCount++;
-                }
-            }
-
-            BatchViewResponse response = responseBuilder
-                    .totalRequested(request.getPostIds().size())
-                    .successCount(successCount)
-                    .skippedCount(skippedCount)
-                    .failedCount(request.getPostIds().size() - successCount - skippedCount)
-                    .build();
-
-            log.debug("Batch view recording completed - Success: {}, Skipped: {}, Failed: {}",
-                    successCount, skippedCount, response.getFailedCount());
-
-            return ResponseEntity.ok(ApiResponse.success("Batch views processed", response));
-
         } catch (Exception e) {
-            log.error("Failed to process batch view request", e);
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Failed to process batch views", e.getMessage()));
+            log.error("[Status] hasUserLiked failed: postType={} id={}", postType, id, e);
+            return err("Failed to retrieve like status", e.getMessage());
         }
     }
 
-    /**
-     * Get the current user's interaction status with a specific post
-     * Returns whether user has liked/viewed the post and current counts
-     *
-     * GET /api/posts/interactions/{postId}/status
-     *
-     * @param postId The ID of the post to check interaction status for
-     * @return ApiResponse with interaction status
-     */
-    @GetMapping("/{postId}/status")
-    public ResponseEntity<ApiResponse<InteractionStatusResponse>> getInteractionStatus(
-            @PathVariable @NotNull Long postId,
+    @GetMapping("/{postType}/{id}/my-status/disliked")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> hasUserDisliked(
+            @PathVariable String postType,
+            @PathVariable Long id,
             @CurrentUser User currentUser) {
 
         try {
-            Post post = postService.findById(postId);
-
-            // UPDATED: Call the new service methods to get the real status
-            boolean isLiked = postInteractionService.hasUserLikedPost(post, currentUser);
-            boolean hasViewed = postInteractionService.hasUserViewedPostRecently(post, currentUser);
-
-            InteractionStatusResponse response = InteractionStatusResponse.builder()
-                    .postId(postId)
-                    .userId(currentUser.getId())
-                    .username(currentUser.getActualUsername())
-                    .isLiked(isLiked) // Now uses the real value
-                    .hasViewed(hasViewed) // Now uses the real value
-                    .currentLikeCount(post.getLikeCount())
-                    .currentViewCount(post.getViewCount())
-                    .currentCommentCount(post.getCommentCount())
-                    .canInteract(post.getStatus() != null && post.getStatus().isInteractable())
-                    .build();
-
-            log.debug("Retrieved interaction status for post: {} and user: {}",
-                    postId, currentUser.getActualUsername());
-
-            return ResponseEntity.ok(ApiResponse.success("Interaction status retrieved", response));
-
+            if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
+                return ok("Dislike status retrieved",
+                        Map.of("disliked", interactionService.hasUserDislikedPost(interactionService.getPostById(id), currentUser)));
+            } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
+                return ok("Dislike status retrieved",
+                        Map.of("disliked", interactionService.hasUserDislikedSocialPost(interactionService.getSocialPostById(id), currentUser)));
+            } else {
+                return badPostType(postType);
+            }
         } catch (Exception e) {
-            log.error("Failed to get interaction status for post: {}", postId, e);
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Failed to get interaction status", e.getMessage()));
+            log.error("[Status] hasUserDisliked failed: postType={} id={}", postType, id, e);
+            return err("Failed to retrieve dislike status", e.getMessage());
         }
     }
 
+    // =========================================================================
+    // PRIVATE HELPERS
+    // =========================================================================
+
+    private Map<String, Object> reactionBody(String key, boolean value, long likeCount, long dislikeCount) {
+        return Map.of(key, value, "likeCount", likeCount, "dislikeCount", dislikeCount);
+    }
+
+    private <T> ResponseEntity<ApiResponse<T>> ok(String message, T data) {
+        return ResponseEntity.ok(ApiResponse.success(message, data));
+    }
+
+    private <T> ResponseEntity<ApiResponse<T>> err(String message, String detail) {
+        return ResponseEntity.badRequest().body(ApiResponse.error(message, detail));
+    }
+
+    private <T> ResponseEntity<ApiResponse<T>> badPostType(String postType) {
+        log.warn("[Interaction] Unknown postType='{}'. Accepted: '{}', '{}'",
+                postType, Constant.INTERACTION_TYPE_POSTS, Constant.INTERACTION_TYPE_SOCIAL_POSTS);
+        return err("Unsupported post type",
+                "'" + postType + "' is not valid. Use 'posts' or 'social-posts'.");
+    }
 }

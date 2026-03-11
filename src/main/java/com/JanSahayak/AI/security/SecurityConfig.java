@@ -13,7 +13,6 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -25,8 +24,6 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 import java.util.List;
-
-
 
 @Configuration
 @EnableWebSecurity
@@ -64,22 +61,36 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
+        http
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authz -> authz
+
+                        // ── Static uploads (FIX: moved here from WebSecurityCustomizer.ignoring()) ──
                         .requestMatchers("/uploads/**").permitAll()
+
+                        // ── Auth & Public ─────────────────────────────────────────────────────────
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
-                        .requestMatchers("/api/auth/**","/api/search/posts/anonymous" ).permitAll()
+                        .requestMatchers("/api/search/posts/anonymous").permitAll()
                         .requestMatchers("/api/districts/**").permitAll()
                         .requestMatchers("/api/media/test").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/posts/**").permitAll()
+
+                        // ── WebSocket ─────────────────────────────────────────────────────────────
+                        .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers("/topic/**").permitAll()
+                        .requestMatchers("/app/**").permitAll()
+
+                        // ── Public GET endpoints ──────────────────────────────────────────────────
+                        .requestMatchers(HttpMethod.GET,  "/api/posts/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/posts/validate-tags").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/users/search").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/users/{userId}").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/users/search").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/users/{userId}").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/recommendations/posts").permitAll()
+
+                        // ── Admin-only ────────────────────────────────────────────────────────────
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/users").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/users/active").hasRole("ADMIN")
@@ -87,14 +98,16 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/users/{userId}/deactivate").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/users/{userId}/activate").hasRole("ADMIN")
 
-                        // Authenticated endpoints
+                        // ── Authenticated endpoints ───────────────────────────────────────────────
                         .requestMatchers("/api/posts").authenticated()
                         .requestMatchers("/api/comments/**").authenticated()
                         .requestMatchers("/api/notifications/**").authenticated()
                         .requestMatchers("/api/recommendations/interactions/**").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/users/{userId}").authenticated()
+                        .requestMatchers("/api/chat/**").authenticated()
+                        .requestMatchers("/ws/**").permitAll()
 
-                        // All other requests need authentication
+                        // ── Everything else requires login ────────────────────────────────────────
                         .anyRequest().authenticated()
                 );
 
@@ -109,17 +122,16 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOriginPatterns(List.of("*"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("*"));
+        configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
-    @Bean
-    public WebSecurityCustomizer webSecurityCustomizer() {
-        return (web) -> web.ignoring()
-                .requestMatchers("/uploads/**");
-    }
-}
 
+    // FIX: WebSecurityCustomizer with web.ignoring() REMOVED.
+    // /uploads/** is now handled by permitAll() in the filter chain above.
+    // web.ignoring() bypasses the security filter chain entirely — deprecated
+    // in Spring Security 6 and causes the startup WARNING you were seeing.
+}

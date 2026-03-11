@@ -4,6 +4,7 @@ import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.enums.BroadcastScope;
 import com.JanSahayak.AI.payload.PostUtility;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Size;
@@ -18,16 +19,13 @@ import java.util.stream.Collectors;
 
 @Entity
 @Table(name = "posts", indexes = {
-        @Index(name = "idx_post_user", columnList = "user_id"),
-        @Index(name = "idx_post_status", columnList = "status"),
-        @Index(name = "idx_post_created_at", columnList = "created_at"),
-        @Index(name = "idx_post_resolved", columnList = "is_resolved"),
-        @Index(name = "idx_post_broadcast_scope", columnList = "broadcast_scope"),
-        @Index(name = "idx_post_target_states", columnList = "target_states"),
-        @Index(name = "idx_post_target_districts", columnList = "target_districts"),
-        @Index(name = "idx_post_target_pincodes", columnList = "target_pincodes"),
+        @Index(name = "idx_post_user",             columnList = "user_id"),
+        @Index(name = "idx_post_status",           columnList = "status"),
+        @Index(name = "idx_post_created_at",       columnList = "created_at"),
+        @Index(name = "idx_post_resolved",         columnList = "is_resolved"),
+        @Index(name = "idx_post_broadcast_scope",  columnList = "broadcast_scope"),
         @Index(name = "idx_post_broadcast_active", columnList = "broadcast_scope, status, created_at"),
-        @Index(name = "idx_post_country_broadcast", columnList = "broadcast_scope, target_country, status")
+        @Index(name = "idx_post_country_broadcast",columnList = "broadcast_scope, target_country, status")
 })
 @Getter
 @Setter
@@ -36,6 +34,7 @@ import java.util.stream.Collectors;
 @Builder
 @Slf4j
 public class Post {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -70,6 +69,8 @@ public class Post {
     @Temporal(TemporalType.TIMESTAMP)
     private Date updatedAt;
 
+    // ===== Denormalized Engagement Counters =====
+
     @Column(name = "like_count", nullable = false)
     @Builder.Default
     private Integer likeCount = 0;
@@ -82,15 +83,25 @@ public class Post {
     @Builder.Default
     private Integer commentCount = 0;
 
+    @Column(name = "share_count", nullable = false)
+    @Builder.Default
+    private Integer shareCount = 0;
 
-    // ===== Broadcasting Fields =====
+    @Column(name = "dislike_count", nullable = false)
+    @Builder.Default
+    private Integer dislikeCount = 0;
+
+    @Column(name = "save_count", nullable = false)
+    @Builder.Default
+    private Integer saveCount = 0;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "broadcast_scope")
     private BroadcastScope broadcastScope;
 
     @Column(name = "target_country", length = 50)
     @Builder.Default
-    private String targetCountry = Constant.DEFAULT_TARGET_COUNTRY; // Default to India
+    private String targetCountry = Constant.DEFAULT_TARGET_COUNTRY;
 
     @Column(name = "target_states", length = 1000)
     private String targetStates;
@@ -102,6 +113,7 @@ public class Post {
     private String targetPincodes;
 
     // ===== Relationships =====
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false, foreignKey = @ForeignKey(name = "fk_post_user"))
     private User user;
@@ -123,7 +135,17 @@ public class Post {
     @Builder.Default
     private List<UserTag> userTags = new ArrayList<>();
 
+    @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    @Builder.Default
+    private List<PostShare> shares = new ArrayList<>();
+
+    @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    @Builder.Default
+    @JsonIgnore
+    private List<SavedPost> savedByUsers = new ArrayList<>();
+
     // ===== Broadcasting Helper Methods =====
+
     public boolean isBroadcastPost() {
         return broadcastScope != null;
     }
@@ -144,10 +166,6 @@ public class Post {
                 (user.isDepartment() || user.isAdmin());
     }
 
-    /**
-     * CRITICAL: Check if this is a government/department country-wide broadcast
-     * These should be visible to ALL users in the India-only app
-     */
     public boolean isCountryWideGovernmentBroadcast() {
         return isCountryWideBroadcast() && isGovernmentBroadcast() && isBroadcastActive();
     }
@@ -191,55 +209,43 @@ public class Post {
                 String.join(",", pincodes) : null;
     }
 
-    /**
-     * ENHANCED visibility logic for India-only app
-     * Government country-wide broadcasts are visible to ALL users
-     */
     public boolean isVisibleToUser(User user) {
-        // CRITICAL: Country-wide government/department broadcasts are visible to ALL users in India
         if (isCountryWideGovernmentBroadcast()) {
             return true;
         }
 
-        // Regular posts - use existing logic
         if (!isBroadcastPost()) {
             return isEligibleForLocalDiscovery();
         }
 
-        // Broadcast posts - check if active first
         if (!isBroadcastActive()) {
             return false;
         }
 
-        // Country-wide broadcasts (non-government) are also visible to all users in India-only app
         if (isCountryWideBroadcast()) {
             return true;
         }
 
-        // For other broadcast posts, use pincode prefix matching
         return isVisibleToUserByPincodePrefix(user);
     }
 
     public boolean isVisibleToUserByPincodePrefix(User user) {
         if (user == null || broadcastScope == null) {
-            // Default visibility for country broadcasts when user has no location
             return broadcastScope == BroadcastScope.COUNTRY &&
                     Constant.DEFAULT_TARGET_COUNTRY.equals(targetCountry);
         }
 
-        // For country-wide broadcasts, always visible in India-only app
         if (broadcastScope == BroadcastScope.COUNTRY &&
                 Constant.DEFAULT_TARGET_COUNTRY.equals(targetCountry)) {
             return true;
         }
 
-        // For other scopes, check user's pincode
         if (!user.hasPincode() || user.getPincode().length() < 6) {
             return false;
         }
 
-        String userPincode = user.getPincode();
-        String userStatePrefix = userPincode.substring(0, 2);
+        String userPincode        = user.getPincode();
+        String userStatePrefix    = userPincode.substring(0, 2);
         String userDistrictPrefix = userPincode.substring(0, 3);
 
         switch (broadcastScope) {
@@ -277,6 +283,7 @@ public class Post {
     }
 
     // ===== Pincode Helper Methods =====
+
     public String getPostPincode() {
         return user != null ? user.getPincode() : null;
     }
@@ -312,22 +319,22 @@ public class Post {
     }
 
     // ===== Post Management Methods =====
+
     public void markAsResolved(String resolutionMessage) {
-        this.status = PostStatus.RESOLVED;
+        this.status     = PostStatus.RESOLVED;
         this.isResolved = true;
         this.resolvedAt = new Date();
-        this.updatedAt = new Date();
+        this.updatedAt  = new Date();
     }
 
     public void markAsUnresolved() {
-        this.status = PostStatus.ACTIVE;
+        this.status     = PostStatus.ACTIVE;
         this.isResolved = false;
         this.resolvedAt = null;
-        this.updatedAt = new Date();
+        this.updatedAt  = new Date();
     }
 
-    // ===== Count Methods =====
-
+    // ===== Count Getter Methods =====
 
     public Integer getLikeCount() {
         return likeCount != null ? likeCount : 0;
@@ -341,7 +348,18 @@ public class Post {
         return commentCount != null ? commentCount : 0;
     }
 
-    // Keep these for collection-based counting when needed
+    public Integer getShareCount() {
+        return shareCount != null ? shareCount : 0;
+    }
+
+    public Integer getDislikeCount() {
+        return dislikeCount != null ? dislikeCount : 0;
+    }
+
+    public Integer getSaveCount() {
+        return saveCount != null ? saveCount : 0;
+    }
+
     public int getActualLikeCount() {
         return likes != null ? likes.size() : 0;
     }
@@ -353,45 +371,79 @@ public class Post {
     public int getActualViewCount() {
         return views != null ? views.size() : 0;
     }
-    /**
-     * Increment comment count
-     */
+
+    public int getActualShareCount() {
+        return shares != null ? shares.size() : 0;
+    }
+
+    // ===== Counter Mutation Methods =====
+
     public void incrementCommentCount() {
         this.commentCount = (this.commentCount != null ? this.commentCount : 0) + 1;
     }
 
-    /**
-     * Decrement comment count
-     */
     public void decrementCommentCount() {
         this.commentCount = Math.max(0, (this.commentCount != null ? this.commentCount : 0) - 1);
     }
-    /**
-     * Safely increment view count
-     */
+
     public void incrementViewCount() {
         this.viewCount = (this.viewCount != null ? this.viewCount : 0) + 1;
     }
 
-    /**
-     * Safely increment like count
-     */
     public void incrementLikeCount() {
         this.likeCount = (this.likeCount != null ? this.likeCount : 0) + 1;
     }
 
-    /**
-     * Safely decrement like count
-     */
     public void decrementLikeCount() {
         this.likeCount = Math.max(0, (this.likeCount != null ? this.likeCount : 0) - 1);
     }
 
+    public void incrementDislikeCount() {
+        this.dislikeCount = (this.dislikeCount != null ? this.dislikeCount : 0) + 1;
+    }
+
+    public void decrementDislikeCount() {
+        this.dislikeCount = Math.max(0, (this.dislikeCount != null ? this.dislikeCount : 0) - 1);
+    }
+
+    public void incrementShareCount() {
+        this.shareCount = (this.shareCount != null ? this.shareCount : 0) + 1;
+    }
+
+    public void decrementShareCount() {
+        this.shareCount = Math.max(0, (this.shareCount != null ? this.shareCount : 0) - 1);
+    }
+
+    public void incrementSaveCount() {
+        this.saveCount = (this.saveCount != null ? this.saveCount : 0) + 1;
+    }
+
+    public void decrementSaveCount() {
+        this.saveCount = Math.max(0, (this.saveCount != null ? this.saveCount : 0) - 1);
+    }
+
+    /**
+     * FIX: LazyInitializationException — Post.userTags is a lazy collection.
+     * Accessing it outside a Hibernate session throws an exception.
+     *
+     * Safe approach:
+     * - If userTags is null or not yet initialized by Hibernate, return 0.
+     * - Only count when the collection is actually in memory.
+     *
+     * The actual tagged user data is loaded separately by UserTaggingService
+     * when needed — this count is just a display hint.
+     */
     public int getTaggedUserCount() {
-        return (int) userTags.stream().filter(UserTag::getIsActive).count();
+        if (userTags == null || !org.hibernate.Hibernate.isInitialized(userTags)) {
+            return 0;
+        }
+        return (int) userTags.stream()
+                .filter(tag -> tag != null && Boolean.TRUE.equals(tag.getIsActive()))
+                .count();
     }
 
     // ===== Validation Methods =====
+
     public boolean hasImage() {
         return imageName != null && !imageName.trim().isEmpty();
     }
@@ -411,9 +463,8 @@ public class Post {
         return isEligibleForDisplay() && user.canParticipateInLocalDiscovery();
     }
 
-    /**
-     * STATIC VALIDATION METHODS - Fixed the validation method signature
-     */
+    // ===== STATIC VALIDATION METHODS =====
+
     public static void validateBroadcastScope(BroadcastScope scope, String targetCountry,
                                               List<String> targetStates, List<String> targetDistricts,
                                               List<String> targetPincodes) {
@@ -421,12 +472,10 @@ public class Post {
             throw new ValidationException("Broadcast scope cannot be null");
         }
 
-        // FORCE India as target country for all broadcasts
         String validatedCountry = normalizeTargetCountry(targetCountry);
 
         switch (scope) {
             case COUNTRY:
-                // For country-wide, always use India
                 if (!Constant.DEFAULT_TARGET_COUNTRY.equals(validatedCountry)) {
                     log.warn("Overriding target country {} to {} for India-only app",
                             targetCountry, Constant.DEFAULT_TARGET_COUNTRY);
@@ -453,11 +502,7 @@ public class Post {
         }
     }
 
-    /**
-     * Normalize target country to India for this app
-     */
     public static String normalizeTargetCountry(String inputCountry) {
-        // Always return India for this India-only app
         if (inputCountry != null && !Constant.DEFAULT_TARGET_COUNTRY.equals(inputCountry)) {
             log.info("Normalizing target country from {} to {}", inputCountry, Constant.DEFAULT_TARGET_COUNTRY);
         }
@@ -497,9 +542,6 @@ public class Post {
         }
     }
 
-    /**
-     * Check if broadcast should be visible to all Indian users
-     */
     public static boolean isCountryWideBroadcastForIndia(Post post) {
         return post != null &&
                 post.isBroadcastPost() &&
@@ -507,19 +549,16 @@ public class Post {
                 Constant.DEFAULT_TARGET_COUNTRY.equals(post.getTargetCountry());
     }
 
-    /**
-     * Check if this is a government/department country-wide broadcast that should be visible to all
-     */
     public static boolean isAllIndiaGovernmentBroadcast(Post post) {
         return post != null &&
                 post.isCountryWideGovernmentBroadcast() &&
                 post.isBroadcastActive();
     }
 
+    // ===== Lifecycle Callbacks =====
 
     @PrePersist
     private void prePersist() {
-        // Ensure target country is always India
         if (isBroadcastPost()) {
             this.targetCountry = Constant.DEFAULT_TARGET_COUNTRY;
         }
@@ -528,7 +567,6 @@ public class Post {
     @PreUpdate
     private void preUpdate() {
         this.updatedAt = new Date();
-        // Ensure target country remains India
         if (isBroadcastPost()) {
             this.targetCountry = Constant.DEFAULT_TARGET_COUNTRY;
         }

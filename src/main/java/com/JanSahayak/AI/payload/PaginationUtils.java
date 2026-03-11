@@ -2,7 +2,9 @@ package com.JanSahayak.AI.payload;
 
 import com.JanSahayak.AI.DTO.CommentDto;
 import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.DTO.SocialPostDto;
 import com.JanSahayak.AI.config.Constant;
+import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.Comment;
@@ -18,6 +20,22 @@ import java.util.function.Function;
 /**
  * Utility class for handling cursor-based pagination operations
  * Used across all service classes for consistent pagination implementation
+ *
+ * IMPORTANT — how hasMore detection works (BUG FIX #6):
+ * The correct pattern for cursor-based pagination is to ask the DB for (limit + 1) rows.
+ * If the DB returns more than `limit` items we know there is a next page (hasMore = true),
+ * and we trim the extra item before returning.  The old code used `size == limit` which
+ * falsely signals hasMore=true whenever the last page happens to have exactly `limit` rows,
+ * causing the frontend to fire a request that returns an empty page.
+ *
+ * These utility methods receive whatever list the calling service/repository passes in.
+ * To use them correctly, repository queries must fetch (limit + 1) rows, e.g.:
+ *
+ *   Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
+ *   List<SocialPost> raw = repo.findByPincode(..., pageable);
+ *   PaginationUtils.createSocialPostResponse(raw, setup.getValidatedLimit());
+ *
+ * The response builder then trims the extra item and sets hasMore accordingly.
  */
 @Slf4j
 public class PaginationUtils {
@@ -25,8 +43,17 @@ public class PaginationUtils {
     // ===== Core Pagination Response Creation =====
 
     /**
-     * Create paginated response using ID-based cursor
-     * Most commonly used method for entity pagination
+     * Create paginated response using ID-based cursor.
+     *
+     * BUG FIX #6: original used `data.size() == requestedLimit` to decide hasMore.
+     * This is wrong: if the last real page coincidentally has exactly `requestedLimit`
+     * items, hasMore is set to true and the next request returns nothing — a wasted
+     * round trip and a broken UX "Load more" button.
+     *
+     * The correct pattern: callers must fetch (requestedLimit + 1) rows from the DB.
+     * This method checks if the list is LARGER than requestedLimit (i.e. the +1 sentinel
+     * row came back), sets hasMore = true, then trims the list to requestedLimit before
+     * returning so the extra row is never exposed to the client.
      */
     public static <T> PaginatedResponse<T> createIdBasedResponse(
             List<T> data,
@@ -37,17 +64,22 @@ public class PaginationUtils {
             return PaginatedResponse.of(Collections.emptyList(), false, null, requestedLimit);
         }
 
-        boolean hasMore = data.size() == requestedLimit;
-        Long nextCursor = hasMore && !data.isEmpty()
-                ? idExtractor.apply(data.get(data.size() - 1))
+        // hasMore is true only when the DB returned the sentinel extra row
+        boolean hasMore = data.size() > requestedLimit;
+
+        // Trim the sentinel row so the client only sees requestedLimit items
+        List<T> trimmed = hasMore ? data.subList(0, requestedLimit) : data;
+
+        Long nextCursor = hasMore && !trimmed.isEmpty()
+                ? idExtractor.apply(trimmed.get(trimmed.size() - 1))
                 : null;
 
-        return PaginatedResponse.of(data, hasMore, nextCursor, requestedLimit);
+        return PaginatedResponse.of(trimmed, hasMore, nextCursor, requestedLimit);
     }
 
     /**
-     * Create paginated response using timestamp-based cursor
-     * Used for time-based feeds like recent activities
+     * Create paginated response using timestamp-based cursor.
+     * Same fix as createIdBasedResponse — callers must fetch (limit + 1) rows.
      */
     public static <T> PaginatedResponse<T> createTimestampBasedResponse(
             List<T> data,
@@ -58,17 +90,19 @@ public class PaginationUtils {
             return PaginatedResponse.of(Collections.emptyList(), false, null, requestedLimit);
         }
 
-        boolean hasMore = data.size() == requestedLimit;
-        Long nextCursor = hasMore && !data.isEmpty()
-                ? timestampExtractor.apply(data.get(data.size() - 1))
+        boolean hasMore = data.size() > requestedLimit;
+        List<T> trimmed = hasMore ? data.subList(0, requestedLimit) : data;
+
+        Long nextCursor = hasMore && !trimmed.isEmpty()
+                ? timestampExtractor.apply(trimmed.get(trimmed.size() - 1))
                 : null;
 
-        return PaginatedResponse.of(data, hasMore, nextCursor, requestedLimit);
+        return PaginatedResponse.of(trimmed, hasMore, nextCursor, requestedLimit);
     }
 
     /**
-     * Create paginated response with manual hasMore determination
-     * Used when you need custom logic to determine if more data exists
+     * Create paginated response with manual hasMore determination.
+     * Used when you need custom logic to determine if more data exists.
      */
     public static <T> PaginatedResponse<T> createCustomResponse(
             List<T> data,
@@ -86,8 +120,8 @@ public class PaginationUtils {
     // ===== Standard Pagination Setup Methods =====
 
     /**
-     * Standard pagination setup that's repeated across services
-     * Consolidates validation, sanitization, and logging
+     * Standard pagination setup that's repeated across services.
+     * Consolidates validation, sanitization, and logging.
      */
     public static PaginationSetup setupPagination(String methodName, Long beforeId, Integer limit) {
         int validatedLimit = validateLimit(limit);
@@ -98,7 +132,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Standard pagination setup with custom limit validation
+     * Standard pagination setup with custom limit validation.
      */
     public static PaginationSetup setupPagination(String methodName, Long beforeId, Integer limit,
                                                   int defaultLimit, int maxLimit) {
@@ -110,7 +144,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Setup pagination for user tagging operations
+     * Setup pagination for user tagging operations.
      */
     public static PaginationSetup setupTaggingPagination(String methodName, Long beforeId, Integer limit) {
         int validatedLimit = validateTaggingLimit(limit);
@@ -121,7 +155,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Setup pagination for geographic searches
+     * Setup pagination for geographic searches.
      */
     public static PaginationSetup setupGeographicPagination(String methodName, Long beforeId,
                                                             Integer limit, String searchType) {
@@ -135,14 +169,14 @@ public class PaginationUtils {
     // ===== Limit Validation Methods =====
 
     /**
-     * Validate and normalize limit parameter with default values
+     * Validate and normalize limit parameter with default values.
      */
     public static int validateLimit(Integer limit) {
         return validateLimit(limit, Constant.DEFAULT_FEED_LIMIT, Constant.MAX_FEED_LIMIT);
     }
 
     /**
-     * Validate and normalize limit parameter with custom defaults
+     * Validate and normalize limit parameter with custom defaults.
      */
     public static int validateLimit(Integer limit, int defaultLimit, int maxLimit) {
         if (limit == null || limit <= 0) {
@@ -156,28 +190,28 @@ public class PaginationUtils {
     }
 
     /**
-     * Validate limit for user tagging suggestions
+     * Validate limit for user tagging suggestions.
      */
     public static int validateTaggingLimit(Integer limit) {
         return validateLimit(limit, Constant.DEFAULT_TAGGING_SUGGESTIONS_LIMIT, Constant.MAX_TAGGING_SUGGESTIONS_LIMIT);
     }
 
     /**
-     * Validate limit for user search operations
+     * Validate limit for user search operations.
      */
     public static int validateUserSearchLimit(Integer limit) {
         return validateLimit(limit, Constant.DEFAULT_USER_SEARCH_LIMIT, Constant.MAX_USER_SEARCH_LIMIT);
     }
 
     /**
-     * Validate limit for department user searches
+     * Validate limit for department user searches.
      */
     public static int validateDepartmentSearchLimit(Integer limit) {
         return validateLimit(limit, Constant.DEFAULT_DEPARTMENT_SEARCH_LIMIT, Constant.MAX_DEPARTMENT_SEARCH_LIMIT);
     }
 
     /**
-     * Validate limit for geographic searches (pincode, state, district)
+     * Validate limit for geographic searches (pincode, state, district).
      */
     public static int validateGeographicSearchLimit(Integer limit, String searchType) {
         if (searchType == null) {
@@ -197,7 +231,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Validate limit specifically for comment pagination
+     * Validate limit specifically for comment pagination.
      */
     public static int validateCommentLimit(Integer limit) {
         return validateLimit(limit, Constant.DEFAULT_FEED_LIMIT, 200); // Comments typically need smaller limits
@@ -206,28 +240,28 @@ public class PaginationUtils {
     // ===== Cursor Extraction Methods =====
 
     /**
-     * Extract ID cursor from User entity
+     * Extract ID cursor from User entity.
      */
     public static Long extractUserIdCursor(User user) {
         return user != null ? user.getId() : null;
     }
 
     /**
-     * Extract ID cursor from Post entity
+     * Extract ID cursor from Post entity.
      */
     public static Long extractPostIdCursor(Post post) {
         return post != null ? post.getId() : null;
     }
 
     /**
-     * Extract ID cursor from Comment entity
+     * Extract ID cursor from Comment entity.
      */
     public static Long extractCommentIdCursor(Comment comment) {
         return comment != null ? comment.getId() : null;
     }
 
     /**
-     * Extract timestamp cursor from Post entity (createdAt)
+     * Extract timestamp cursor from Post entity (createdAt).
      */
     public static Long extractPostTimestampCursor(Post post) {
         if (post == null || post.getCreatedAt() == null) {
@@ -237,7 +271,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Extract timestamp cursor from Comment entity (createdAt)
+     * Extract timestamp cursor from Comment entity (createdAt).
      */
     public static Long extractCommentTimestampCursor(Comment comment) {
         if (comment == null || comment.getCreatedAt() == null) {
@@ -247,7 +281,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Generic cursor extraction with null safety
+     * Generic cursor extraction with null safety.
      */
     public static <T> Long extractCursor(T entity, Function<T, Long> extractor) {
         if (entity == null) {
@@ -265,28 +299,28 @@ public class PaginationUtils {
     // ===== Specialized Response Creators =====
 
     /**
-     * Create paginated response for User entities using ID cursor
+     * Create paginated response for User entities using ID cursor.
      */
     public static PaginatedResponse<User> createUserResponse(List<User> users, int requestedLimit) {
         return createIdBasedResponse(users, requestedLimit, PaginationUtils::extractUserIdCursor);
     }
 
     /**
-     * Create paginated response for Post entities using ID cursor
+     * Create paginated response for Post entities using ID cursor.
      */
     public static PaginatedResponse<Post> createPostResponse(List<Post> posts, int requestedLimit) {
         return createIdBasedResponse(posts, requestedLimit, PaginationUtils::extractPostIdCursor);
     }
 
     /**
-     * Create paginated response for Comment entities using ID cursor
+     * Create paginated response for Comment entities using ID cursor.
      */
     public static PaginatedResponse<Comment> createCommentResponse(List<Comment> comments, int requestedLimit) {
         return createIdBasedResponse(comments, requestedLimit, PaginationUtils::extractCommentIdCursor);
     }
 
     /**
-     * Create empty paginated response
+     * Create empty paginated response.
      */
     public static <T> PaginatedResponse<T> createEmptyResponse(int requestedLimit) {
         return PaginatedResponse.of(Collections.emptyList(), false, null, requestedLimit);
@@ -295,14 +329,14 @@ public class PaginationUtils {
     // ===== Validation and Safety Methods =====
 
     /**
-     * Check if cursor value is valid (not null and positive)
+     * Check if cursor value is valid (not null and positive).
      */
     public static boolean isValidCursor(Long cursor) {
         return cursor != null && cursor >= Constant.MIN_VALID_CURSOR && cursor <= Constant.MAX_VALID_CURSOR;
     }
 
     /**
-     * Check if timestamp cursor is within reasonable bounds
+     * Check if timestamp cursor is within reasonable bounds.
      */
     public static boolean isValidTimestampCursor(Long timestampCursor) {
         if (!isValidCursor(timestampCursor)) {
@@ -317,7 +351,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Sanitize cursor value to prevent injection attacks
+     * Sanitize cursor value to prevent injection attacks.
      */
     public static Long sanitizeCursor(Long cursor) {
         if (!isValidCursor(cursor)) {
@@ -328,7 +362,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Validate and sanitize multiple cursors at once
+     * Validate and sanitize multiple cursors at once.
      */
     public static Long[] sanitizeCursors(Long... cursors) {
         if (cursors == null) {
@@ -345,14 +379,17 @@ public class PaginationUtils {
     // ===== Pageable Creation Methods =====
 
     /**
-     * Create Pageable object for repository queries
+     * Create Pageable object for repository queries.
+     * NOTE: to leverage the hasMore fix (BUG FIX #6), pass (limit + 1) here so the DB
+     * returns the sentinel extra row.  Example:
+     *   Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
      */
     public static Pageable createPageable(int limit) {
         return PageRequest.of(0, Math.max(1, limit));
     }
 
     /**
-     * Create Pageable object with validated limit
+     * Create Pageable object with validated limit.
      */
     public static Pageable createPageable(Integer limit) {
         int validatedLimit = validateLimit(limit);
@@ -360,7 +397,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Create Pageable object for specific pagination type
+     * Create Pageable object for specific pagination type.
      */
     public static Pageable createPageable(PaginationSetup setup) {
         return PageRequest.of(0, setup.getValidatedLimit());
@@ -369,8 +406,8 @@ public class PaginationUtils {
     // ===== Helper Methods for Complex Pagination Scenarios =====
 
     /**
-     * Merge multiple paginated lists while maintaining order
-     * Used when combining results from multiple repository calls
+     * Merge multiple paginated lists while maintaining order.
+     * Used when combining results from multiple repository calls.
      */
     public static <T> List<T> mergeAndLimitResults(List<List<T>> resultLists, int limit) {
         if (resultLists == null || resultLists.isEmpty()) {
@@ -387,7 +424,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Calculate offset for traditional pagination (when needed for fallback)
+     * Calculate offset for traditional pagination (when needed for fallback).
      */
     public static int calculateOffset(int page, int size) {
         if (page < 1 || size < 1) {
@@ -397,7 +434,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Convert timestamp to Timestamp object for database queries
+     * Convert timestamp to Timestamp object for database queries.
      */
     public static Timestamp convertToTimestamp(Long timestampCursor) {
         return isValidTimestampCursor(timestampCursor)
@@ -406,14 +443,14 @@ public class PaginationUtils {
     }
 
     /**
-     * Check if pagination has reached the end
+     * Check if pagination has reached the end.
      */
     public static boolean isLastPage(List<?> results, int requestedLimit) {
         return results == null || results.size() < requestedLimit;
     }
 
     /**
-     * Calculate total estimated items (for progress indicators)
+     * Calculate total estimated items (for progress indicators).
      */
     public static long estimateTotalItems(List<?> currentPage, boolean hasMore, long currentOffset) {
         if (currentPage == null || currentPage.isEmpty()) {
@@ -431,7 +468,7 @@ public class PaginationUtils {
     // ===== Query Construction Helpers =====
 
     /**
-     * Build cursor condition for ID-based pagination
+     * Build cursor condition for ID-based pagination.
      */
     public static String buildIdCursorCondition(Long beforeId, String entityAlias) {
         if (beforeId == null || !isValidCursor(beforeId)) {
@@ -442,7 +479,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Build cursor condition for timestamp-based pagination
+     * Build cursor condition for timestamp-based pagination.
      */
     public static String buildTimestampCursorCondition(Long beforeTimestamp, String entityAlias, String timestampField) {
         if (beforeTimestamp == null || !isValidTimestampCursor(beforeTimestamp)) {
@@ -457,7 +494,7 @@ public class PaginationUtils {
     // ===== Debug and Logging Methods =====
 
     /**
-     * Log pagination parameters for debugging
+     * Log pagination parameters for debugging.
      */
     public static void logPaginationParams(String methodName, Long cursor, Integer limit) {
         if (Constant.ENABLE_PAGINATION_LOGGING && log.isDebugEnabled()) {
@@ -467,7 +504,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Log pagination results for debugging
+     * Log pagination results for debugging.
      */
     public static <T> void logPaginationResults(String methodName, List<T> results, boolean hasMore, Long nextCursor) {
         if (Constant.ENABLE_PAGINATION_LOGGING && log.isDebugEnabled()) {
@@ -477,7 +514,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Log pagination setup for debugging
+     * Log pagination setup for debugging.
      */
     public static void logPaginationSetup(String methodName, PaginationSetup setup) {
         if (Constant.ENABLE_PAGINATION_LOGGING && log.isDebugEnabled()) {
@@ -489,7 +526,7 @@ public class PaginationUtils {
     // ===== Error Handling Methods =====
 
     /**
-     * Handle pagination errors gracefully
+     * Handle pagination errors gracefully.
      */
     public static <T> PaginatedResponse<T> handlePaginationError(String methodName, Exception e, int requestedLimit) {
         log.error("Pagination error in method: {}", methodName, e);
@@ -497,7 +534,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Validate pagination response integrity
+     * Validate pagination response integrity.
      */
     public static <T> boolean validatePaginationResponse(PaginatedResponse<T> response) {
         if (response == null) {
@@ -521,29 +558,29 @@ public class PaginationUtils {
     // ===== Constants and Configuration =====
 
     /**
-     * Default limit for user-related pagination
+     * Default limit for user-related pagination.
      */
     public static final int DEFAULT_USER_LIMIT = Constant.DEFAULT_ACTIVE_USER_LIMIT;
 
     /**
-     * Maximum limit for user-related pagination
+     * Maximum limit for user-related pagination.
      */
     public static final int MAX_USER_LIMIT = Constant.MAX_ACTIVE_USER_LIMIT;
 
     /**
-     * Default limit for search operations
+     * Default limit for search operations.
      */
     public static final int DEFAULT_SEARCH_LIMIT = Constant.DEFAULT_USER_SEARCH_LIMIT;
 
     /**
-     * Maximum results for department user searches
+     * Maximum results for department user searches.
      */
     public static final int MAX_DEPARTMENT_SEARCH_LIMIT = Constant.MAX_DEPARTMENT_SEARCH_LIMIT;
 
     // ===== Inner Classes =====
 
     /**
-     * Holds validated pagination parameters
+     * Holds validated pagination parameters.
      */
     public static class PaginationSetup {
         private final int validatedLimit;
@@ -578,7 +615,7 @@ public class PaginationUtils {
     }
 
     /**
-     * Builder for complex pagination scenarios
+     * Builder for complex pagination scenarios.
      */
     public static class PaginationBuilder {
         private String methodName;
@@ -648,16 +685,259 @@ public class PaginationUtils {
     }
 
     /**
-     * Create empty paginated response for CommentDto
+     * Create empty paginated response for CommentDto.
      */
     public static PaginatedResponse<CommentDto> createEmptyCommentDtoResponse(int requestedLimit) {
         return PaginatedResponse.of(Collections.emptyList(), false, null, requestedLimit);
     }
 
     /**
-     * Extract ID cursor from CommentDto
+     * Extract ID cursor from CommentDto.
      */
     public static Long extractCommentDtoIdCursor(CommentDto commentDto) {
         return commentDto != null ? commentDto.getId() : null;
     }
+
+    /**
+     * Extract ID cursor from SocialPost entity.
+     */
+    public static Long extractSocialPostIdCursor(SocialPost socialPost) {
+        return socialPost != null ? socialPost.getId() : null;
+    }
+
+    /**
+     * Extract timestamp cursor from SocialPost entity (createdAt).
+     */
+    public static Long extractSocialPostTimestampCursor(SocialPost socialPost) {
+        if (socialPost == null || socialPost.getCreatedAt() == null) {
+            return null;
+        }
+        return socialPost.getCreatedAt().getTime();
+    }
+
+    /**
+     * Extract ID cursor from SocialPostDto.
+     */
+    public static Long extractSocialPostDtoIdCursor(SocialPostDto socialPostDto) {
+        return socialPostDto != null ? socialPostDto.getId() : null;
+    }
+
+    /**
+     * Create paginated response for SocialPost entities using ID cursor.
+     */
+    public static PaginatedResponse<SocialPost> createSocialPostResponse(
+            List<SocialPost> socialPosts,
+            int requestedLimit) {
+        return createIdBasedResponse(socialPosts, requestedLimit,
+                PaginationUtils::extractSocialPostIdCursor);
+    }
+
+    /**
+     * Create paginated response for SocialPostDto using ID cursor.
+     */
+    public static PaginatedResponse<SocialPostDto> createSocialPostDtoResponse(
+            List<SocialPostDto> socialPostDtos,
+            int requestedLimit) {
+        return createIdBasedResponse(socialPostDtos, requestedLimit,
+                PaginationUtils::extractSocialPostDtoIdCursor);
+    }
+
+    /**
+     * Create empty paginated response for SocialPost.
+     */
+    public static PaginatedResponse<SocialPost> createEmptySocialPostResponse(int requestedLimit) {
+        return PaginatedResponse.of(Collections.emptyList(), false, null, requestedLimit);
+    }
+
+    /**
+     * Create empty paginated response for SocialPostDto.
+     */
+    public static PaginatedResponse<SocialPostDto> createEmptySocialPostDtoResponse(int requestedLimit) {
+        return PaginatedResponse.of(Collections.emptyList(), false, null, requestedLimit);
+    }
+
+    /**
+     * Create paginated response for SocialPost using timestamp cursor.
+     * Used for trending/recent feeds.
+     */
+    public static PaginatedResponse<SocialPost> createSocialPostTimestampResponse(
+            List<SocialPost> socialPosts,
+            int requestedLimit) {
+        return createTimestampBasedResponse(socialPosts, requestedLimit,
+                PaginationUtils::extractSocialPostTimestampCursor);
+    }
+
+    /**
+     * Validate limit for social post feed operations.
+     */
+    public static int validateSocialPostFeedLimit(Integer limit) {
+        return validateLimit(limit, Constant.DEFAULT_FEED_LIMIT, Constant.MAX_FEED_LIMIT);
+    }
+
+    /**
+     * Validate limit for trending social posts.
+     */
+    public static int validateTrendingPostsLimit(Integer limit) {
+        return validateLimit(limit, 20, 100); // Default 20, max 100 for trending
+    }
+
+    /**
+     * Setup pagination for social post feeds.
+     */
+    public static PaginationSetup setupSocialPostFeedPagination(
+            String methodName,
+            Long beforeId,
+            Integer limit) {
+        int validatedLimit = validateSocialPostFeedLimit(limit);
+        Long sanitizedCursor = sanitizeCursor(beforeId);
+        logPaginationParams(methodName, sanitizedCursor, validatedLimit);
+
+        return new PaginationSetup(validatedLimit, sanitizedCursor);
+    }
+
+    /**
+     * Setup pagination for trending social posts.
+     */
+    public static PaginationSetup setupTrendingPostsPagination(
+            String methodName,
+            Long beforeId,
+            Integer limit) {
+        int validatedLimit = validateTrendingPostsLimit(limit);
+        Long sanitizedCursor = sanitizeCursor(beforeId);
+        logPaginationParams(methodName, sanitizedCursor, validatedLimit);
+
+        return new PaginationSetup(validatedLimit, sanitizedCursor);
+    }
+
+    /**
+     * Calculate relevance-based score cursor for recommendation feeds.
+     * Used for sorting by engagement/virality scores.
+     */
+    public static Double extractRelevanceScoreCursor(SocialPost socialPost) {
+        if (socialPost == null) {
+            return null;
+        }
+        // Combine engagement and virality scores for cursor
+        double engagement = socialPost.getEngagementScore() != null ? socialPost.getEngagementScore() : 0.0;
+        double virality   = socialPost.getViralityScore()   != null ? socialPost.getViralityScore()   : 0.0;
+        return (engagement * 0.6) + (virality * 0.4);
+    }
+
+    /**
+     * Validate limit for saved social posts.
+     */
+    public static int validateSavedPostsLimit(Integer limit) {
+        return validateLimit(limit, Constant.DEFAULT_FEED_LIMIT, 200);
+    }
+
+    /**
+     * Setup pagination for user's saved posts.
+     */
+    public static PaginationSetup setupSavedPostsPagination(
+            String methodName,
+            Long beforeId,
+            Integer limit) {
+        int validatedLimit = validateSavedPostsLimit(limit);
+        Long sanitizedCursor = sanitizeCursor(beforeId);
+        logPaginationParams(methodName, sanitizedCursor, validatedLimit);
+
+        return new PaginationSetup(validatedLimit, sanitizedCursor);
+    }
+
+    /**
+     * Validate limit for hashtag-based searches.
+     */
+    public static int validateHashtagSearchLimit(Integer limit) {
+        return validateLimit(limit, 30, 100); // Default 30, max 100
+    }
+
+    /**
+     * Setup pagination for hashtag searches.
+     */
+    public static PaginationSetup setupHashtagSearchPagination(
+            String methodName,
+            Long beforeId,
+            Integer limit) {
+        int validatedLimit = validateHashtagSearchLimit(limit);
+        Long sanitizedCursor = sanitizeCursor(beforeId);
+        logPaginationParams(methodName, sanitizedCursor, validatedLimit);
+
+        return new PaginationSetup(validatedLimit, sanitizedCursor);
+    }
+
+    /**
+     * Create paginated response with relevance scoring.
+     * Used for recommendation feeds where posts are sorted by multiple factors.
+     */
+    public static <T> PaginatedResponse<T> createRelevanceScoredResponse(
+            List<T> data,
+            int requestedLimit,
+            Function<T, Long> idExtractor,
+            Function<T, Double> scoreExtractor) {
+
+        if (data == null || data.isEmpty()) {
+            return PaginatedResponse.of(Collections.emptyList(), false, null, requestedLimit);
+        }
+
+        // BUG FIX #6 applied here too: use > not ==
+        boolean hasMore = data.size() > requestedLimit;
+        List<T> trimmed = hasMore ? data.subList(0, requestedLimit) : data;
+
+        Long nextCursor = hasMore ? idExtractor.apply(trimmed.get(trimmed.size() - 1)) : null;
+
+        return PaginatedResponse.of(trimmed, hasMore, nextCursor, requestedLimit);
+    }
+
+    /**
+     * Merge social posts from multiple sources (local, viral, trending)
+     * with intelligent deduplication and ranking.
+     */
+    public static List<SocialPost> mergeAndRankSocialPosts(
+            List<List<SocialPost>> resultLists,
+            int limit) {
+        if (resultLists == null || resultLists.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return resultLists.stream()
+                .filter(list -> list != null)
+                .flatMap(List::stream)
+                .filter(post -> post != null && post.isEligibleForDisplay())
+                .distinct() // Remove duplicates by object equality
+                .sorted((p1, p2) -> {
+                    // Sort by engagement score descending
+                    double e1 = p1.getEngagementScore() != null ? p1.getEngagementScore() : 0.0;
+                    double v1 = p1.getViralityScore()   != null ? p1.getViralityScore()   : 0.0;
+                    double e2 = p2.getEngagementScore() != null ? p2.getEngagementScore() : 0.0;
+                    double v2 = p2.getViralityScore()   != null ? p2.getViralityScore()   : 0.0;
+
+                    double score1 = (e1 * 0.5) + (v1 * 0.5);
+                    double score2 = (e2 * 0.5) + (v2 * 0.5);
+                    int scoreCompare = Double.compare(score2, score1);
+
+                    // If scores are equal, sort by created date (newer first)
+                    if (scoreCompare == 0) {
+                        return p2.getCreatedAt().compareTo(p1.getCreatedAt());
+                    }
+                    return scoreCompare;
+                })
+                .limit(Math.max(1, limit))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * Calculate optimal feed size based on user engagement patterns.
+     * Returns adjusted limit for personalized feed size.
+     */
+    public static int calculateOptimalFeedSize(Integer requestedLimit, boolean isHighlyEngaged) {
+        int validatedLimit = validateSocialPostFeedLimit(requestedLimit);
+
+        // Highly engaged users get larger feeds
+        if (isHighlyEngaged && validatedLimit < 50) {
+            return Math.min(validatedLimit + 10, 50);
+        }
+
+        return validatedLimit;
+    }
+
 }

@@ -10,91 +10,251 @@ import lombok.NoArgsConstructor;
 import java.util.Date;
 import java.util.List;
 
+/**
+ * PostResponse
+ *
+ * Flat, serialization-safe DTO returned by every Post endpoint.
+ * Covers both citizen issue posts and government broadcast posts.
+ *
+ * Fields added vs. previous version (marked NEW):
+ *   saveCount              — total bookmarks on the post
+ *   isSavedByCurrentUser  — bookmark active-state for the requesting user
+ *   isGovernmentBroadcast — true when the post was created by a gov. account
+ *   countryWideBroadcast  — true when scope == COUNTRY (convenience flag)
+ *   canSave               — true when the post is bookmark-eligible (broadcast only)
+ *
+ * All fields are populated in PostService.convertToPostResponse().
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class PostResponse {
 
-    // ===== Basic Post Information =====
+    // =========================================================================
+    // BASIC POST INFORMATION
+    // =========================================================================
+
     private Long id;
     private String content;
     private PostStatus status;
     private Date createdAt;
     private Date updatedAt;
 
-    // ===== Media Information =====
+    // =========================================================================
+    // MEDIA INFORMATION
+    // =========================================================================
+
     private String imageName;
     private Boolean hasImage;
     private String mediaType;
 
-    // ===== Resolution Information =====
+    // =========================================================================
+    // RESOLUTION INFORMATION
+    // =========================================================================
+
     private Boolean isResolved;
     private Date resolvedAt;
 
-    // ===== User Information =====
+    // =========================================================================
+    // AUTHOR / USER INFORMATION
+    // =========================================================================
+
     private Long userId;
     private String username;
     private String userDisplayName;
     private String userProfileImage;
     private String userPincode;
 
-    // ===== Broadcasting Information =====
+    // =========================================================================
+    // BROADCASTING INFORMATION
+    // =========================================================================
+
     private BroadcastScope broadcastScope;
     private String broadcastScopeDescription;
     private Boolean isBroadcastPost;
+
+    /**
+     * NEW — true when the post was created by a government/department/admin account
+     * AND has a non-null broadcast scope.
+     * Lets the frontend badge government broadcasts distinctly from citizen issue posts.
+     */
+    private Boolean isGovernmentBroadcast;
+
+    /**
+     * NEW — convenience flag: true when broadcastScope == COUNTRY.
+     * Avoids enum comparison on the frontend for the most prominent broadcast type.
+     */
+    private Boolean countryWideBroadcast;
+
     private String targetCountry;
     private List<String> targetStates;
     private List<String> targetDistricts;
     private List<String> targetPincodes;
 
-    // ===== Engagement Metrics =====
+    // =========================================================================
+    // ENGAGEMENT METRICS
+    // =========================================================================
+
     private Integer likeCount;
+
+    /**
+     * Dislike count — shown on the dislike button label.
+     * Populated from Post.dislikeCount (denormalized column).
+     */
+    private Integer dislikeCount;
+
     private Integer commentCount;
     private Integer viewCount;
+
+    /**
+     * Denormalized share count — populated from Post.shareCount.
+     * Incremented atomically by PostInteractionService.recordPostShare().
+     */
+    private Integer shareCount;
+
+    /**
+     * NEW — total number of users who have bookmarked this post.
+     * Populated from Post.saveCount (denormalized column).
+     * Only meaningful for government broadcast posts (issue posts are never saveable).
+     */
+    private Integer saveCount;
+
     private Integer taggedUserCount;
 
-    // ===== User Interaction Status =====
+    // =========================================================================
+    // CURRENT USER INTERACTION STATE
+    // =========================================================================
+
+    /** true when the requesting user has an active LIKE on this post. */
     private Boolean isLikedByCurrentUser;
+
+    /**
+     * true when the requesting user has an active DISLIKE on this post.
+     * Mutually exclusive with isLikedByCurrentUser — only one can be true at a time.
+     */
+    private Boolean isDislikedByCurrentUser;
+
+    /**
+     * NEW — true when the requesting user has bookmarked this post.
+     * Set via PostInteractionService.hasSavedBroadcastPost().
+     * Always false for citizen issue posts (they are not saveable).
+     */
+    private Boolean isSavedByCurrentUser;
+
     private Boolean isViewedByCurrentUser;
 
-    // ===== Status Information =====
+    // =========================================================================
+    // POST STATUS / CAPABILITY FLAGS
+    // =========================================================================
+
     private String statusDisplayName;
     private Boolean canBeResolved;
     private Boolean allowsUpdates;
     private Boolean isEligibleForDisplay;
 
-    // ===== Tagged Users Information =====
+    private Boolean canLike;
+    private Boolean canComment;
+
+    /**
+     * true when the post is ACTIVE and eligible to be shared.
+     * Resolved issue posts return false — they cannot be shared per business rules.
+     */
+    private Boolean canShare;
+
+    /**
+     * NEW — true when the post can be bookmarked by the requesting user.
+     * Only government broadcast posts (isGovernmentBroadcast == true) are saveable.
+     * Issue posts always have canSave = false.
+     */
+    private Boolean canSave;
+
+    // =========================================================================
+    // TAGGED USERS
+    // =========================================================================
+
     private List<String> taggedUsernames;
     private List<TaggedUserInfo> taggedUsers;
 
-    // ===== Additional Metadata =====
+    // =========================================================================
+    // ADDITIONAL METADATA
+    // =========================================================================
+
     private String timeAgo;
     private Boolean isVisibleToCurrentUser;
 
-    // ===== Helper Methods =====
+    // =========================================================================
+    // NULL-SAFE HELPER GETTERS
+    // Used in Thymeleaf templates, unit tests, and any boolean expression context.
+    // =========================================================================
+
     public boolean getHasImage() {
-        return hasImage != null ? hasImage : false;
+        return hasImage != null && hasImage;
     }
 
     public boolean getIsResolved() {
-        return isResolved != null ? isResolved : false;
+        return isResolved != null && isResolved;
     }
 
     public boolean getIsBroadcastPost() {
-        return isBroadcastPost != null ? isBroadcastPost : false;
+        return isBroadcastPost != null && isBroadcastPost;
     }
 
+    /** True when this post was created by a government/department/admin account. */
+    public boolean getIsGovernmentBroadcast() {
+        return isGovernmentBroadcast != null && isGovernmentBroadcast;
+    }
+
+    /** True when this is a national-level (COUNTRY scope) broadcast. */
+    public boolean getCountryWideBroadcast() {
+        return countryWideBroadcast != null && countryWideBroadcast;
+    }
+
+    /** True when the requesting user has an active LIKE on this post. */
     public boolean getIsLikedByCurrentUser() {
-        return isLikedByCurrentUser != null ? isLikedByCurrentUser : false;
+        return isLikedByCurrentUser != null && isLikedByCurrentUser;
+    }
+
+    /**
+     * True when the requesting user has an active DISLIKE on this post.
+     * Will never be true at the same time as isLikedByCurrentUser.
+     */
+    public boolean getIsDislikedByCurrentUser() {
+        return isDislikedByCurrentUser != null && isDislikedByCurrentUser;
+    }
+
+    /** True when the requesting user has this post bookmarked. */
+    public boolean getIsSavedByCurrentUser() {
+        return isSavedByCurrentUser != null && isSavedByCurrentUser;
     }
 
     public boolean getIsViewedByCurrentUser() {
-        return isViewedByCurrentUser != null ? isViewedByCurrentUser : false;
+        return isViewedByCurrentUser != null && isViewedByCurrentUser;
+    }
+
+    public boolean getCanLike() {
+        return canLike != null && canLike;
+    }
+
+    public boolean getCanComment() {
+        return canComment != null && canComment;
+    }
+
+    public boolean getCanShare() {
+        return canShare != null && canShare;
+    }
+
+    /** True when this post can be bookmarked (broadcast posts only). */
+    public boolean getCanSave() {
+        return canSave != null && canSave;
     }
 
     public int getLikeCount() {
         return likeCount != null ? likeCount : 0;
+    }
+
+    public int getDislikeCount() {
+        return dislikeCount != null ? dislikeCount : 0;
     }
 
     public int getCommentCount() {
@@ -105,11 +265,22 @@ public class PostResponse {
         return viewCount != null ? viewCount : 0;
     }
 
+    public int getShareCount() {
+        return shareCount != null ? shareCount : 0;
+    }
+
+    public int getSaveCount() {
+        return saveCount != null ? saveCount : 0;
+    }
+
     public int getTaggedUserCount() {
         return taggedUserCount != null ? taggedUserCount : 0;
     }
 
-    // ===== Nested Class for Tagged User Information =====
+    // =========================================================================
+    // NESTED CLASS — Tagged User Info
+    // =========================================================================
+
     @Data
     @Builder
     @NoArgsConstructor

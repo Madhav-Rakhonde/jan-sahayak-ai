@@ -1,17 +1,18 @@
 package com.JanSahayak.AI.model;
 
 import jakarta.persistence.*;
-import lombok.Getter;
 import lombok.*;
-import lombok.Setter;
 
 import java.util.Date;
 
 @Entity
 @Table(name = "post_views", indexes = {
-        @Index(name = "idx_view_post", columnList = "post_id"),
-        @Index(name = "idx_view_user", columnList = "user_id"),
-        @Index(name = "idx_view_date", columnList = "viewed_at")
+        @Index(name = "idx_view_post",        columnList = "post_id"),
+        @Index(name = "idx_view_social_post", columnList = "social_post_id"),
+        @Index(name = "idx_view_user",        columnList = "user_id"),
+        @Index(name = "idx_view_date",        columnList = "viewed_at"),
+        @Index(name = "idx_view_post_user",   columnList = "post_id, user_id"),
+        @Index(name = "idx_view_sp_user",     columnList = "social_post_id, user_id")
 })
 @Getter
 @Setter
@@ -23,24 +24,59 @@ public class PostView {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 🔗 The post that was viewed
+    /**
+     * The regular Post that was viewed.
+     * Null when this is a SocialPost view.
+     *
+     * FIX: was nullable = false — caused a NOT NULL constraint violation every time
+     * a SocialPost view was recorded (post was null). Changed to nullable = true.
+     *
+     * DB migration required if column was created as NOT NULL:
+     *   ALTER TABLE post_views MODIFY COLUMN post_id BIGINT NULL;
+     */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "post_id", nullable = false)
+    @JoinColumn(name = "post_id", nullable = true)
     private Post post;
 
-    // 🔗 The user who viewed the post
+    /**
+     * The user who viewed the post.
+     * Always required — anonymous views are not tracked.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // ⏱️ When the view happened
+    /**
+     * When the view happened.
+     */
     @Column(name = "viewed_at")
     @Temporal(TemporalType.TIMESTAMP)
     private Date viewedAt = new Date();
 
-    // ⏳ How long the user viewed the post (in seconds)
+    /**
+     * How long the user spent viewing, in seconds.
+     * Null if duration was not tracked.
+     */
     @Column(name = "view_duration")
     private Integer viewDuration;
+
+    /**
+     * The SocialPost that was viewed.
+     * Null when this is a regular Post view.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "social_post_id", nullable = true)
+    private SocialPost socialPost;
+
+    // ── Helper predicates ─────────────────────────────────────────────────
+
+    public boolean isSocialPostView() {
+        return socialPost != null;
+    }
+
+    public boolean isIssuePostView() {
+        return post != null;
+    }
 
     // ===== Helper Methods =====
 
@@ -58,5 +94,27 @@ public class PostView {
 
     public boolean isQuickView() {
         return viewDuration != null && viewDuration < 5;
+    }
+
+    // ── Lifecycle Validation ──────────────────────────────────────────────
+
+    /**
+     * FIX: XOR guard — exactly ONE of [post, socialPost] must be set.
+     * Consistent with PostLike, PostShare, and SavedPost.
+     * Prevents corrupt rows that reference both or neither.
+     */
+    @PrePersist
+    private void prePersist() {
+        boolean hasPost       = post       != null;
+        boolean hasSocialPost = socialPost != null;
+        if (hasPost == hasSocialPost) {   // both true OR both false
+            throw new IllegalStateException(
+                    "PostView must reference exactly ONE of [Post, SocialPost], not both or neither. "
+                            + "postId=" + (post != null ? post.getId() : "null")
+                            + " socialPostId=" + (socialPost != null ? socialPost.getId() : "null"));
+        }
+        if (viewedAt == null) {
+            viewedAt = new Date();
+        }
     }
 }

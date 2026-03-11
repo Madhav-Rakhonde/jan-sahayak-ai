@@ -8,9 +8,11 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 import lombok.*;
+import org.hibernate.Hibernate;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -19,15 +21,15 @@ import java.util.stream.Collectors;
         name = "users",
         uniqueConstraints = {
                 @UniqueConstraint(columnNames = "username", name = "uk_user_username"),
-                @UniqueConstraint(columnNames = "email", name = "uk_user_email")
+                @UniqueConstraint(columnNames = "email",    name = "uk_user_email")
         },
         indexes = {
-                @Index(name = "idx_user_username", columnList = "username"),
-                @Index(name = "idx_user_email", columnList = "email"),
-                @Index(name = "idx_user_pincode", columnList = "pincode"),
-                @Index(name = "idx_user_is_active", columnList = "is_active"),
+                @Index(name = "idx_user_username",   columnList = "username"),
+                @Index(name = "idx_user_email",      columnList = "email"),
+                @Index(name = "idx_user_pincode",    columnList = "pincode"),
+                @Index(name = "idx_user_is_active",  columnList = "is_active"),
                 @Index(name = "idx_user_created_at", columnList = "created_at"),
-                @Index(name = "idx_user_role", columnList = "role_id")
+                @Index(name = "idx_user_role",       columnList = "role_id")
         }
 )
 @NoArgsConstructor
@@ -91,6 +93,7 @@ public class User implements UserDetails {
     private Date updatedAt;
 
     // ===== Relationships =====
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", foreignKey = @ForeignKey(name = "fk_user_created_by"))
     private User createdBy;
@@ -104,6 +107,11 @@ public class User implements UserDetails {
     @Builder.Default
     @JsonIgnore
     private List<Post> posts = new ArrayList<>();
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @Builder.Default
+    @JsonIgnore
+    private List<SocialPost> socialPosts = new ArrayList<>();
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @Builder.Default
@@ -135,71 +143,56 @@ public class User implements UserDetails {
     @JsonIgnore
     private List<UserTag> createdTags = new ArrayList<>();
 
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL,
+            fetch = FetchType.LAZY, orphanRemoval = true)
+    @Builder.Default
+    @JsonIgnore
+    private List<Notification> notifications = new ArrayList<>();
+
+    /**
+     * PincodeLookup data enriched at runtime — NOT stored in the DB.
+     * Populated by the service layer when location-aware queries are needed.
+     */
     @Transient
     private PincodeLookup pincodeLookupData;
 
-
     // ===== Role Helper Methods =====
 
-    /**
-     * Check if user is admin - Updated to handle both formats
-     */
     public boolean isAdmin() {
         if (role == null || role.getName() == null) {
             return false;
         }
-        String roleName = role.getName();
-        return "ROLE_ADMIN".equalsIgnoreCase(roleName) ;
+        return "ROLE_ADMIN".equalsIgnoreCase(role.getName());
     }
 
-    /**
-     * Check if user is department - Updated to handle both formats
-     */
     public boolean isDepartment() {
         if (role == null || role.getName() == null) {
             return false;
         }
-        String roleName = role.getName();
-        return "ROLE_DEPARTMENT".equalsIgnoreCase(roleName);
+        return "ROLE_DEPARTMENT".equalsIgnoreCase(role.getName());
     }
 
-    /**
-     * Check if user is normal user - Updated to handle both formats
-     */
     public boolean isNormalUser() {
         if (role == null || role.getName() == null) {
             return false;
         }
-        String roleName = role.getName().toLowerCase();
-        return "ROLE_USER".equals(roleName) ;
+        return "ROLE_USER".equals(role.getName().toLowerCase());
     }
 
-    /**
-     * Check if user can create broadcasts (admin and department only)
-     */
     public boolean canCreateBroadcast() {
         return isAdmin() || isDepartment();
     }
 
     // ===== Pincode Helper Methods =====
 
-    /**
-     * Get state prefix from pincode (first 2 digits)
-     */
     public String getStatePrefix() {
         return hasPincode() ? pincode.substring(0, 2) : null;
     }
 
-    /**
-     * Get district prefix from pincode (first 3 digits)
-     */
     public String getDistrictPrefix() {
         return hasPincode() ? pincode.substring(0, 3) : null;
     }
 
-    /**
-     * Check if user is in the same state as given pincode
-     */
     public boolean isInSameState(String otherPincode) {
         if (!hasPincode() || otherPincode == null || otherPincode.length() < 2) {
             return false;
@@ -207,9 +200,6 @@ public class User implements UserDetails {
         return getStatePrefix().equals(otherPincode.substring(0, 2));
     }
 
-    /**
-     * Check if user is in the same district as given pincode
-     */
     public boolean isInSameDistrict(String otherPincode) {
         if (!hasPincode() || otherPincode == null || otherPincode.length() < 3) {
             return false;
@@ -243,16 +233,26 @@ public class User implements UserDetails {
         return hasPincode();
     }
 
+    /**
+     * Safe count — Hibernate lazy collections are never null, they're
+     * uninitialized PersistentBag proxies. Calling .size() on them outside
+     * a session throws LazyInitializationException. Hibernate.isInitialized()
+     * checks whether the proxy has been loaded before we touch it.
+     */
     public int getPostCount() {
-        return posts != null ? posts.size() : 0;
+        return (posts != null && Hibernate.isInitialized(posts)) ? posts.size() : 0;
+    }
+
+    public int getSocialPostCount() {
+        return (socialPosts != null && Hibernate.isInitialized(socialPosts)) ? socialPosts.size() : 0;
     }
 
     public int getCommentCount() {
-        return comments != null ? comments.size() : 0;
+        return (comments != null && Hibernate.isInitialized(comments)) ? comments.size() : 0;
     }
 
     public int getLikeCount() {
-        return likes != null ? likes.size() : 0;
+        return (likes != null && Hibernate.isInitialized(likes)) ? likes.size() : 0;
     }
 
     public String getPrimaryLocation() {
@@ -263,7 +263,7 @@ public class User implements UserDetails {
         return hasPincode() && isActive != null && isActive;
     }
 
-    // ===== Location Compatibility Methods (using pincode) =====
+    // ===== Location Compatibility Methods =====
 
     public boolean hasLocation() {
         return hasPincode();
@@ -274,16 +274,20 @@ public class User implements UserDetails {
     }
 
     // ===== Spring Security UserDetails Methods =====
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
         if (role != null && role.getName() != null) {
-            // Since Role entity stores names with ROLE_ prefix, use them directly
             authorities.add(new SimpleGrantedAuthority(role.getName()));
         }
         return authorities;
     }
 
+    /**
+     * Spring Security uses this as the login credential — returns EMAIL.
+     * Use getActualUsername() to get the display username.
+     */
     @Override
     public String getUsername() {
         return this.email;

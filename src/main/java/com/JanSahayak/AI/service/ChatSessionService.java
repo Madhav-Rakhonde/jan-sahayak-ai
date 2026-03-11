@@ -1,0 +1,444 @@
+package com.JanSahayak.AI.service;
+
+import com.JanSahayak.AI.config.Constant;
+import com.JanSahayak.AI.model.ChatMessage;
+import com.JanSahayak.AI.model.ChatSession;
+import com.JanSahayak.AI.model.User;
+import com.JanSahayak.AI.repository.UserRepo;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Manages chat session lifecycle and message delivery.
+ *
+ * ── Reconnect flow (page-refresh fix) ────────────────────────────────────────
+ *
+ * Problem:
+ *   When a user refreshes the browser the WebSocket drops, but endSession()
+ *   is never called.  On the next findMatch() call isUserInSession() returns
+ *   true and throws "already in an active chat", leaving the user locked out.
+ *
+ * Fix:
+ *   1. WebSocket disconnect  → handleUserDisconnect()
+ *      • Keeps the session alive in DISCONNECTED state for a short grace period
+ *        (Constant.CHAT_RECONNECT_GRACE_PERIOD_SECONDS, e.g. 30 s).
+ *      • Notifies the partner with a "partner disconnected" system message so
+ *        their UI can show a reconnecting indicator instead of a hard leave.
+ *
+ *   2. User reconnects within grace period → reconnectToSession()
+ *      • Restores status to ACTIVE, re-registers userSessionMap entry.
+ *      • Notifies the partner that the user is back.
+ *      • Returns the full session so the frontend can restore chat history.
+ *
+ *   3. Grace period expires → cleanupDisconnectedSessions() (scheduled)
+ *      • If the user never came back, the session is ended and the partner
+ *        gets the usual "partner has left" notification.
+ *
+ * ── WebSocket routing ─────────────────────────────────────────────────────────
+ *   convertAndSendToUser(name, dest, payload) routes to /user/{name}/queue/...
+ *   The STOMP principal name is the user's EMAIL, not the numeric userId.
+ *   All routing therefore goes through getUserEmail(Long userId).
+ */
+@Service
+@Slf4j
+public class ChatSessionService {
+
+    private final UserRepo userRepository;
+
+    // @Lazy breaks the circular dependency:
+    // ChatSessionService → ChatMessagingService → ChatSessionService
+    private final ChatMessagingService chatMessagingService;
+
+    public ChatSessionService(
+            UserRepo userRepository,
+            @Lazy ChatMessagingService chatMessagingService) {
+        this.userRepository      = userRepository;
+        this.chatMessagingService = chatMessagingService;
+    }
+
+    // sessionId → session  (includes DISCONNECTED sessions during grace period)
+    private final Map<String, ChatSession> activeSessions = new ConcurrentHashMap<>();
+
+    // userId → sessionId   (maintained for both ACTIVE and DISCONNECTED sessions)
+    private final Map<Long, String> userSessionMap = new ConcurrentHashMap<>();
+
+    // ── Session lifecycle ─────────────────────────────────────────────────────
+
+    public ChatSession createSession(Long user1Id, Long user2Id) {
+        log.info("Creating chat session between users {} and {}", user1Id, user2Id);
+
+        if (isUserInSession(user1Id) || isUserInSession(user2Id)) {
+            throw new RuntimeException("One or both users are already in an active chat");
+        }
+
+        String sessionId        = UUID.randomUUID().toString();
+        String user1DisplayName = getActualDisplayName(user1Id);
+        String user2DisplayName = getActualDisplayName(user2Id);
+
+        ChatSession session = ChatSession.builder()
+                .sessionId(sessionId)
+                .user1Id(user1Id)
+                .user2Id(user2Id)
+                .user1AnonymousId(user1DisplayName)
+                .user2AnonymousId(user2DisplayName)
+                .status(ChatSession.SessionStatus.ACTIVE)
+                .createdAt(Instant.now())
+                .lastActivityAt(Instant.now())
+                .recentMessages(new ArrayList<>())
+                .build();
+
+        session.addMessage(ChatMessage.systemMessage(sessionId, "You are now connected. Say hello!"));
+
+        activeSessions.put(sessionId, session);
+        userSessionMap.put(user1Id, sessionId);
+        userSessionMap.put(user2Id, sessionId);
+
+        log.info("Chat session {} created successfully", sessionId);
+        return session;
+    }
+
+    public ChatSession getSession(String sessionId) {
+        return activeSessions.get(sessionId);
+    }
+
+    public ChatSession getUserSession(Long userId) {
+        String sessionId = userSessionMap.get(userId);
+        return sessionId != null ? getSession(sessionId) : null;
+    }
+
+    public ChatMessage addMessage(String sessionId, Long senderId, String content) {
+        ChatSession session = getSession(sessionId);
+        if (session == null)            throw new RuntimeException("Session not found: " + sessionId);
+        if (!session.hasUser(senderId)) throw new RuntimeException("User not part of this session");
+        if (!session.isActive())        throw new RuntimeException("Session is not active");
+
+        String senderAnonymousId = session.getUserAnonymousId(senderId);
+        ChatMessage message = ChatMessage.userMessage(sessionId, senderAnonymousId, content);
+        session.addMessage(message);
+
+        log.debug("Message added to session {} by user {}", sessionId, senderId);
+        return message;
+    }
+
+    /**
+     * Normal, intentional leave (user clicks "Leave chat").
+     *
+     * Order matters:
+     *  1. notifyUserLeft()  — partner notified while session still ACTIVE
+     *  2. session.end()     — mark ENDED
+     *  3. remove mappings   — clean up
+     */
+    public void endSession(String sessionId, Long userId) {
+        ChatSession session = getSession(sessionId);
+        if (session == null) {
+            log.warn("Attempted to end non-existent session: {}", sessionId);
+            return;
+        }
+        if (!session.hasUser(userId)) {
+            throw new RuntimeException("User not authorized to end this session");
+        }
+
+        log.info("Ending chat session {} by user {}", sessionId, userId);
+
+        try {
+            chatMessagingService.notifyUserLeft(sessionId, userId);
+        } catch (Exception e) {
+            log.error("Failed to notify partner in session {} that user {} left", sessionId, userId, e);
+        }
+
+        String userAnonymousId = session.getUserAnonymousId(userId);
+        session.addMessage(ChatMessage.builder()
+                .messageId(UUID.randomUUID().toString())
+                .sessionId(sessionId)
+                .senderId("SYSTEM")
+                .content(userAnonymousId + " has left the chat")
+                .messageType(ChatMessage.MessageType.USER_LEFT)
+                .timestamp(Instant.now())
+                .build());
+        session.end();
+
+        userSessionMap.remove(session.getUser1Id());
+        userSessionMap.remove(session.getUser2Id());
+        activeSessions.remove(sessionId);
+    }
+
+    // ── Reconnect flow ────────────────────────────────────────────────────────
+
+    /**
+     * Called when a WebSocket disconnect event is detected for this user
+     * (e.g. from an ApplicationListener<SessionDisconnectEvent>).
+     *
+     * Behaviour:
+     *  • If the user has an ACTIVE session  → mark DISCONNECTED (grace period starts).
+     *  • If already DISCONNECTED / no session → no-op.
+     *
+     * The partner is sent a soft "partner disconnected" system message so their
+     * UI can show a reconnecting spinner rather than treating it as a hard leave.
+     *
+     * @param userId the user whose WebSocket just dropped
+     */
+    public void handleUserDisconnect(Long userId) {
+        ChatSession session = getUserSession(userId);
+        if (session == null || !session.isActive()) {
+            // Nothing to do — user had no active session or already ended
+            return;
+        }
+
+        String sessionId = session.getSessionId();
+        log.info("User {} disconnected from session {} — starting grace period of {}s",
+                userId, sessionId, Constant.CHAT_RECONNECT_GRACE_PERIOD_SECONDS);
+
+        // Mark session as temporarily disconnected (NOT ended yet)
+        session.markDisconnected(userId);
+
+        // Notify the partner with a soft message (not a hard leave)
+        Long partnerId = session.getPartnerId(userId);
+        if (partnerId != null) {
+            try {
+                chatMessagingService.sendSystemMessage(sessionId,
+                        "Your partner lost connection. Waiting for them to reconnect...");
+            } catch (Exception e) {
+                log.warn("Could not send disconnect notification to partner in session {}", sessionId, e);
+            }
+        }
+    }
+
+    /**
+     * Called when a user reconnects (e.g. after a page refresh) and hits the
+     * matchmaking or chat endpoint again.
+     *
+     * Returns the existing {@link ChatSession} if the user is within the grace
+     * period, or {@code null} if there is nothing to reconnect to (session ended,
+     * grace period expired, or user was never in a session).
+     *
+     * When reconnection succeeds:
+     *  • Session status → ACTIVE
+     *  • userSessionMap entry is re-registered (it may have been cleaned up)
+     *  • Partner is notified that the user is back
+     *
+     * @param userId the user trying to rejoin
+     * @return the resumed ChatSession, or null if reconnect is not possible
+     */
+    public ChatSession reconnectToSession(Long userId) {
+        String sessionId = userSessionMap.get(userId);
+        if (sessionId == null) {
+            log.debug("reconnectToSession: no session mapping for user {}", userId);
+            return null;
+        }
+
+        ChatSession session = activeSessions.get(sessionId);
+        if (session == null) {
+            // Mapping is stale — clean it up
+            userSessionMap.remove(userId);
+            log.debug("reconnectToSession: stale mapping for user {}, removed", userId);
+            return null;
+        }
+
+        // Only allow reconnect during the grace period
+        if (!session.isInReconnectWindow()) {
+            log.info("reconnectToSession: grace period expired for user {} session {}", userId, sessionId);
+            // Treat as a normal leave now — clean up fully
+            forceEndSessionForDisconnectedUser(session, userId);
+            return null;
+        }
+
+        // --- Reconnect succeeds ---
+        log.info("User {} reconnected to session {} within grace period", userId, sessionId);
+        session.markReconnected();
+
+        // Re-register mapping in case it was cleared
+        userSessionMap.put(userId, sessionId);
+
+        // Add a system message so both sides know the user is back
+        String anonId = session.getUserAnonymousId(userId);
+        session.addMessage(ChatMessage.systemMessage(sessionId,
+                anonId + " reconnected."));
+
+        // Notify the partner
+        try {
+            chatMessagingService.sendSystemMessage(sessionId,
+                    "Your partner has reconnected!");
+        } catch (Exception e) {
+            log.warn("Could not send reconnect notification in session {}", sessionId, e);
+        }
+
+        return session;
+    }
+
+    /**
+     * Check if a user has a disconnected-but-reconnectable session.
+     * Used by MatchmakingService to skip the "already in session" error.
+     */
+    public boolean isUserDisconnectedWithActiveSession(Long userId) {
+        ChatSession session = getUserSession(userId);
+        if (session == null) return false;
+        return ChatSession.SessionStatus.DISCONNECTED.equals(session.getStatus())
+                && session.isInReconnectWindow();
+    }
+
+    // ── Queries ───────────────────────────────────────────────────────────────
+
+    public List<ChatMessage> getRecentMessages(String sessionId, Long userId, int limit) {
+        ChatSession session = getSession(sessionId);
+        if (session == null) return Collections.emptyList();
+        if (!session.hasUser(userId)) throw new RuntimeException("User not part of this session");
+
+        List<ChatMessage> messages = session.getRecentMessages();
+        if (messages == null || messages.isEmpty()) return Collections.emptyList();
+
+        int startIndex = Math.max(0, messages.size() - limit);
+        return new ArrayList<>(messages.subList(startIndex, messages.size()));
+    }
+
+    public boolean isUserInSession(Long userId) {
+        ChatSession session = getUserSession(userId);
+        // DISCONNECTED sessions are NOT counted as "in session" for matchmaking purposes —
+        // the reconnect path handles that separately via reconnectToSession().
+        return session != null && session.isActive();
+    }
+
+    public int getActiveSessionCount() {
+        return (int) activeSessions.values().stream()
+                .filter(ChatSession::isActive)
+                .count();
+    }
+
+    public int getOnlineUserCount() {
+        return getActiveSessionCount() * 2;
+    }
+
+    // ── Cleanup ───────────────────────────────────────────────────────────────
+
+    public void cleanupExpiredSessions() {
+        List<String> toExpire = new ArrayList<>();
+        for (Map.Entry<String, ChatSession> entry : activeSessions.entrySet()) {
+            if (entry.getValue().hasExpired(Constant.CHAT_MAX_INACTIVE_MINUTES)) {
+                toExpire.add(entry.getKey());
+            }
+        }
+        for (String sid : toExpire) {
+            ChatSession s = activeSessions.get(sid);
+            if (s != null) {
+                log.info("Expiring inactive session {}", sid);
+                s.setStatus(ChatSession.SessionStatus.EXPIRED);
+                userSessionMap.remove(s.getUser1Id());
+                userSessionMap.remove(s.getUser2Id());
+                activeSessions.remove(sid);
+            }
+        }
+        if (!toExpire.isEmpty()) log.info("Expired {} inactive sessions", toExpire.size());
+    }
+
+    public void cleanupEndedSessions() {
+        List<String> toRemove = new ArrayList<>();
+        Instant cutoff = Instant.now().minusSeconds(60);
+        for (Map.Entry<String, ChatSession> entry : activeSessions.entrySet()) {
+            ChatSession s = entry.getValue();
+            if (!s.isActive() && s.getEndedAt() != null && s.getEndedAt().isBefore(cutoff)) {
+                toRemove.add(entry.getKey());
+            }
+        }
+        for (String sid : toRemove) activeSessions.remove(sid);
+        if (!toRemove.isEmpty()) log.info("Removed {} ended sessions from memory", toRemove.size());
+    }
+
+    /**
+     * Called by the scheduler every 15 seconds.
+     * Ends sessions whose disconnected user's grace period has expired.
+     */
+    public void cleanupDisconnectedSessions() {
+        List<ChatSession> expired = new ArrayList<>();
+        for (ChatSession session : activeSessions.values()) {
+            if (ChatSession.SessionStatus.DISCONNECTED.equals(session.getStatus())
+                    && !session.isInReconnectWindow()) {
+                expired.add(session);
+            }
+        }
+
+        for (ChatSession session : expired) {
+            Long disconnectedUser = session.getDisconnectedUserId();
+            log.info("Grace period expired for user {} in session {} — ending session",
+                    disconnectedUser, session.getSessionId());
+            // This sends the hard "partner left" notification to the still-connected user
+            forceEndSessionForDisconnectedUser(session, disconnectedUser);
+        }
+
+        if (!expired.isEmpty()) {
+            log.info("Cleaned up {} grace-period-expired sessions", expired.size());
+        }
+    }
+
+    // ── Principal / routing helpers ───────────────────────────────────────────
+
+    /**
+     * Returns the WebSocket principal name (= email) for a user.
+     * convertAndSendToUser() routes to /user/{email}/queue/...
+     */
+    public String getUserEmail(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+        return user.getUsername(); // getUsername() returns EMAIL in this project
+    }
+
+    /**
+     * Called by WebSocketDisconnectListener when a WebSocket session drops.
+     *
+     * WebSocketConfig stores the STOMP principal as a
+     * UsernamePasswordAuthenticationToken(user, ...), so
+     * event.getUser().getName() == user.getUsername() == EMAIL.
+     *
+     * We look up the user by email (via UserRepo.findByEmail), then delegate
+     * to handleUserDisconnect(Long userId).
+     *
+     * @param email the principal name from the disconnect event — always an email
+     *              in this project (User.getUsername() returns email)
+     */
+    public void handleUserDisconnectByEmail(String email) {
+        userRepository.findByEmail(email).ifPresentOrElse(
+                user -> handleUserDisconnect(user.getId()),
+                () -> log.debug("handleUserDisconnectByEmail: no user found for email {}", email)
+        );
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * End a session because a disconnected user never reconnected.
+     * Notifies the remaining partner and cleans up mappings.
+     */
+    private void forceEndSessionForDisconnectedUser(ChatSession session, Long disconnectedUserId) {
+        String sessionId = session.getSessionId();
+        try {
+            // Temporarily restore ACTIVE so notifyUserLeft() can resolve the partner
+            session.setStatus(ChatSession.SessionStatus.ACTIVE);
+            chatMessagingService.notifyUserLeft(sessionId, disconnectedUserId);
+        } catch (Exception e) {
+            log.error("Error notifying partner about disconnected user {} in session {}",
+                    disconnectedUserId, sessionId, e);
+        } finally {
+            session.end();
+            userSessionMap.remove(session.getUser1Id());
+            userSessionMap.remove(session.getUser2Id());
+            activeSessions.remove(sessionId);
+        }
+    }
+
+    private String getActualDisplayName(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+        String username = user.getActualUsername();
+        if (username == null || username.trim().isEmpty()) {
+            String email = user.getEmail();
+            username = (email != null && !email.trim().isEmpty())
+                    ? email.split("@")[0]
+                    : "User" + userId;
+        }
+        return username;
+    }
+}

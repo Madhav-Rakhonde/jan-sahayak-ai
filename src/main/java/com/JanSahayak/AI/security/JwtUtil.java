@@ -149,4 +149,61 @@ public class JwtUtil {
         }
         return false;
     }
+    // Add these methods to your JwtUtil.java class
+
+    /**
+     * Extract expiration date from token
+     */
+    public Date getExpirationDateFromToken(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        return claims.getExpiration();
+    }
+
+    /**
+     * Check if token is expired
+     */
+    public boolean isTokenExpired(String token) {
+        try {
+            Date expiration = getExpirationDateFromToken(token);
+            return expiration.before(new Date());
+        } catch (ExpiredJwtException e) {
+            return true;
+        } catch (Exception e) {
+            logger.error("Error checking token expiration", e);
+            return true;
+        }
+    }
+
+    /**
+     * Get remaining time until token expires (in milliseconds)
+     */
+    public long getTokenRemainingTime(String token) {
+        try {
+            Date expiration = getExpirationDateFromToken(token);
+            return expiration.getTime() - System.currentTimeMillis();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Enhanced validation that explicitly checks expiration
+     */
+    public boolean validateTokenWithExpiration(String token) {
+        if (!validateToken(token)) {
+            return false;
+        }
+
+        if (isTokenExpired(token)) {
+            logger.warn("Token validation failed: Token has expired");
+            return false;
+        }
+
+        return true;
+    }
 }

@@ -12,12 +12,19 @@ import java.util.Date;
 import java.util.List;
 
 @Entity
-@Table(name = "comments")
+@Table(name = "comments", indexes = {
+        @Index(name = "idx_comment_post",        columnList = "post_id"),
+        @Index(name = "idx_comment_social_post", columnList = "social_post_id"),
+        @Index(name = "idx_comment_user",        columnList = "user_id"),
+        @Index(name = "idx_comment_parent",      columnList = "parent_comment_id"),
+        @Index(name = "idx_comment_created_at",  columnList = "created_at")
+})
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class Comment {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -25,24 +32,59 @@ public class Comment {
     @Column(nullable = false)
     private String text;
 
+    @Column(name = "created_at", nullable = false, updatable = false)
     @Temporal(TemporalType.TIMESTAMP)
     private Date createdAt = new Date();
 
-    // Existing Relationships
+    // ===== Relationships =====
+
+    /**
+     * The regular (issue) Post this comment belongs to.
+     * Null when this is a SocialPost comment.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JsonBackReference
+    @JoinColumn(name = "post_id", nullable = true)
     private Post post;
 
+    /**
+     * The user who wrote this comment.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    /**
+     * Parent comment — non-null when this is a reply.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "parent_comment_id")
+    @JoinColumn(name = "parent_comment_id", nullable = true)
     private Comment parentComment;
 
+    /**
+     * Direct replies to this comment.
+     */
     @OneToMany(mappedBy = "parentComment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<Comment> replies = new ArrayList<>();
 
+    /**
+     * The SocialPost this comment belongs to.
+     * Null when this is a regular Post comment.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JsonBackReference
+    @JoinColumn(name = "social_post_id", nullable = true)
+    private SocialPost socialPost;
+
+    // ── Helper predicates ─────────────────────────────────────────────────
+
+    public boolean isSocialPostComment() {
+        return socialPost != null;
+    }
+
+    public boolean isIssuePostComment() {
+        return post != null;
+    }
 
     /**
      * Check if this is a top-level comment (not a reply)
@@ -128,5 +170,30 @@ public class Comment {
      */
     public boolean hasActivity() {
         return hasReplies();
+    }
+
+    // ── Lifecycle Validation ──────────────────────────────────────────────
+
+    /**
+     * FIX: XOR guard — exactly ONE of [post, socialPost] must be set.
+     * Prevents corrupt comment rows that reference both posts or neither.
+     * Replies (parentComment != null) inherit the post type from their parent,
+     * so they must also pass the XOR check.
+     *
+     * Consistent with PostLike, PostShare, PostView, and SavedPost guards.
+     */
+    @PrePersist
+    private void prePersist() {
+        boolean hasPost       = post       != null;
+        boolean hasSocialPost = socialPost != null;
+        if (hasPost == hasSocialPost) {   // both true OR both false
+            throw new IllegalStateException(
+                    "Comment must reference exactly ONE of [Post, SocialPost], not both or neither. "
+                            + "postId=" + (post != null ? post.getId() : "null")
+                            + " socialPostId=" + (socialPost != null ? socialPost.getId() : "null"));
+        }
+        if (createdAt == null) {
+            createdAt = new Date();
+        }
     }
 }

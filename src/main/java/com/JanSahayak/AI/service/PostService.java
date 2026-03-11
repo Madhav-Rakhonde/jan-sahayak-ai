@@ -9,13 +9,14 @@ import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.enums.BroadcastScope;
 import com.JanSahayak.AI.exception.*;
 import com.JanSahayak.AI.model.*;
+import com.JanSahayak.AI.model.PostShare.ShareType;
 import com.JanSahayak.AI.payload.PostUtility;
 import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.repository.*;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,143 +26,132 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class PostService {
 
-    private final PostRepo postRepository;
-    private final UserTaggingService userTaggingService;
-    private final UserRepo userRepository;
-    private final PostViewRepo postViewRepository;
-    private final PostLikeRepo postLikeRepository;
-    private final CommentRepo commentRepository;
-    private final PinCodeLookupService pinCodeLookupService;
-    private final UserTagRepo userTagRepository;
+    private final PostRepo                 postRepository;
+    private final UserTaggingService       userTaggingService;
+    private final UserRepo                 userRepository;
+    private final CommentRepo              commentRepository;
+    private final PinCodeLookupService     pinCodeLookupService;
+    private final UserTagRepo              userTagRepository;
+    private final ContentValidationService contentValidationService;
+    private final NotificationService      notificationService;
+    private final PostInteractionService   postInteractionService;
 
+    // ── Cloudinary media adapter (replaces DrivePostMediaAdapter / local disk) ─
+    // Bean name kept as drivePostMedia so no controller or other caller needs updating.
+    private final DrivePostMediaAdapter    drivePostMedia;
+
+    // uploadDir kept only so PostUtility helper methods that read the value compile.
+    // NOT used for actual file storage — Cloudinary handles all uploads.
     @Value("${app.upload.dir:${user.home}/uploads/posts}")
     private String uploadDir;
 
-    @Value("${app.upload.max-image-size:5242880}") // 5MB for images
+    @Value("${app.upload.max-image-size:5242880}")
     private long maxImageSize;
 
-    @Value("${app.upload.max-video-size:536870912}") // 512MB for videos
+    @Value("${app.upload.max-video-size:536870912}")
     private long maxVideoSize;
 
-    // File cleanup retry queue
+    // Cloudinary URL cleanup retry queue
     private final Queue<String> fileCleanupQueue = new LinkedList<>();
 
-    // ===== Regular Post Creation Methods =====
+    // =========================================================================
+    // CREATE
+    // =========================================================================
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post createPost(PostCreateDto postDto, User user, MultipartFile mediaFile) {
-        log.info("Creating new post by user: {} (ID: {})", user.getActualUsername(), user.getId());
-
+        log.info("Creating post: user={} (id={})", user.getActualUsername(), user.getId());
         try {
             PostUtility.validateUser(user);
+            contentValidationService.validateContent(postDto.getContent());
             PostUtility.validatePostContent(postDto.getContent());
 
-            // REQUIRED: Target pincode must be provided by user (no fallback to user's pincode)
             if (postDto.getTargetPincode() == null || postDto.getTargetPincode().trim().isEmpty()) {
                 throw new ValidationException("Target pincode is required for creating posts");
             }
-
             PostUtility.validateTargetPincodeForUser(postDto.getTargetPincode());
-
-            // Populate user location data
             pinCodeLookupService.populateUserLocationData(user);
 
+            // CLOUDINARY: upload returns secure URL; null when no file provided
             String fileName = null;
             if (mediaFile != null && !mediaFile.isEmpty()) {
-                fileName = PostUtility.uploadMediaFile(mediaFile, user.getId(), uploadDir);
+                fileName = drivePostMedia.upload(mediaFile, user.getId());
             }
 
             Post post = new Post();
             post.setContent(postDto.getContent().trim());
             post.setUser(user);
-            post.setImageName(fileName);
+            post.setImageName(fileName);   // stores Cloudinary URL or null
             post.setStatus(PostStatus.ACTIVE);
             post.setCreatedAt(new Date());
 
-            // For normal users, set AREA broadcast scope with user-provided pincode
             if (PostUtility.isNormalUser(user)) {
                 post.setBroadcastScope(BroadcastScope.AREA);
-
-                // Use the REQUIRED target pincode provided by user
                 String targetPincode = postDto.getTargetPincode().trim();
-
-                // Additional validation to ensure pincode exists in system
                 if (!pinCodeLookupService.isValidPincode(targetPincode)) {
                     throw new ValidationException("Target pincode not found in system: " + targetPincode);
                 }
-
-                // Validate it's a valid Indian pincode format
                 if (!Constant.isValidIndianPincode(targetPincode)) {
                     throw new ValidationException("Invalid Indian pincode format: " + targetPincode);
                 }
-
                 post.setTargetPincodes(targetPincode);
-
-                log.info("Normal user post created with user-provided target pincode: {}", targetPincode);
+                log.info("User post created with target pincode: {}", targetPincode);
             }
 
-            // CRITICAL: Always set India as target country for this India-only app
             post.setTargetCountry(Constant.DEFAULT_TARGET_COUNTRY);
-
-            // Save post first
             post = postRepository.save(post);
 
-            // Process user tags in content
             try {
                 userTaggingService.processUserTags(post);
             } catch (Exception e) {
                 log.warn("Failed to process user tags for post: {}", post.getId(), e);
             }
 
-            log.info("Post created successfully with ID: {}, status: {}, broadcast scope: {}, country: {}, target pincode: {}",
+            log.info("Post created: id={} status={} scope={} pincode={}",
                     post.getId(), post.getStatus().getDisplayName(),
                     post.getBroadcastScope() != null ? post.getBroadcastScope().getDescription() : "None",
-                    post.getTargetCountry(),
                     post.getTargetPincodes());
-
             return post;
         } catch (ValidationException | MediaValidationException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to create post for user: {} (ID: {})", user.getActualUsername(), user.getId(), e);
+            log.error("Failed to create post: user={} (id={})", user.getActualUsername(), user.getId(), e);
             throw new ServiceException("Failed to create post: " + e.getMessage(), e);
         }
     }
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post createPost(PostCreateDto postDto, User user) {
         return createPost(postDto, user, null);
     }
 
-    // ===== Broadcasting Post Creation Methods =====
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post createBroadcastPost(PostCreateDto postDto, User user, BroadcastScope broadcastScope,
                                     String targetCountry, List<String> targetStates,
                                     List<String> targetDistricts, List<String> targetPincodes,
                                     MultipartFile mediaFile) {
-        log.info("Creating broadcast post by user: {} (ID: {}) with scope: {}",
-                user.getActualUsername(), user.getId(), broadcastScope);
-
+        log.info("Creating broadcast post: user={} (id={}) scope={}", user.getActualUsername(), user.getId(), broadcastScope);
         try {
             PostUtility.validateUser(user);
             PostUtility.validateBroadcastPermission(user);
             PostUtility.validatePostContent(postDto.getContent());
             PostUtility.validateBroadcastScope(broadcastScope, targetCountry, targetStates, targetDistricts, targetPincodes);
-
-            // Populate user location data
             pinCodeLookupService.populateUserLocationData(user);
 
+            // CLOUDINARY: upload returns secure URL
             String fileName = null;
             if (mediaFile != null && !mediaFile.isEmpty()) {
-                fileName = PostUtility.uploadMediaFile(mediaFile, user.getId(), uploadDir);
+                fileName = drivePostMedia.upload(mediaFile, user.getId());
             }
 
             Post post = new Post();
@@ -170,86 +160,61 @@ public class PostService {
             post.setImageName(fileName);
             post.setStatus(PostStatus.ACTIVE);
             post.setCreatedAt(new Date());
-
-            // Set broadcasting parameters with pincode prefixes
             post.setBroadcastScope(broadcastScope);
-
-            // CRITICAL: Always set India as target country for this India-only app
             post.setTargetCountry(Constant.DEFAULT_TARGET_COUNTRY);
 
-            // Convert state names to pincode prefixes
             if (targetStates != null && !targetStates.isEmpty()) {
-                String statePrefixesString = PostUtility.convertStatesToTargetString(targetStates);
-                post.setTargetStates(statePrefixesString);
+                post.setTargetStates(PostUtility.convertStatesToTargetString(targetStates));
             }
-
-            // Convert district names to pincode prefixes
             if (targetDistricts != null && !targetDistricts.isEmpty()) {
-                String districtPrefixesString = PostUtility.convertDistrictsToTargetString(targetDistricts, pinCodeLookupService);
-                post.setTargetDistricts(districtPrefixesString);
+                post.setTargetDistricts(PostUtility.convertDistrictsToTargetString(targetDistricts, pinCodeLookupService));
             }
-
-            // Convert pincode list to target string
             if (targetPincodes != null && !targetPincodes.isEmpty()) {
-                String pincodesString = PostUtility.convertPincodesToTargetString(targetPincodes);
-                post.setTargetPincodes(pincodesString);
+                post.setTargetPincodes(PostUtility.convertPincodesToTargetString(targetPincodes));
             }
 
-            // Save post first
             post = postRepository.save(post);
 
-            // Process user tags in content
             try {
                 userTaggingService.processUserTags(post);
             } catch (Exception e) {
                 log.warn("Failed to process user tags for broadcast post: {}", post.getId(), e);
             }
 
-            // CRITICAL: Log government/department country-wide broadcasts
             if (post.isCountryWideGovernmentBroadcast()) {
                 PostUtility.logCountryBroadcast(post, user);
             }
 
-            log.info("Broadcast post created successfully - ID: {}, scope: {}, country: {}, targets: states={}, districts={}, pincodes={}",
-                    post.getId(), broadcastScope.getDescription(), Constant.DEFAULT_TARGET_COUNTRY,
-                    targetStates != null ? targetStates.size() : 0,
-                    targetDistricts != null ? targetDistricts.size() : 0,
-                    targetPincodes != null ? targetPincodes.size() : 0);
-
+            log.info("Broadcast post created: id={} scope={}", post.getId(), broadcastScope.getDescription());
             return post;
         } catch (ValidationException | MediaValidationException | SecurityException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to create broadcast post for user: {} (ID: {})", user.getActualUsername(), user.getId(), e);
+            log.error("Failed to create broadcast post: user={} (id={})", user.getActualUsername(), user.getId(), e);
             throw new ServiceException("Failed to create broadcast post: " + e.getMessage(), e);
         }
     }
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post createCountryWideBroadcast(PostCreateDto postDto, User user, MultipartFile mediaFile) {
         PostUtility.validateBroadcastPermission(user);
-
-        // CRITICAL: Create country-wide broadcast that will be visible to ALL users in India
         Post post = createBroadcastPost(postDto, user, BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY,
                 null, null, null, mediaFile);
-
-        // Log this critical broadcast that affects all users
-        log.info("COUNTRY-WIDE BROADCAST CREATED - Post ID: {}, User: {} ({}), Visible to ALL Indian users",
+        log.info("COUNTRY-WIDE BROADCAST CREATED: id={} user={} ({})",
                 post.getId(), user.getActualUsername(), user.getRole().getName());
-
         return post;
     }
 
-    @Transactional(rollbackOn = Exception.class)
-    public Post createStateLevelBroadcast(PostCreateDto postDto, User user, List<String> targetStates,
-                                          MultipartFile mediaFile) {
+    @Transactional(rollbackFor = Exception.class)
+    public Post createStateLevelBroadcast(PostCreateDto postDto, User user,
+                                          List<String> targetStates, MultipartFile mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         PostUtility.validateTargetStates(targetStates);
         return createBroadcastPost(postDto, user, BroadcastScope.STATE, Constant.DEFAULT_TARGET_COUNTRY,
                 targetStates, null, null, mediaFile);
     }
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post createDistrictLevelBroadcast(PostCreateDto postDto, User user,
                                              List<String> targetStates, List<String> targetDistricts,
                                              MultipartFile mediaFile) {
@@ -259,32 +224,27 @@ public class PostService {
                 targetStates, targetDistricts, null, mediaFile);
     }
 
-    @Transactional(rollbackOn = Exception.class)
-    public Post createAreaLevelBroadcast(PostCreateDto postDto, User user, List<String> targetPincodes,
-                                         MultipartFile mediaFile) {
+    @Transactional(rollbackFor = Exception.class)
+    public Post createAreaLevelBroadcast(PostCreateDto postDto, User user,
+                                         List<String> targetPincodes, MultipartFile mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         PostUtility.validateTargetPincodesWithLookup(targetPincodes, pinCodeLookupService);
         return createBroadcastPost(postDto, user, BroadcastScope.AREA, Constant.DEFAULT_TARGET_COUNTRY,
                 null, null, targetPincodes, mediaFile);
     }
 
-    // ===== Broadcasting Query Methods (Updated with Pagination) =====
+    // =========================================================================
+    // BROADCAST QUERIES
+    // =========================================================================
 
     public PaginatedResponse<Post> getAllBroadcastPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllBroadcastPosts", beforeId, limit);
-
-            List<Post> posts;
-            if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeIsNotNullAndIdLessThanOrderByCreatedAtDesc(
-                        setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findByBroadcastScopeIsNotNullOrderByCreatedAtDesc(setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findByBroadcastScopeIsNotNullAndIdLessThanOrderByCreatedAtDesc(setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeIsNotNullOrderByCreatedAtDesc(setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllBroadcastPosts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get all broadcast posts", e);
@@ -295,19 +255,11 @@ public class PostService {
     public PaginatedResponse<Post> getActiveBroadcastPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActiveBroadcastPosts", beforeId, limit);
-
-            List<Post> posts;
-            if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeIsNotNullAndStatusAndIdLessThanOrderByCreatedAtDesc(
-                        PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findByBroadcastScopeIsNotNullAndStatusOrderByCreatedAtDesc(
-                        PostStatus.ACTIVE, setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findByBroadcastScopeIsNotNullAndStatusAndIdLessThanOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeIsNotNullAndStatusOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getActiveBroadcastPosts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get active broadcast posts", e);
@@ -319,18 +271,11 @@ public class PostService {
         try {
             PostUtility.validateBroadcastScope(scope);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getBroadcastPostsByScope", beforeId, limit);
-
-            List<Post> posts;
-            if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeAndIdLessThanOrderByCreatedAtDesc(
-                        scope, setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findByBroadcastScopeOrderByCreatedAtDesc(scope, setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findByBroadcastScopeAndIdLessThanOrderByCreatedAtDesc(scope, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeOrderByCreatedAtDesc(scope, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getBroadcastPostsByScope", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get broadcast posts by scope: {}", scope, e);
@@ -338,31 +283,19 @@ public class PostService {
         }
     }
 
-    /**
-     * CRITICAL: Get posts visible to user - Government country-wide broadcasts are visible to ALL users
-     */
     public PaginatedResponse<Post> getVisiblePostsForUser(User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
             pinCodeLookupService.populateUserLocationData(user);
-
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getVisiblePostsForUser", beforeId, limit);
-
-            List<Post> allPosts;
-            if (setup.hasCursor()) {
-                allPosts = postRepository.findByStatusAndIdLessThanOrderByCreatedAtDesc(
-                        PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                allPosts = postRepository.findByStatusOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.toPageable());
-            }
-
+            List<Post> allPosts = setup.hasCursor()
+                    ? postRepository.findByStatusAndIdLessThanOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByStatusOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.toPageable());
             List<Post> visiblePosts = allPosts.stream()
                     .filter(post -> PostUtility.isPostVisibleToUser(post, user))
                     .collect(Collectors.toList());
-
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(visiblePosts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getVisiblePostsForUser", visiblePosts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get visible posts for user: {}", user.getActualUsername(), e);
@@ -370,28 +303,17 @@ public class PostService {
         }
     }
 
-    /**
-     * CRITICAL: Get broadcast posts visible to user - Government country-wide broadcasts are visible to ALL users
-     */
     public PaginatedResponse<Post> getBroadcastPostsVisibleToUser(User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
             pinCodeLookupService.populateUserLocationData(user);
-
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getBroadcastPostsVisibleToUser", beforeId, limit);
-
             PaginatedResponse<Post> broadcastPosts = getActiveBroadcastPosts(beforeId, setup.getValidatedLimit());
-
             List<Post> visiblePosts = broadcastPosts.getData().stream()
                     .filter(post -> PostUtility.isPostVisibleToUser(post, user))
                     .collect(Collectors.toList());
-
-            PaginatedResponse<Post> response = PaginatedResponse.of(
-                    visiblePosts, broadcastPosts.isHasMore(), broadcastPosts.getNextCursor(), setup.getValidatedLimit());
-
-            PaginationUtils.logPaginationResults("getBroadcastPostsVisibleToUser", visiblePosts,
-                    response.isHasMore(), response.getNextCursor());
-
+            PaginatedResponse<Post> response = PaginatedResponse.of(visiblePosts, broadcastPosts.isHasMore(), broadcastPosts.getNextCursor(), setup.getValidatedLimit());
+            PaginationUtils.logPaginationResults("getBroadcastPostsVisibleToUser", visiblePosts, response.isHasMore(), response.getNextCursor());
             return response;
         } catch (Exception e) {
             log.error("Failed to get broadcast posts visible to user: {}", user.getActualUsername(), e);
@@ -402,19 +324,11 @@ public class PostService {
     public PaginatedResponse<Post> getAllCountryWideBroadcasts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllCountryWideBroadcasts", beforeId, limit);
-
-            List<Post> posts;
-            if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeAndTargetCountryAndIdLessThanOrderByCreatedAtDesc(
-                        BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY, setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findByBroadcastScopeAndTargetCountryOrderByCreatedAtDesc(
-                        BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY, setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findByBroadcastScopeAndTargetCountryAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeAndTargetCountryOrderByCreatedAtDesc(BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllCountryWideBroadcasts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get all country-wide broadcasts", e);
@@ -425,20 +339,11 @@ public class PostService {
     public PaginatedResponse<Post> getActiveCountryWideBroadcasts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActiveCountryWideBroadcasts", beforeId, limit);
-
-            List<Post> posts;
-            if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeAndStatusAndTargetCountryAndIdLessThanOrderByCreatedAtDesc(
-                        BroadcastScope.COUNTRY, PostStatus.ACTIVE, Constant.DEFAULT_TARGET_COUNTRY,
-                        setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findByBroadcastScopeAndStatusAndTargetCountryOrderByCreatedAtDesc(
-                        BroadcastScope.COUNTRY, PostStatus.ACTIVE, Constant.DEFAULT_TARGET_COUNTRY, setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findByBroadcastScopeAndStatusAndTargetCountryAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.COUNTRY, PostStatus.ACTIVE, Constant.DEFAULT_TARGET_COUNTRY, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeAndStatusAndTargetCountryOrderByCreatedAtDesc(BroadcastScope.COUNTRY, PostStatus.ACTIVE, Constant.DEFAULT_TARGET_COUNTRY, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getActiveCountryWideBroadcasts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get active country-wide broadcasts", e);
@@ -452,33 +357,20 @@ public class PostService {
 
     public PaginatedResponse<Post> getStateLevelBroadcasts(String state, Long beforeId, Integer limit) {
         try {
-            if (state == null || state.trim().isEmpty()) {
-                throw new ValidationException("State cannot be empty");
-            }
-
+            if (state == null || state.trim().isEmpty()) throw new ValidationException("State cannot be empty");
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getStateLevelBroadcasts", beforeId, limit);
-
-            // Convert state name to pincode prefix
             List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(Arrays.asList(state.trim()));
-            if (statePrefixes.isEmpty()) {
-                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
-            }
-
+            if (statePrefixes.isEmpty()) return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             String statePrefix = statePrefixes.get(0);
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeAndTargetStatesContainingAndIdLessThanOrderByCreatedAtDesc(
-                        BroadcastScope.STATE, statePrefix, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByBroadcastScopeAndTargetStatesContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.STATE, statePrefix, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByBroadcastScopeAndTargetStatesContainingOrderByCreatedAtDesc(
-                        BroadcastScope.STATE, statePrefix);
-                // Manually limit results since this method doesn't support Pageable
+                posts = postRepository.findByBroadcastScopeAndTargetStatesContainingOrderByCreatedAtDesc(BroadcastScope.STATE, statePrefix);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getStateLevelBroadcasts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get state level broadcasts for state: {}", state, e);
@@ -488,45 +380,20 @@ public class PostService {
 
     public PaginatedResponse<Post> getDistrictLevelBroadcasts(String district, Long beforeId, Integer limit) {
         try {
-            if (district == null || district.trim().isEmpty()) {
-                throw new ValidationException("District cannot be empty");
-            }
-
+            if (district == null || district.trim().isEmpty()) throw new ValidationException("District cannot be empty");
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getDistrictLevelBroadcasts", beforeId, limit);
-
-            // For districts, we need to use 3-digit prefix lookup
-            List<String> districtPrefixes = PostUtility.convertDistrictsToPincodePrefixes(
-                    Arrays.asList(district.trim()), pinCodeLookupService);
-
-            if (districtPrefixes.isEmpty()) {
-                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
-            }
-
-            // Search for posts containing any of the district prefixes
+            List<String> districtPrefixes = PostUtility.convertDistrictsToPincodePrefixes(Arrays.asList(district.trim()), pinCodeLookupService);
+            if (districtPrefixes.isEmpty()) return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             List<Post> allDistrictPosts = new ArrayList<>();
             for (String prefix : districtPrefixes) {
-                List<Post> posts;
-                if (setup.hasCursor()) {
-                    posts = postRepository.findByBroadcastScopeAndTargetDistrictsContainingAndIdLessThanOrderByCreatedAtDesc(
-                            BroadcastScope.DISTRICT, prefix, setup.getSanitizedCursor(), setup.toPageable());
-                } else {
-                    posts = postRepository.findByBroadcastScopeAndTargetDistrictsContainingOrderByCreatedAtDesc(
-                            BroadcastScope.DISTRICT, prefix);
-                }
-                if (posts != null) {
-                    allDistrictPosts.addAll(posts);
-                }
+                List<Post> posts = setup.hasCursor()
+                        ? postRepository.findByBroadcastScopeAndTargetDistrictsContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.DISTRICT, prefix, setup.getSanitizedCursor(), setup.toPageable())
+                        : postRepository.findByBroadcastScopeAndTargetDistrictsContainingOrderByCreatedAtDesc(BroadcastScope.DISTRICT, prefix);
+                if (posts != null) allDistrictPosts.addAll(posts);
             }
-
-            // Remove duplicates and limit
-            List<Post> distinctPosts = allDistrictPosts.stream()
-                    .distinct()
-                    .limit(setup.getValidatedLimit())
-                    .collect(Collectors.toList());
-
+            List<Post> distinctPosts = allDistrictPosts.stream().distinct().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(distinctPosts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getDistrictLevelBroadcasts", distinctPosts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get district level broadcasts for district: {}", district, e);
@@ -536,26 +403,17 @@ public class PostService {
 
     public PaginatedResponse<Post> getAreaLevelBroadcasts(String pincode, Long beforeId, Integer limit) {
         try {
-            if (!Constant.isValidIndianPincode(pincode)) {
-                throw new ValidationException("Invalid Indian pincode format");
-            }
-
+            if (!Constant.isValidIndianPincode(pincode)) throw new ValidationException("Invalid Indian pincode format");
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAreaLevelBroadcasts", beforeId, limit);
-
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeAndTargetPincodesContainingAndIdLessThanOrderByCreatedAtDesc(
-                        BroadcastScope.AREA, pincode, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByBroadcastScopeAndTargetPincodesContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.AREA, pincode, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByBroadcastScopeAndTargetPincodesContainingOrderByCreatedAtDesc(
-                        BroadcastScope.AREA, pincode);
-                // Manually limit results since this method doesn't support Pageable
+                posts = postRepository.findByBroadcastScopeAndTargetPincodesContainingOrderByCreatedAtDesc(BroadcastScope.AREA, pincode);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAreaLevelBroadcasts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get area level broadcasts for pincode: {}", pincode, e);
@@ -563,27 +421,19 @@ public class PostService {
         }
     }
 
-    // ===== Broadcasting Statistics Methods =====
-
     public Map<String, Long> getBroadcastStatistics() {
         try {
             Map<String, Long> stats = new HashMap<>();
-
             stats.put("totalBroadcasts", postRepository.countByBroadcastScopeIsNotNull());
             stats.put("activeBroadcasts", postRepository.countByBroadcastScopeIsNotNullAndStatus(PostStatus.ACTIVE));
-
-            // CRITICAL: Add specific stats for government country-wide broadcasts
             Long countryBroadcasts = postRepository.countByBroadcastScopeAndTargetCountry(BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY);
             stats.put("countryWideBroadcasts", countryBroadcasts != null ? countryBroadcasts : 0L);
-
             for (BroadcastScope scope : BroadcastScope.values()) {
                 Long count = postRepository.countByBroadcastScope(scope);
                 stats.put("broadcasts" + scope.name(), count != null ? count : 0L);
-
                 Long activeCount = postRepository.countByBroadcastScopeAndStatus(scope, PostStatus.ACTIVE);
                 stats.put("activeBroadcasts" + scope.name(), activeCount != null ? activeCount : 0L);
             }
-
             return stats;
         } catch (Exception e) {
             log.error("Failed to get broadcast statistics", e);
@@ -595,46 +445,29 @@ public class PostService {
         try {
             PostUtility.validateUser(user);
             PostUtility.validateBroadcastPermission(user);
-
-            if (days <= 0) {
-                throw new ValidationException("Days must be positive");
-            }
-
+            if (days <= 0) throw new ValidationException("Days must be positive");
             LocalDateTime startDate = LocalDateTime.now().minus(days, ChronoUnit.DAYS);
             Timestamp timestamp = Timestamp.valueOf(startDate);
-
             Map<String, Object> analytics = new HashMap<>();
-
-            // Basic statistics
             analytics.put("totalBroadcastsCreated", postRepository.countByUserAndBroadcastScopeIsNotNull(user));
             analytics.put("recentBroadcasts", postRepository.countByUserAndBroadcastScopeIsNotNullAndCreatedAtAfter(user, timestamp));
-
-            // CRITICAL: Add country-wide broadcast statistics for government users
             if (PostUtility.canCreateBroadcast(user)) {
-                Long countryBroadcasts = postRepository.countByUserAndBroadcastScopeAndTargetCountry(user, BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY);
-                analytics.put("countryWideBroadcasts", countryBroadcasts != null ? countryBroadcasts : 0L);
+                Long cb = postRepository.countByUserAndBroadcastScopeAndTargetCountry(user, BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY);
+                analytics.put("countryWideBroadcasts", cb != null ? cb : 0L);
             }
-
-            // Scope breakdown
             Map<String, Long> scopeBreakdown = new HashMap<>();
             for (BroadcastScope scope : BroadcastScope.values()) {
                 Long count = postRepository.countByUserAndBroadcastScope(user, scope);
                 scopeBreakdown.put(scope.name(), count != null ? count : 0L);
             }
             analytics.put("scopeBreakdown", scopeBreakdown);
-
-            // Engagement metrics
             List<Post> userBroadcasts = postRepository.findByUserAndBroadcastScopeIsNotNull(user);
             if (userBroadcasts != null && !userBroadcasts.isEmpty()) {
-                double avgLikes = userBroadcasts.stream().mapToInt(Post::getLikeCount).average().orElse(0.0);
-                double avgComments = userBroadcasts.stream().mapToInt(Post::getCommentCount).average().orElse(0.0);
-                double avgViews = userBroadcasts.stream().mapToInt(Post::getViewCount).average().orElse(0.0);
-
-                analytics.put("averageLikes", Math.round(avgLikes * 100.0) / 100.0);
-                analytics.put("averageComments", Math.round(avgComments * 100.0) / 100.0);
-                analytics.put("averageViews", Math.round(avgViews * 100.0) / 100.0);
+                analytics.put("averageLikes",    Math.round(userBroadcasts.stream().mapToInt(Post::getLikeCount).average().orElse(0.0)    * 100.0) / 100.0);
+                analytics.put("averageComments", Math.round(userBroadcasts.stream().mapToInt(Post::getCommentCount).average().orElse(0.0) * 100.0) / 100.0);
+                analytics.put("averageViews",    Math.round(userBroadcasts.stream().mapToInt(Post::getViewCount).average().orElse(0.0)    * 100.0) / 100.0);
+                analytics.put("averageShares",   Math.round(userBroadcasts.stream().mapToInt(Post::getShareCount).average().orElse(0.0)   * 100.0) / 100.0);
             }
-
             return analytics;
         } catch (Exception e) {
             log.error("Failed to get broadcast analytics for user: {}", user.getActualUsername(), e);
@@ -642,9 +475,7 @@ public class PostService {
         }
     }
 
-    // ===== Broadcasting Update Methods =====
-
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post updateBroadcastTargets(Long postId, BroadcastScope newScope,
                                        List<String> targetStates, List<String> targetDistricts,
                                        List<String> targetPincodes, User currentUser) {
@@ -652,54 +483,27 @@ public class PostService {
             PostUtility.validatePostId(postId);
             PostUtility.validateUser(currentUser);
             PostUtility.validateBroadcastPermission(currentUser);
-
             Post post = findById(postId);
-
-            if (!post.isBroadcastPost()) {
-                throw new ValidationException("Post is not a broadcast post");
-            }
-
+            if (!post.isBroadcastPost()) throw new ValidationException("Post is not a broadcast post");
             if (!PostUtility.isPostOwner(post, currentUser) && !PostUtility.isAdmin(currentUser)) {
                 throw new SecurityException("Only post creator or admin can update broadcast targets");
             }
-
             if (!PostUtility.postAllowsUpdates(post)) {
-                throw new SecurityException("Cannot update broadcast targets for posts with status: " +
-                        post.getStatus().getDisplayName());
+                throw new SecurityException("Cannot update broadcast targets for posts with status: " + post.getStatus().getDisplayName());
             }
-
             PostUtility.validateBroadcastScope(newScope, Constant.DEFAULT_TARGET_COUNTRY, targetStates, targetDistricts, targetPincodes);
-
-            // Update broadcast parameters with pincode prefixes
             post.setBroadcastScope(newScope);
-
-            // Convert and set target data using utility methods
-            String statePrefixesString = PostUtility.convertStatesToTargetString(targetStates);
-            String districtPrefixesString = PostUtility.convertDistrictsToTargetString(targetDistricts, pinCodeLookupService);
-            String pincodesString = PostUtility.convertPincodesToTargetString(targetPincodes);
-
-            post.setTargetStates(statePrefixesString);
-            post.setTargetDistricts(districtPrefixesString);
-            post.setTargetPincodes(pincodesString);
-            post.setUpdatedAt(new Date());
-
-            // CRITICAL: Always ensure India as target country
+            post.setTargetStates(PostUtility.convertStatesToTargetString(targetStates));
+            post.setTargetDistricts(PostUtility.convertDistrictsToTargetString(targetDistricts, pinCodeLookupService));
+            post.setTargetPincodes(PostUtility.convertPincodesToTargetString(targetPincodes));
             post.setTargetCountry(Constant.DEFAULT_TARGET_COUNTRY);
-
+            post.setUpdatedAt(new Date());
             Post updatedPost = postRepository.save(post);
-
-            // Log critical country-wide broadcast updates
             if (PostUtility.isAllIndiaGovernmentBroadcast(updatedPost)) {
-                log.info("CRITICAL: Government country-wide broadcast updated - Post ID: {}, User: {} ({}), Now visible to ALL users",
+                log.info("CRITICAL: Government country-wide broadcast updated: id={} user={} ({})",
                         postId, currentUser.getActualUsername(), currentUser.getRole().getName());
             }
-
-            log.info("Updated broadcast targets for post ID: {} - new scope: {}, states: {}, districts: {}, pincodes: {}",
-                    postId, newScope.getDescription(),
-                    targetStates != null ? targetStates.size() : 0,
-                    targetDistricts != null ? targetDistricts.size() : 0,
-                    targetPincodes != null ? targetPincodes.size() : 0);
-
+            log.info("Broadcast targets updated: id={} scope={}", postId, newScope.getDescription());
             return updatedPost;
         } catch (ValidationException | SecurityException e) {
             throw e;
@@ -709,196 +513,162 @@ public class PostService {
         }
     }
 
-    // ===== Post Management Methods =====
+    // =========================================================================
+    // SHARE
+    // =========================================================================
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
+    public PostShare recordShare(Long postId, User user, ShareType shareType) {
+        PostUtility.validatePostId(postId);
+        Post post = findById(postId);
+        PostShare share = postInteractionService.recordPostShare(post, user, shareType);
+        log.info("Share recorded: postId={} userId={} type={}",
+                postId, user != null ? user.getId() : "anon", shareType);
+        return share;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public PostShare recordShare(Long postId, User user) {
+        return recordShare(postId, user, ShareType.LINK_COPY);
+    }
+
+    public long getShareCount(Long postId) {
+        Post post = postRepository.findById(postId).orElse(null);
+        if (post == null) return 0L;
+        return postInteractionService.getShareCountForPost(post);
+    }
+
+    public List<Object[]> getShareBreakdown(Long postId) {
+        Post post = postRepository.findById(postId).orElse(null);
+        if (post == null) return List.of();
+        return postInteractionService.getShareBreakdownForPost(post);
+    }
+
+    // =========================================================================
+    // MEDIA UPDATE / REMOVE
+    // =========================================================================
+
+    @Transactional(rollbackFor = Exception.class)
     public Post updatePostMedia(Long postId, MultipartFile mediaFile, User currentUser) {
         try {
             PostUtility.validatePostId(postId);
             PostUtility.validateUser(currentUser);
-
             Post post = findById(postId);
+            if (!PostUtility.isPostOwner(post, currentUser)) throw new SecurityException("Only post creator can update post media");
+            if (!PostUtility.postAllowsUpdates(post)) throw new SecurityException("Cannot update media for posts with status: " + post.getStatus().getDisplayName());
 
-            if (!PostUtility.isPostOwner(post, currentUser)) {
-                throw new SecurityException("Only post creator can update post media");
-            }
-
-            if (!PostUtility.postAllowsUpdates(post)) {
-                throw new SecurityException("Cannot update media for posts with status: " + post.getStatus().getDisplayName());
-            }
-
+            // CLOUDINARY: upload new file, delete old one asynchronously
+            String fileName    = drivePostMedia.upload(mediaFile, currentUser.getId());
             String oldFileName = post.getImageName();
-
-            String fileName = null;
-            if (mediaFile != null && !mediaFile.isEmpty()) {
-                fileName = PostUtility.uploadMediaFile(mediaFile, currentUser.getId(), uploadDir);
-            }
-
             post.setImageName(fileName);
             post.setUpdatedAt(new Date());
-
             Post updatedPost = postRepository.save(post);
-
             if (oldFileName != null && !oldFileName.trim().isEmpty()) {
-                CompletableFuture.runAsync(() -> PostUtility.deleteMediaFile(oldFileName, uploadDir));
+                CompletableFuture.runAsync(() -> drivePostMedia.delete(oldFileName));
             }
-
-            log.info("Updated media for post ID: {}, status: {}, new media: {}",
-                    post.getId(), post.getStatus().getDisplayName(), fileName != null ? fileName : "removed");
-
+            log.info("Media updated: postId={} newMedia={}", post.getId(), fileName != null ? fileName : "removed");
             return updatedPost;
         } catch (SecurityException | MediaValidationException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to update post media for post ID: {} by user: {}", postId,
-                    currentUser != null ? currentUser.getActualUsername() : "null", e);
+            log.error("Failed to update post media: id={} user={}", postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to update post media: " + e.getMessage(), e);
         }
     }
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post removePostMedia(Long postId, User currentUser) {
         try {
             PostUtility.validatePostId(postId);
             PostUtility.validateUser(currentUser);
-
             Post post = findById(postId);
-
-            if (!PostUtility.isPostOwner(post, currentUser)) {
-                throw new SecurityException("Only post creator can remove post media");
-            }
-
-            if (!PostUtility.postAllowsUpdates(post)) {
-                throw new SecurityException("Cannot remove media for posts with status: " + post.getStatus().getDisplayName());
-            }
-
+            if (!PostUtility.isPostOwner(post, currentUser)) throw new SecurityException("Only post creator can remove post media");
+            if (!PostUtility.postAllowsUpdates(post)) throw new SecurityException("Cannot remove media for posts with status: " + post.getStatus().getDisplayName());
             String oldFileName = post.getImageName();
-
             if (post.hasImage()) {
                 post.setImageName(null);
                 post.setUpdatedAt(new Date());
             }
-
             Post updatedPost = postRepository.save(post);
-
             if (oldFileName != null && !oldFileName.trim().isEmpty()) {
-                CompletableFuture.runAsync(() -> PostUtility.deleteMediaFile(oldFileName, uploadDir));
+                // CLOUDINARY: delete from Cloudinary asynchronously
+                CompletableFuture.runAsync(() -> drivePostMedia.delete(oldFileName));
             }
-
-            log.info("Removed media from post ID: {}, status: {}", post.getId(), post.getStatus().getDisplayName());
-
+            log.info("Media removed from post: id={}", post.getId());
             return updatedPost;
         } catch (SecurityException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to remove post media for post ID: {} by user: {}", postId,
-                    currentUser != null ? currentUser.getActualUsername() : "null", e);
+            log.error("Failed to remove post media: id={} user={}", postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to remove post media: " + e.getMessage(), e);
         }
     }
 
-    @Transactional(rollbackOn = Exception.class)
+    // =========================================================================
+    // CONTENT UPDATE
+    // =========================================================================
+
+    @Transactional(rollbackFor = Exception.class)
     public Post updatePostContent(Long postId, String newContent, User currentUser) {
         try {
             PostUtility.validatePostId(postId);
             PostUtility.validateUser(currentUser);
             PostUtility.validatePostContent(newContent);
-
             Post post = findById(postId);
-
-            if (!PostUtility.isPostOwner(post, currentUser)) {
-                throw new SecurityException("Only post creator can update post content");
-            }
-
-            if (!PostUtility.postAllowsUpdates(post)) {
-                throw new SecurityException("Cannot update content for posts with status: " + post.getStatus().getDisplayName());
-            }
-
+            if (!PostUtility.isPostOwner(post, currentUser)) throw new SecurityException("Only post creator can update post content");
+            if (!PostUtility.postAllowsUpdates(post)) throw new SecurityException("Cannot update content for posts with status: " + post.getStatus().getDisplayName());
             String oldContent = post.getContent();
             post.setContent(newContent.trim());
             post.setUpdatedAt(new Date());
-
             try {
                 userTaggingService.updatePostTags(post, newContent.trim());
             } catch (Exception e) {
                 log.warn("Failed to update tags for post: {}", postId, e);
             }
-
             Post updatedPost = postRepository.save(post);
-
-            // Log critical updates to government broadcasts
             if (PostUtility.isAllIndiaGovernmentBroadcast(updatedPost)) {
-                log.info("CRITICAL: Government country-wide broadcast content updated - Post ID: {}, User: {} ({})",
+                log.info("CRITICAL: Government country-wide broadcast content updated: id={} user={} ({})",
                         postId, currentUser.getActualUsername(), currentUser.getRole().getName());
             }
-
-            log.info("Updated content for post ID: {}, status: {}, content changed: {}",
-                    post.getId(), post.getStatus().getDisplayName(), !Objects.equals(oldContent, newContent));
-
+            log.info("Post content updated: id={} changed={}", post.getId(), !Objects.equals(oldContent, newContent));
             return updatedPost;
         } catch (PostNotFoundException | SecurityException | ValidationException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to update post content: {} by user: {}",
-                    postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
+            log.error("Failed to update post content: id={} user={}", postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to update post content: " + e.getMessage(), e);
         }
     }
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post updatePostContent(Long postId, PostContentUpdateDto contentUpdateDto, User currentUser) {
-        try {
-            if (contentUpdateDto == null) {
-                throw new ValidationException("Content update data cannot be null");
-            }
-            return updatePostContent(postId, contentUpdateDto.getContent(), currentUser);
-        } catch (Exception e) {
-            log.error("Failed to update post content via DTO: {} by user: {}",
-                    postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
-            throw e;
-        }
+        if (contentUpdateDto == null) throw new ValidationException("Content update data cannot be null");
+        return updatePostContent(postId, contentUpdateDto.getContent(), currentUser);
     }
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post updatePostResolution(Long postId, Boolean isResolved, User user, String updateMessage) {
         try {
             PostUtility.validatePostId(postId);
             PostUtility.validateUser(user);
-
             Post post = findById(postId);
-
-            // Check if user has permission to update resolution (tagged users, departments, admins)
-            boolean canUpdate = false;
-            if (userTaggingService.isUserTaggedInPost(post, user) ||
-                    PostUtility.isDepartment(user) || PostUtility.isAdmin(user)) {
-                canUpdate = true;
-            }
-
+            boolean canUpdate = userTaggingService.isUserTaggedInPost(post, user)
+                    || PostUtility.isDepartment(user) || PostUtility.isAdmin(user);
             if (!canUpdate) {
                 throw new SecurityException("Only tagged users, department users, or admin can update post resolution status");
             }
-
-            if (post.getStatus() == null) {
-                throw new ServiceException("Post status is invalid");
-            }
-
+            if (post.getStatus() == null) throw new ServiceException("Post status is invalid");
             PostStatus newStatus = isResolved ? PostStatus.RESOLVED : PostStatus.ACTIVE;
-
             if (!post.getStatus().canTransitionTo(newStatus)) {
-                throw new SecurityException("Cannot transition from " + post.getStatus().getDisplayName() +
-                        " to " + newStatus.getDisplayName());
+                throw new SecurityException("Cannot transition from " + post.getStatus().getDisplayName() + " to " + newStatus.getDisplayName());
             }
-
             if (isResolved) {
                 post.markAsResolved(updateMessage != null ? updateMessage.trim() : null);
-                log.info("Post ID: {} marked as resolved by user: {} (ID: {})",
-                        postId, user.getActualUsername(), user.getId());
+                log.info("Post id={} marked RESOLVED by user={} (id={})", postId, user.getActualUsername(), user.getId());
             } else {
                 post.markAsUnresolved();
-                log.info("Post ID: {} marked as active by user: {} (ID: {})",
-                        postId, user.getActualUsername(), user.getId());
+                log.info("Post id={} marked ACTIVE by user={} (id={})", postId, user.getActualUsername(), user.getId());
             }
-
             if (updateMessage != null && !updateMessage.trim().isEmpty()) {
                 try {
                     Comment statusComment = new Comment();
@@ -911,39 +681,34 @@ public class PostService {
                     log.warn("Failed to create status update comment for post: {}", postId, e);
                 }
             }
-
             return postRepository.save(post);
         } catch (SecurityException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to update post resolution for post ID: {} by user: {}",
-                    postId, user != null ? user.getActualUsername() : "null", e);
+            log.error("Failed to update post resolution: id={} user={}", postId, user != null ? user.getActualUsername() : "null", e);
             throw new ServiceException("Failed to update post resolution: " + e.getMessage(), e);
         }
     }
 
-    // ===== Query Methods (Updated with Pagination) =====
+    // =========================================================================
+    // USER TAGGING
+    // =========================================================================
 
     public PaginatedResponse<Post> getPostsTaggedWithUser(Long userId, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUserId(userId);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsTaggedWithUser", beforeId, limit);
-
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + userId));
-
             List<Post> posts;
             if (setup.hasCursor()) {
                 posts = postRepository.findPostsTaggedWithUserAndIdLessThan(user, setup.getSanitizedCursor(), setup.toPageable());
             } else {
                 posts = postRepository.findPostsTaggedWithUser(user);
-                // Manually limit results since this method doesn't support Pageable
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getPostsTaggedWithUser", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (UserNotFoundException e) {
             throw e;
@@ -952,6 +717,10 @@ public class PostService {
             return PaginationUtils.handlePaginationError("getPostsTaggedWithUser", e, PaginationUtils.validateLimit(limit));
         }
     }
+
+    // =========================================================================
+    // FIND / PAGING
+    // =========================================================================
 
     public Post findById(Long postId) {
         try {
@@ -966,20 +735,51 @@ public class PostService {
         }
     }
 
+    public PostResponse getPostByIdForUser(Long postId, User currentUser) {
+        try {
+            Post post = findById(postId);
+            if (post.getStatus() == PostStatus.RESOLVED && !canViewResolvedPost(post, currentUser)) {
+                log.debug("[Access] Resolved post={} denied for user={}",
+                        postId, currentUser != null ? currentUser.getActualUsername() : "anonymous");
+                throw new PostNotFoundException("Post not found with ID: " + postId);
+            }
+            return convertToPostResponse(post, currentUser);
+        } catch (PostNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed getPostByIdForUser: id={}", postId, e);
+            throw new ServiceException("Failed to get post: " + e.getMessage(), e);
+        }
+    }
+
+    private boolean canViewResolvedPost(Post post, User viewer) {
+        if (viewer == null) return false;
+        if (PostUtility.isAdmin(viewer)) return true;
+        if (post.getUser() != null && post.getUser().getId().equals(viewer.getId())) return true;
+        if (PostUtility.isDepartment(viewer)) return userTaggingService.isUserTaggedInPost(post, viewer);
+        return false;
+    }
+
+    public void assertPostAcceptsInteractions(Post post) {
+        if (post == null) {
+            throw new ValidationException("Post not found.");
+        }
+        if (post.getStatus() == PostStatus.RESOLVED) {
+            throw new ValidationException("This issue has been resolved and no longer accepts likes or comments.");
+        }
+        if (post.getStatus() == PostStatus.DELETED || post.getStatus() == PostStatus.FLAGGED) {
+            throw new ValidationException("This post is not available for interactions.");
+        }
+    }
+
     public PaginatedResponse<Post> getAllPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllPosts", beforeId, limit);
-
-            List<Post> posts;
-            if (setup.hasCursor()) {
-                posts = postRepository.findByIdLessThanOrderByCreatedAtDesc(setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findAllOrderByCreatedAtDesc(setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findByIdLessThanOrderByCreatedAtDesc(setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findAllOrderByCreatedAtDesc(setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllPosts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get all posts", e);
@@ -990,18 +790,11 @@ public class PostService {
     public PaginatedResponse<Post> getAllActivePosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllActivePosts", beforeId, limit);
-
-            List<Post> posts;
-            if (setup.hasCursor()) {
-                posts = postRepository.findByStatusAndIdLessThanOrderByCreatedAtDesc(
-                        PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findByStatusOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findByStatusAndIdLessThanOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByStatusOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllActivePosts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get all active posts", e);
@@ -1012,18 +805,11 @@ public class PostService {
     public PaginatedResponse<Post> getAllResolvedPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllResolvedPosts", beforeId, limit);
-
-            List<Post> posts;
-            if (setup.hasCursor()) {
-                posts = postRepository.findByStatusAndIdLessThanOrderByCreatedAtDesc(
-                        PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findByStatusOrderByCreatedAtDesc(PostStatus.RESOLVED, setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findByStatusAndIdLessThanOrderByCreatedAtDesc(PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByStatusOrderByCreatedAtDesc(PostStatus.RESOLVED, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllResolvedPosts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get all resolved posts", e);
@@ -1035,19 +821,16 @@ public class PostService {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsByUser", beforeId, limit);
-
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByUserAndIdLessThanOrderByCreatedAtDesc(user, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByUserWithUserAndIdLessThanOrderByCreatedAtDesc(
+                        user, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByUserOrderByCreatedAtDesc(user);
-                // Manually limit results since this method doesn't support Pageable
+                posts = postRepository.findByUserWithUserOrderByCreatedAtDesc(user);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getPostsByUser", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get posts by user: {}", user != null ? user.getActualUsername() : "null", e);
@@ -1059,20 +842,16 @@ public class PostService {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActivePostsByUser", beforeId, limit);
-
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByUserAndStatusAndIdLessThanOrderByCreatedAtDesc(user, PostStatus.ACTIVE,
-                        setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByUserWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
+                        user, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByUserAndStatusOrderByCreatedAtDesc(user, PostStatus.ACTIVE);
-                // Manually limit results since this method doesn't support Pageable
+                posts = postRepository.findByUserWithUserAndStatusOrderByCreatedAtDesc(user, PostStatus.ACTIVE);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getActivePostsByUser", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get active posts by user: {}", user != null ? user.getActualUsername() : "null", e);
@@ -1080,25 +859,27 @@ public class PostService {
         }
     }
 
-    public PaginatedResponse<Post> getResolvedPostsByUser(User user, Long beforeId, Integer limit) {
+    public PaginatedResponse<Post> getResolvedPostsByUser(User requestingUser, User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
+            if (requestingUser == null) throw new SecurityException("Authentication required to view resolved posts.");
+            boolean isSelf  = requestingUser.getId().equals(user.getId());
+            boolean isAdmin = PostUtility.isAdmin(requestingUser);
+            if (!isSelf && !isAdmin) throw new SecurityException("You can only view your own resolved posts.");
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getResolvedPostsByUser", beforeId, limit);
-
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByUserAndStatusAndIdLessThanOrderByCreatedAtDesc(user, PostStatus.RESOLVED,
-                        setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByUserWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
+                        user, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByUserAndStatusOrderByCreatedAtDesc(user, PostStatus.RESOLVED);
-                // Manually limit results since this method doesn't support Pageable
+                posts = postRepository.findByUserWithUserAndStatusOrderByCreatedAtDesc(user, PostStatus.RESOLVED);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getResolvedPostsByUser", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
+        } catch (SecurityException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to get resolved posts by user: {}", user != null ? user.getActualUsername() : "null", e);
             return PaginationUtils.handlePaginationError("getResolvedPostsByUser", e, PaginationUtils.validateLimit(limit));
@@ -1128,19 +909,15 @@ public class PostService {
     public PaginatedResponse<Post> getPostsWithMultipleUserTags(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsWithMultipleUserTags", beforeId, limit);
-
             List<Post> posts;
             if (setup.hasCursor()) {
                 posts = postRepository.findPostsWithMultipleUserTagsAndIdLessThan(setup.getSanitizedCursor(), setup.toPageable());
             } else {
                 posts = postRepository.findPostsWithMultipleUserTags();
-                // Manually limit results since this method doesn't support Pageable
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getPostsWithMultipleUserTags", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (Exception e) {
             log.error("Failed to get posts with multiple user tags", e);
@@ -1150,68 +927,39 @@ public class PostService {
 
     public PaginatedResponse<Post> getTrendingPosts(int days, Long beforeId, Integer limit) {
         try {
-            if (days <= 0) {
-                throw new ValidationException("Days must be positive");
-            }
-
-            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getTrendingPosts", beforeId,
-                    limit, Constant.DEFAULT_FEED_LIMIT, 1000); // Cap at 1000 for trending posts
-
+            if (days <= 0) throw new ValidationException("Days must be positive");
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getTrendingPosts", beforeId, limit, Constant.DEFAULT_FEED_LIMIT, 1000);
             LocalDateTime startDate = LocalDateTime.now().minus(days, ChronoUnit.DAYS);
-            List<Post> posts;
-
-            if (setup.hasCursor()) {
-                posts = postRepository.findTrendingPostsWithCursor(
-                        Timestamp.valueOf(startDate), setup.getSanitizedCursor(), setup.toPageable());
-            } else {
-                posts = postRepository.findTrendingPosts(Timestamp.valueOf(startDate), setup.toPageable());
-            }
-
+            List<Post> posts = setup.hasCursor()
+                    ? postRepository.findTrendingPostsWithCursor(Timestamp.valueOf(startDate), setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findTrendingPosts(Timestamp.valueOf(startDate), setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getTrendingPosts", posts, response.isHasMore(), response.getNextCursor());
-
             return response;
         } catch (ValidationException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to get trending posts (days: {}, beforeId: {}, limit: {})", days, beforeId, limit, e);
+            log.error("Failed to get trending posts: days={} beforeId={} limit={}", days, beforeId, limit, e);
             return PaginationUtils.handlePaginationError("getTrendingPosts", e, PaginationUtils.validateLimit(limit));
         }
     }
 
-    // ===== User Tagging Methods =====
-
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post tagUsersToPost(Long postId, List<Long> userIds, User currentUser) {
         try {
             PostUtility.validatePostId(postId);
             PostUtility.validateUser(currentUser);
-
-            if (userIds == null || userIds.isEmpty()) {
-                throw new ValidationException("User IDs list cannot be empty");
-            }
-
-            for (Long userId : userIds) {
-                PostUtility.validateUserId(userId);
-            }
-
+            if (userIds == null || userIds.isEmpty()) throw new ValidationException("User IDs list cannot be empty");
+            for (Long userId : userIds) PostUtility.validateUserId(userId);
             Post post = findById(postId);
-
-            if (!PostUtility.postAllowsUpdates(post)) {
-                throw new SecurityException("Cannot add tags to posts with status: " + post.getStatus().getDisplayName());
-            }
-
-            if (!PostUtility.canUserModifyPostTags(post, currentUser)) {
-                throw new SecurityException("Only post creator, department users, or admin can add user tags");
-            }
-
+            if (!PostUtility.postAllowsUpdates(post)) throw new SecurityException("Cannot add tags to posts with status: " + post.getStatus().getDisplayName());
+            if (!PostUtility.canUserModifyPostTags(post, currentUser)) throw new SecurityException("Only post creator, department users, or admin can add user tags");
             List<User> usersToTag = userRepository.findAllById(userIds);
             if (usersToTag.size() != userIds.size()) {
-                List<Long> foundIds = usersToTag.stream().map(User::getId).collect(Collectors.toList());
+                List<Long> foundIds   = usersToTag.stream().map(User::getId).collect(Collectors.toList());
                 List<Long> missingIds = userIds.stream().filter(id -> !foundIds.contains(id)).collect(Collectors.toList());
                 throw new ValidationException("Users not found with IDs: " + missingIds);
             }
-
             int successCount = 0;
             for (User userToTag : usersToTag) {
                 try {
@@ -1221,287 +969,794 @@ public class PostService {
                     log.warn("Failed to tag user: {} to post: {}", userToTag.getActualUsername(), postId, e);
                 }
             }
-
-            log.info("Added {} user tags to post ID: {} (status: {}), attempted: {}",
-                    successCount, post.getId(), post.getStatus().getDisplayName(), usersToTag.size());
-
+            log.info("Added {} user tags to post id={} (attempted: {})", successCount, post.getId(), usersToTag.size());
+            for (User taggedUser : usersToTag) {
+                try {
+                    notificationService.notifyUserTagged(post, taggedUser, currentUser);
+                } catch (Exception e) {
+                    log.warn("Failed to send tag notification to user={}: {}", taggedUser.getActualUsername(), e.getMessage());
+                }
+            }
             return post;
         } catch (PostNotFoundException | SecurityException | ValidationException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to tag users to post: {} by user: {}",
-                    postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
+            log.error("Failed to tag users to post: {} by user: {}", postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to tag users to post: " + e.getMessage(), e);
         }
     }
 
-    @Transactional(rollbackOn = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public Post removeUserTagFromPost(Long postId, Long userId, User currentUser) {
         try {
             PostUtility.validatePostId(postId);
             PostUtility.validateUserId(userId);
             PostUtility.validateUser(currentUser);
-
             Post post = findById(postId);
             User userToRemove = userRepository.findById(userId)
                     .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + userId));
-
-            if (!PostUtility.postAllowsUpdates(post)) {
-                throw new SecurityException("Cannot remove tags from posts with status: " + post.getStatus().getDisplayName());
-            }
-
-            if (!PostUtility.canUserRemovePostTag(post, currentUser, userId)) {
-                throw new SecurityException("Insufficient permissions to remove user tag");
-            }
-
-            try {
-                userTaggingService.removeUserTag(post, userToRemove);
-
-                log.info("Removed user tag for user: {} (ID: {}) from post ID: {} (status: {}) by user: {}",
-                        userToRemove.getActualUsername(), userId, post.getId(),
-                        post.getStatus().getDisplayName(), currentUser.getActualUsername());
-            } catch (Exception e) {
-                log.warn("Failed to remove user tag: {} from post: {}", userId, postId, e);
-                throw new ServiceException("Failed to remove user tag: " + e.getMessage(), e);
-            }
-
+            if (!PostUtility.postAllowsUpdates(post)) throw new SecurityException("Cannot remove tags from posts with status: " + post.getStatus().getDisplayName());
+            if (!PostUtility.canUserRemovePostTag(post, currentUser, userId)) throw new SecurityException("Insufficient permissions to remove user tag");
+            userTaggingService.removeUserTag(post, userToRemove);
+            log.info("Removed user tag: userId={} from post id={} by user={}", userId, post.getId(), currentUser.getActualUsername());
             return post;
         } catch (PostNotFoundException | UserNotFoundException | SecurityException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to remove user tag from post: {} by user: {}",
-                    postId, currentUser != null ? currentUser.getActualUsername() : "null", e);
+            log.error("Failed to remove user tag: postId={} userId={} by user={}", postId, userId, currentUser != null ? currentUser.getActualUsername() : "null", e);
             throw new ServiceException("Failed to remove user tag from post: " + e.getMessage(), e);
         }
     }
 
-    // ===== Media Utility Methods =====
+    // =========================================================================
+    // MEDIA HELPERS
+    // =========================================================================
 
+    /**
+     * Returns the Cloudinary URL as-is (it IS the public CDN path).
+     */
     public String getMediaFilePath(String fileName) {
-        return PostUtility.getMediaFilePath(fileName, uploadDir);
+        return drivePostMedia.getPath(fileName);
     }
 
-    public boolean isImageFile(String fileName) {
-        return PostUtility.isImageFile(fileName);
+    public boolean isImageFile(String fileName)      { return PostUtility.isImageFile(fileName); }
+    public boolean isVideoFile(String fileName)      { return PostUtility.isVideoFile(fileName); }
+    public String getMediaType(String fileName)      { return PostUtility.getMediaType(fileName); }
+    public Map<String, Object> getMediaConstraints() { return PostUtility.createMediaConstraints(maxImageSize, maxVideoSize); }
+
+    // =========================================================================
+    // DELETE
+    // =========================================================================
+
+    @Transactional(rollbackFor = Exception.class)
+    public void softDeletePost(Long postId, User currentUser) {
+        try {
+            PostUtility.validatePostId(postId);
+            PostUtility.validateUser(currentUser);
+            Post post = findById(postId);
+            if (!PostUtility.isPostOwner(post, currentUser) && !PostUtility.isAdmin(currentUser)) {
+                throw new SecurityException("Only the post creator or an admin can delete this post.");
+            }
+            if (!PostUtility.postAllowsUpdates(post)) {
+                throw new SecurityException("Cannot delete posts with status: " + post.getStatus().getDisplayName());
+            }
+            try {
+                postInteractionService.cleanupForPostDeletion(post);
+            } catch (Exception e) {
+                log.warn("Failed to clean up interactions for post={}: {}", postId, e.getMessage());
+            }
+            post.setStatus(PostStatus.DELETED);
+            post.setUpdatedAt(new Date());
+            postRepository.save(post);
+            log.info("Post soft-deleted: id={} by user={}", postId, currentUser.getActualUsername());
+        } catch (SecurityException | PostNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to soft-delete post: id={} user={}", postId,
+                    currentUser != null ? currentUser.getActualUsername() : "null", e);
+            throw new ServiceException("Failed to delete post: " + e.getMessage(), e);
+        }
     }
 
-    public boolean isVideoFile(String fileName) {
-        return PostUtility.isVideoFile(fileName);
-    }
-
-    public String getMediaType(String fileName) {
-        return PostUtility.getMediaType(fileName);
-    }
-
-    public Map<String, Object> getMediaConstraints() {
-        return PostUtility.createMediaConstraints(maxImageSize, maxVideoSize);
-    }
-
-    // ===== File Cleanup Methods =====
+    // =========================================================================
+    // FILE CLEANUP QUEUE  (deletes from Cloudinary)
+    // =========================================================================
 
     public void processFileCleanupQueue() {
         int processedCount = 0;
-        int maxRetries = 10;
-
-        while (!fileCleanupQueue.isEmpty() && processedCount < maxRetries) {
-            String fileName = fileCleanupQueue.poll();
-            if (fileName != null) {
+        while (!fileCleanupQueue.isEmpty() && processedCount < 10) {
+            String urlOrId = fileCleanupQueue.poll();
+            if (urlOrId != null) {
                 try {
-                    PostUtility.deleteMediaFile(fileName, uploadDir);
-                    log.info("Successfully cleaned up file from retry queue: {}", fileName);
+                    drivePostMedia.delete(urlOrId);
+                    log.info("Cleaned up Cloudinary file from retry queue: {}", urlOrId);
                     processedCount++;
                 } catch (Exception e) {
-                    log.warn("Failed to cleanup file from retry queue: {}", fileName, e);
+                    log.warn("Failed to cleanup Cloudinary file: {}", urlOrId, e);
                 }
             }
         }
-
         if (processedCount > 0) {
-            log.info("Processed {} files from cleanup queue, {} remaining",
-                    processedCount, fileCleanupQueue.size());
+            log.info("Processed {} files from cleanup queue, {} remaining", processedCount, fileCleanupQueue.size());
         }
     }
 
-    private void scheduleFileCleanupRetry(String fileName) {
-        if (fileName != null && !fileName.trim().isEmpty()) {
-            fileCleanupQueue.offer(fileName);
+    @SuppressWarnings("unused")
+    private void scheduleFileCleanupRetry(String urlOrId) {
+        if (urlOrId != null && !urlOrId.trim().isEmpty()) {
+            fileCleanupQueue.offer(urlOrId);
             if (fileCleanupQueue.size() > 1000) {
-                String oldFile = fileCleanupQueue.poll();
-                log.warn("Cleanup queue full, removing oldest entry: {}", oldFile);
+                log.warn("Cleanup queue full, dropping oldest entry: {}", fileCleanupQueue.poll());
             }
-            log.debug("Added file to cleanup retry queue: {}", fileName);
         }
     }
 
-    // ===== Post Response Conversion Methods =====
+    // =========================================================================
+    // DTO CONVERSION
+    // =========================================================================
 
-    /**
-     * Convert Post entity to PostResponse DTO with user context
-     * Uses only existing fields from PostResponse DTO
-     */
     public PostResponse convertToPostResponse(Post post, User currentUser) {
         try {
-            if (post == null) {
-                return null;
-            }
-            boolean isLiked = false;
-            if (currentUser != null) {
-                // Check the database to see if a "like" record exists for this post and user.
-                isLiked = postLikeRepository.findByPostAndUser(post, currentUser).isPresent();
-            }
+            if (post == null) return null;
+
+            boolean isLiked    = currentUser != null && postInteractionService.hasUserLikedPost(post, currentUser);
+            boolean isDisliked = currentUser != null && postInteractionService.hasUserDislikedPost(post, currentUser);
+            boolean isSaved    = currentUser != null && postInteractionService.hasSavedBroadcastPost(post, currentUser);
+
+            int shareCount = post.getShareCount();
 
             PostResponse.PostResponseBuilder builder = PostResponse.builder()
-                    // Basic Post Information
                     .id(post.getId())
                     .content(post.getContent())
                     .status(post.getStatus())
                     .createdAt(post.getCreatedAt())
                     .updatedAt(post.getUpdatedAt())
 
-                    // Media Information
+                    // Cloudinary secure URL stored here (or null)
                     .imageName(post.getImageName())
                     .hasImage(post.hasImage())
                     .mediaType(post.hasImage() ? PostUtility.getMediaType(post.getImageName()) : null)
 
-                    // Resolution Information
                     .isResolved(post.isResolved())
                     .resolvedAt(post.getResolvedAt())
 
-                    // User Information
                     .userId(post.getUser() != null ? post.getUser().getId() : null)
                     .username(post.getUser() != null ? post.getUser().getActualUsername() : null)
                     .userDisplayName(post.getUser() != null ? post.getUser().getDisplayName() : null)
                     .userProfileImage(post.getUser() != null ? post.getUser().getProfileImage() : null)
                     .userPincode(post.getUser() != null ? post.getUser().getPincode() : null)
 
-                    // Broadcasting Information
                     .broadcastScope(post.getBroadcastScope())
                     .broadcastScopeDescription(post.getBroadcastScopeDescription())
                     .isBroadcastPost(post.isBroadcastPost())
+                    .isGovernmentBroadcast(post.isGovernmentBroadcast())
+                    .countryWideBroadcast(post.isCountryWideBroadcast())
                     .targetCountry(post.getTargetCountry())
                     .targetStates(post.getTargetStatesList())
                     .targetDistricts(post.getTargetDistrictsList())
                     .targetPincodes(post.getTargetPincodesList())
 
-                    // Engagement Metrics
                     .likeCount(post.getLikeCount())
+                    .dislikeCount(post.getDislikeCount())
                     .commentCount(post.getCommentCount())
                     .viewCount(post.getViewCount())
+                    .shareCount(shareCount)
+                    .saveCount(post.getSaveCount())
                     .taggedUserCount(post.getTaggedUserCount())
 
-                    // User Interaction Status (defaults - implement actual logic if needed)
                     .isLikedByCurrentUser(isLiked)
-                    .isViewedByCurrentUser(false) // TODO: Check if current user viewed this post
+                    .isDislikedByCurrentUser(isDisliked)
+                    .isSavedByCurrentUser(isSaved)
+                    .isViewedByCurrentUser(false)
 
-                    // Status Information
                     .statusDisplayName(post.getStatus() != null ? post.getStatus().getDisplayName() : null)
                     .canBeResolved(post.getStatus() == PostStatus.ACTIVE)
                     .allowsUpdates(PostUtility.postAllowsUpdates(post))
                     .isEligibleForDisplay(PostUtility.isPostEligibleForDisplay(post))
 
-                    // Additional Metadata
-                    .timeAgo(PostUtility.calculateTimeAgo(post.getCreatedAt()))
-                    .isVisibleToCurrentUser(currentUser != null ? PostUtility.isPostVisibleToUser(post, currentUser) : false);
+                    .canLike(post.getStatus() == PostStatus.ACTIVE)
+                    .canComment(post.getStatus() == PostStatus.ACTIVE)
+                    .canShare(post.getStatus() == PostStatus.ACTIVE)
+                    .canSave(post.isGovernmentBroadcast() && post.getStatus() == PostStatus.ACTIVE)
 
-            // Add tagged users information
+                    .timeAgo(PostUtility.calculateTimeAgo(post.getCreatedAt()))
+                    .isVisibleToCurrentUser(currentUser != null && PostUtility.isPostVisibleToUser(post, currentUser));
+
             try {
                 PaginatedResponse<User> taggedUsersResponse = userTaggingService.getTaggedUsersInPost(post, null, Constant.MAX_TAGS_PER_POST * 10);
-                List<User> taggedUsers = taggedUsersResponse.getData();
-
-                // Simple usernames list
-                List<String> taggedUsernames = taggedUsers.stream()
-                        .map(User::getActualUsername)
-                        .collect(Collectors.toList());
-                builder.taggedUsernames(taggedUsernames);
-
-                // Detailed tagged user info
-                List<PostResponse.TaggedUserInfo> taggedUserInfos = convertToTaggedUserInfos(post);
-                builder.taggedUsers(taggedUserInfos);
-
+                builder.taggedUsernames(taggedUsersResponse.getData().stream().map(User::getActualUsername).collect(Collectors.toList()));
+                builder.taggedUsers(convertToTaggedUserInfos(post));
             } catch (Exception e) {
                 log.warn("Failed to get tagged users for post: {}", post.getId(), e);
-                builder.taggedUsernames(Collections.emptyList())
-                        .taggedUsers(Collections.emptyList());
+                builder.taggedUsernames(Collections.emptyList());
+                builder.taggedUsers(Collections.emptyList());
             }
 
             return builder.build();
 
         } catch (Exception e) {
-            log.error("Failed to convert post to response: {} for user: {}",
-                    post != null ? post.getId() : "null",
-                    currentUser != null ? currentUser.getActualUsername() : "null", e);
-            throw new ServiceException("Failed to convert post to response: " + e.getMessage(), e);
+            log.error("Failed to convert post {} to response", post != null ? post.getId() : "null", e);
+            return null;
         }
     }
 
-    /**
-     * Convert tagged users to TaggedUserInfo objects
-     */
     private List<PostResponse.TaggedUserInfo> convertToTaggedUserInfos(Post post) {
         try {
-            List<UserTag> userTags = userTagRepository.findByPostAndIsActiveTrue(post);
-
-            return userTags.stream()
-                    .map(userTag -> PostResponse.TaggedUserInfo.builder()
-                            .tagId(userTag.getId())
-                            .userId(userTag.getTaggedUser().getId())
-                            .username(userTag.getTaggedUser().getActualUsername())
-                            .displayName(userTag.getTaggedUser().getDisplayName())
-                            .profileImage(userTag.getTaggedUser().getProfileImage())
-                            .pincode(userTag.getTaggedUser().getPincode())
-                            .isActive(userTag.getIsActive())
-                            .taggedAt(userTag.getTaggedAt())
-                            .deactivatedAt(userTag.getDeactivatedAt())
-                            .deactivationReason(userTag.getDeactivationReason())
-                            .taggedByUserId(userTag.getTaggedBy() != null ? userTag.getTaggedBy().getId() : null)
-                            .taggedByUsername(userTag.getTaggedBy() != null ? userTag.getTaggedBy().getActualUsername() : null)
+            return userTaggingService.getTaggedUsersInPost(post, null, Constant.MAX_TAGS_PER_POST * 10)
+                    .getData().stream()
+                    .map(u -> PostResponse.TaggedUserInfo.builder()
+                            .userId(u.getId())
+                            .username(u.getActualUsername())
+                            .profileImage(u.getProfileImage())
                             .build())
                     .collect(Collectors.toList());
-
         } catch (Exception e) {
-            log.warn("Failed to convert tagged user infos for post: {}", post.getId(), e);
+            log.warn("Failed to convert tagged users for post: {}", post.getId(), e);
             return Collections.emptyList();
         }
     }
 
-    /**
-     * Convert list of Posts to PostResponses
-     */
+    @Transactional(readOnly = true)
     public PaginatedResponse<PostResponse> convertToPostResponses(List<Post> posts, User currentUser, int limit) {
-        if (posts == null || posts.isEmpty()) {
-            return PaginationUtils.createEmptyResponse(limit);
-        }
-
+        if (posts == null || posts.isEmpty()) return PaginationUtils.createEmptyResponse(limit);
         List<PostResponse> postResponses = posts.stream()
                 .filter(Objects::nonNull)
-                .map(post -> convertToPostResponse(post, currentUser))
+                .map(p -> convertToPostResponse(p, currentUser))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
-
         return PaginationUtils.createIdBasedResponse(postResponses, limit, PostResponse::getId);
     }
 
-    /**
-     * Convert PaginatedResponse<Post> to PaginatedResponse<PostResponse>
-     */
-    public PaginatedResponse<PostResponse> convertPaginatedPostsToResponses(
-            PaginatedResponse<Post> paginatedPosts, User currentUser) {
-
-        if (paginatedPosts == null || paginatedPosts.getData() == null) {
-            return PaginationUtils.createEmptyResponse(0);
-        }
-
+    @Transactional(readOnly = true)
+    public PaginatedResponse<PostResponse> convertPaginatedPostsToResponses(PaginatedResponse<Post> paginatedPosts, User currentUser) {
+        if (paginatedPosts == null || paginatedPosts.getData() == null) return PaginationUtils.createEmptyResponse(0);
         List<PostResponse> postResponses = paginatedPosts.getData().stream()
                 .filter(Objects::nonNull)
-                .map(post -> convertToPostResponse(post, currentUser))
+                .map(p -> convertToPostResponse(p, currentUser))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+        return PaginatedResponse.of(postResponses, paginatedPosts.isHasMore(), paginatedPosts.getNextCursor(), paginatedPosts.getLimit());
+    }
 
-        return PaginatedResponse.of(
-                postResponses,
-                paginatedPosts.isHasMore(),
-                paginatedPosts.getNextCursor(),
-                paginatedPosts.getLimit()
-        );
+    // =========================================================================
+    // LOCAL FEED / RECOMMENDATION
+    // =========================================================================
+
+    public PaginatedResponse<PostResponse> getLocalFeed(User user, Long beforeId, int limit) {
+        try {
+            PostUtility.validateUser(user);
+            pinCodeLookupService.populateUserLocationData(user);
+
+            int validLimit = Math.max(1, Math.min(limit, 50));
+
+            if (!user.hasPincode()) {
+                log.debug("[LocalFeed] userId={} has no pincode — returning country-wide posts", user.getId());
+                PaginatedResponse<Post> countryPosts = getActiveCountryWideBroadcasts(beforeId, validLimit);
+                if (countryPosts == null || countryPosts.getData() == null || countryPosts.getData().isEmpty()) {
+                    log.debug("[LocalFeed] No country-wide posts — returning all active posts (sparse platform)");
+                    PaginatedResponse<Post> allActive = getAllActivePosts(beforeId, validLimit);
+                    return convertPaginatedPostsToResponses(allActive, user);
+                }
+                return convertPaginatedPostsToResponses(countryPosts, user);
+            }
+
+            String userPincode    = user.getPincode();
+            String districtPrefix = userPincode.length() >= 3 ? userPincode.substring(0, 3) : null;
+            String statePrefix    = userPincode.length() >= 2 ? userPincode.substring(0, 2) : null;
+
+            int enoughThreshold = Math.max(1, validLimit / 2);
+
+            Map<Long, Post> merged    = new LinkedHashMap<>();
+            String          scopeLabel = "AREA";
+
+            PaginatedResponse<Post> areaPosts = getAreaLevelBroadcasts(userPincode, beforeId, validLimit);
+            if (areaPosts.getData() != null) {
+                areaPosts.getData().forEach(p -> merged.put(p.getId(), p));
+            }
+
+            if (merged.size() >= enoughThreshold) {
+                scopeLabel = "AREA";
+            } else {
+                if (districtPrefix != null) {
+                    PaginatedResponse<Post> districtPosts = getDistrictLevelBroadcasts(districtPrefix, beforeId, validLimit);
+                    if (districtPosts.getData() != null) {
+                        districtPosts.getData().forEach(p -> merged.putIfAbsent(p.getId(), p));
+                    }
+                }
+                if (merged.size() >= enoughThreshold) {
+                    scopeLabel = "DISTRICT";
+                } else {
+                    if (statePrefix != null) {
+                        PaginatedResponse<Post> statePosts = getStateLevelBroadcasts(statePrefix, beforeId, validLimit);
+                        if (statePosts.getData() != null) {
+                            statePosts.getData().forEach(p -> merged.putIfAbsent(p.getId(), p));
+                        }
+                    }
+                    if (merged.size() >= enoughThreshold) {
+                        scopeLabel = "STATE";
+                    } else {
+                        PaginatedResponse<Post> countryPosts = getActiveCountryWideBroadcasts(beforeId, validLimit);
+                        if (countryPosts.getData() != null) {
+                            countryPosts.getData().forEach(p -> merged.putIfAbsent(p.getId(), p));
+                        }
+                        scopeLabel = merged.isEmpty() ? "EMPTY" : "NATIONAL";
+                    }
+                }
+            }
+
+            if (merged.isEmpty()) {
+                log.info("[LocalFeed] All geo tiers empty (sparse platform) — returning all active posts for userId={}", user.getId());
+                PaginatedResponse<Post> allActive = getAllActivePosts(beforeId, validLimit);
+                return convertPaginatedPostsToResponses(allActive, user);
+            }
+
+            final String fp = userPincode, fd = districtPrefix, fs = statePrefix;
+            List<Post> ranked = merged.values().stream()
+                    .filter(p -> p.getStatus() == PostStatus.ACTIVE)
+                    .sorted(Comparator.comparingDouble(
+                            (Post p) -> computeIssueScore(p, fp, fd, fs)).reversed())
+                    .limit(validLimit)
+                    .collect(Collectors.toList());
+
+            log.debug("[LocalFeed] userId={} pincode={} scope={} merged={} returned={}",
+                    user.getId(), userPincode, scopeLabel, merged.size(), ranked.size());
+
+            List<PostResponse> responses = ranked.stream()
+                    .map(p -> convertToPostResponse(p, user))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            boolean hasMore    = responses.size() == validLimit;
+            Long    nextCursor = hasMore ? responses.get(responses.size() - 1).getId() : null;
+            return PaginatedResponse.of(responses, hasMore, nextCursor, validLimit);
+
+        } catch (Exception e) {
+            log.error("[LocalFeed] Failed for user={}", user != null ? user.getActualUsername() : "null", e);
+            int safe = Math.max(1, Math.min(limit, 50));
+            return PaginationUtils.createEmptyResponse(safe);
+        }
+    }
+
+    public PaginatedResponse<PostResponse> getIssuePostFeed(User user, Integer limit) {
+        try {
+            PostUtility.validateUser(user);
+            pinCodeLookupService.populateUserLocationData(user);
+
+            int validLimit = (limit == null || limit <= 0) ? Constant.DEFAULT_FEED_LIMIT : Math.min(limit, 100);
+
+            String userPincode    = user.getPincode();
+            String districtPrefix = (userPincode != null && userPincode.length() >= 3) ? userPincode.substring(0, 3) : null;
+            String statePrefix    = (userPincode != null && userPincode.length() >= 2) ? userPincode.substring(0, 2) : null;
+
+            List<Post> candidates = new ArrayList<>();
+
+            if (userPincode != null && !userPincode.isBlank()) {
+                candidates.addAll(postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(
+                        BroadcastScope.AREA, PostStatus.ACTIVE, userPincode));
+                if (districtPrefix != null) {
+                    candidates.addAll(postRepository.findByBroadcastScopeAndStatusAndTargetDistrictsContainingOrderByCreatedAtDesc(
+                            BroadcastScope.DISTRICT, PostStatus.ACTIVE, districtPrefix));
+                }
+                if (statePrefix != null) {
+                    candidates.addAll(postRepository.findByBroadcastScopeAndStatusAndTargetStatesContainingOrderByCreatedAtDesc(
+                            BroadcastScope.STATE, PostStatus.ACTIVE, statePrefix));
+                }
+            } else {
+                log.debug("[IssueFeed] userId={} has no pincode — skipping geo tiers", user.getId());
+            }
+
+            candidates.addAll(postRepository.findByBroadcastScopeAndStatusOrderByCreatedAtDesc(
+                    BroadcastScope.COUNTRY, PostStatus.ACTIVE, PageRequest.of(0, 50)));
+
+            Map<Long, Post> deduped = candidates.stream()
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.collectingAndThen(
+                            Collectors.toMap(Post::getId, p -> p, (a, b) -> a, LinkedHashMap::new),
+                            map -> map));
+
+            try {
+                List<Post> ownPosts = postRepository.findByUserWithUserAndStatusOrderByCreatedAtDesc(user, PostStatus.ACTIVE);
+                ownPosts.forEach(p -> deduped.putIfAbsent(p.getId(), p));
+                if (!ownPosts.isEmpty()) {
+                    log.debug("[IssueFeed] Injected {} own posts for userId={}", ownPosts.size(), user.getId());
+                }
+            } catch (Exception e) {
+                log.warn("[IssueFeed] Own-post injection failed for userId={}: {}", user.getId(), e.getMessage());
+            }
+
+            if (deduped.size() < validLimit) {
+                log.info("[IssueFeed] Thin pool ({}) for userId={} — loading all active posts (sparse platform)",
+                        deduped.size(), user.getId());
+                try {
+                    PaginatedResponse<Post> allActive = getAllActivePosts(null, validLimit * 2);
+                    if (allActive != null && allActive.getData() != null) {
+                        allActive.getData().forEach(p -> deduped.putIfAbsent(p.getId(), p));
+                    }
+                } catch (Exception e) {
+                    log.warn("[IssueFeed] Sparse fallback failed for userId={}: {}", user.getId(), e.getMessage());
+                }
+            }
+
+            final String fp = userPincode, fd = districtPrefix, fs = statePrefix;
+            List<Post> ranked = deduped.values().stream()
+                    .sorted(Comparator.comparingDouble((Post p) -> computeIssueScore(p, fp, fd, fs)).reversed())
+                    .limit(validLimit)
+                    .collect(Collectors.toList());
+
+            List<PostResponse> responses = ranked.stream()
+                    .map(p -> convertToPostResponse(p, user))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            log.info("[IssueFeed] user={} pincode={} candidates={} deduped={} returned={}",
+                    user.getActualUsername(), userPincode != null ? userPincode : "none",
+                    candidates.size(), deduped.size(), responses.size());
+
+            return PaginatedResponse.of(responses, false, null, validLimit);
+
+        } catch (Exception e) {
+            log.error("[IssueFeed] Failed for user={}", user != null ? user.getActualUsername() : "null", e);
+            try {
+                int fallback = (limit == null || limit <= 0) ? Constant.DEFAULT_FEED_LIMIT : Math.min(limit, 100);
+                PaginatedResponse<Post> allActive = getAllActivePosts(null, fallback);
+                return convertPaginatedPostsToResponses(allActive, user);
+            } catch (Exception ex) {
+                int fallback = (limit == null || limit <= 0) ? Constant.DEFAULT_FEED_LIMIT : Math.min(limit, 100);
+                return PaginationUtils.createEmptyResponse(fallback);
+            }
+        }
+    }
+
+    public PaginatedResponse<PostResponse> getIssueRecommendationFeed(User user, Integer limit) {
+        try {
+            PostUtility.validateUser(user);
+            pinCodeLookupService.populateUserLocationData(user);
+
+            int validLimit = (limit == null || limit <= 0)
+                    ? Constant.ISSUE_RECOMMENDATION_DEFAULT_LIMIT
+                    : Math.min(limit, Constant.ISSUE_RECOMMENDATION_MAX_LIMIT);
+
+            String userPincode    = user.getPincode();
+            String districtPrefix = (userPincode != null && userPincode.length() >= 3) ? userPincode.substring(0, 3) : null;
+            String statePrefix    = (userPincode != null && userPincode.length() >= 2) ? userPincode.substring(0, 2) : null;
+
+            Map<Long, Post> merged = new LinkedHashMap<>();
+
+            if (userPincode != null && !userPincode.isBlank()) {
+                List<Post> tier1ExactArea = postRepository
+                        .findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(
+                                BroadcastScope.AREA, PostStatus.ACTIVE, userPincode);
+                tier1ExactArea.forEach(p -> merged.put(p.getId(), p));
+
+                boolean nearbyNeeded = tier1ExactArea.size() < Constant.ISSUE_NEARBY_EXPANSION_THRESHOLD;
+                if (districtPrefix != null) {
+                    List<Post> districtAreaCandidates = postRepository
+                            .findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(
+                                    BroadcastScope.AREA, PostStatus.ACTIVE, districtPrefix);
+                    List<Post> tier2NearbyArea = districtAreaCandidates.stream()
+                            .filter(p -> {
+                                if (merged.containsKey(p.getId())) return false;
+                                String tp = p.getTargetPincodes();
+                                if (tp == null) return false;
+                                for (String pc : tp.split(",")) {
+                                    String pc2 = pc.trim();
+                                    if (pc2.length() >= 3 && pc2.substring(0, 3).equals(districtPrefix)
+                                            && !pc2.equals(userPincode)) {
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            })
+                            .limit(nearbyNeeded
+                                    ? Constant.ISSUE_NEARBY_BLEND_LIMIT
+                                    : Constant.ISSUE_NEARBY_BLEND_LIMIT / 2)
+                            .collect(Collectors.toList());
+                    tier2NearbyArea.forEach(p -> merged.putIfAbsent(p.getId(), p));
+                }
+
+                if (districtPrefix != null) {
+                    postRepository.findByBroadcastScopeAndStatusAndTargetDistrictsContainingOrderByCreatedAtDesc(
+                                    BroadcastScope.DISTRICT, PostStatus.ACTIVE, districtPrefix)
+                            .forEach(p -> merged.putIfAbsent(p.getId(), p));
+                }
+
+                if (statePrefix != null) {
+                    postRepository.findByBroadcastScopeAndStatusAndTargetStatesContainingOrderByCreatedAtDesc(
+                                    BroadcastScope.STATE, PostStatus.ACTIVE, statePrefix)
+                            .forEach(p -> merged.putIfAbsent(p.getId(), p));
+                }
+            } else {
+                log.debug("[IssueRec] userId={} has no pincode — skipping geo tiers, going straight to national", user.getId());
+            }
+
+            int nationalCap = validLimit * Constant.ISSUE_RECOMMENDATION_CANDIDATE_MULTIPLIER;
+            postRepository.findByBroadcastScopeAndStatusOrderByCreatedAtDesc(
+                            BroadcastScope.COUNTRY, PostStatus.ACTIVE,
+                            PageRequest.of(0, Math.min(nationalCap, 50)))
+                    .forEach(p -> merged.putIfAbsent(p.getId(), p));
+
+            try {
+                List<Post> ownPosts = postRepository.findByUserWithUserAndStatusOrderByCreatedAtDesc(user, PostStatus.ACTIVE);
+                ownPosts.forEach(p -> merged.putIfAbsent(p.getId(), p));
+                if (!ownPosts.isEmpty()) {
+                    log.debug("[IssueRec] Injected {} own posts for userId={}", ownPosts.size(), user.getId());
+                }
+            } catch (Exception e) {
+                log.warn("[IssueRec] Own-post injection failed for userId={}: {}", user.getId(), e.getMessage());
+            }
+
+            if (merged.size() < validLimit) {
+                log.info("[IssueRec] Thin pool ({} posts) for userId={} — loading all active posts (sparse platform)",
+                        merged.size(), user.getId());
+                try {
+                    PaginatedResponse<Post> allActive = getAllActivePosts(null, validLimit * 2);
+                    if (allActive != null && allActive.getData() != null) {
+                        allActive.getData().forEach(p -> merged.putIfAbsent(p.getId(), p));
+                    }
+                } catch (Exception e) {
+                    log.warn("[IssueRec] Sparse-platform fallback failed for userId={}: {}", user.getId(), e.getMessage());
+                }
+            }
+
+            final String fp = userPincode, fd = districtPrefix, fs = statePrefix;
+            List<Post> ranked = merged.values().stream()
+                    .filter(p -> p.getStatus() == PostStatus.ACTIVE)
+                    .sorted(Comparator
+                            .comparingDouble((Post p) -> computeIssueRecommendationScore(p, fp, fd, fs))
+                            .reversed())
+                    .limit(validLimit)
+                    .collect(Collectors.toList());
+
+            List<PostResponse> responses = ranked.stream()
+                    .map(p -> convertToPostResponse(p, user))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            log.info("[IssueRec] user={} pincode={} merged={} returned={}",
+                    user.getActualUsername(), userPincode != null ? userPincode : "none",
+                    merged.size(), responses.size());
+
+            return PaginatedResponse.of(responses, false, null, validLimit);
+
+        } catch (Exception e) {
+            log.error("[IssueRec] Failed for user={}", user != null ? user.getActualUsername() : "null", e);
+            try {
+                int fallback = (limit == null || limit <= 0)
+                        ? Constant.ISSUE_RECOMMENDATION_DEFAULT_LIMIT
+                        : Math.min(limit, Constant.ISSUE_RECOMMENDATION_MAX_LIMIT);
+                PaginatedResponse<Post> allActive = getAllActivePosts(null, fallback);
+                return convertPaginatedPostsToResponses(allActive, user);
+            } catch (Exception ex) {
+                int fallback = (limit == null || limit <= 0)
+                        ? Constant.ISSUE_RECOMMENDATION_DEFAULT_LIMIT
+                        : Math.min(limit, Constant.ISSUE_RECOMMENDATION_MAX_LIMIT);
+                return PaginationUtils.createEmptyResponse(fallback);
+            }
+        }
+    }
+
+    // =========================================================================
+    // SCORING
+    // =========================================================================
+
+    private double computeIssueRecommendationScore(
+            Post post, String userPincode, String districtPrefix, String statePrefix) {
+        int    likes    = post.getLikeCount()    != null ? post.getLikeCount()    : 0;
+        int    comments = post.getCommentCount() != null ? post.getCommentCount() : 0;
+        int    views    = post.getViewCount()    != null ? post.getViewCount()    : 0;
+        double engagement = (likes    * Constant.POST_WEIGHT_LIKE)
+                + (comments * Constant.POST_WEIGHT_COMMENT)
+                + (views    * Constant.POST_WEIGHT_VIEW);
+        long   ageHours  = post.getCreatedAt() != null
+                ? TimeUnit.MILLISECONDS.toHours(System.currentTimeMillis() - post.getCreatedAt().getTime()) : 0L;
+        double freshness = 1.0 / (1.0 + ageHours * Constant.POST_DECAY_RATE);
+        double geoBoost  = resolveIssueGeoBoost(post, userPincode, districtPrefix, statePrefix);
+        return engagement * freshness * geoBoost;
+    }
+
+    private double resolveIssueGeoBoost(
+            Post post, String userPincode, String districtPrefix, String statePrefix) {
+        BroadcastScope scope = post.getBroadcastScope();
+        if (scope == null) return Constant.ISSUE_GEO_BOOST_NATIONAL;
+        switch (scope) {
+            case AREA: {
+                String targetPincodes = post.getTargetPincodes();
+                if (targetPincodes == null) return Constant.ISSUE_GEO_BOOST_NATIONAL;
+                if (targetPincodes.contains(userPincode)) return Constant.ISSUE_GEO_BOOST_SAME_PINCODE;
+                if (districtPrefix != null) {
+                    for (String pc : targetPincodes.split(",")) {
+                        String pc2 = pc.trim();
+                        if (pc2.length() >= 3 && pc2.substring(0, 3).equals(districtPrefix)) {
+                            return Constant.ISSUE_GEO_BOOST_NEARBY;
+                        }
+                    }
+                }
+                return Constant.ISSUE_GEO_BOOST_NATIONAL;
+            }
+            case DISTRICT: {
+                String targetDistricts = post.getTargetDistricts();
+                boolean inDistrict = districtPrefix != null && targetDistricts != null && targetDistricts.contains(districtPrefix);
+                return inDistrict ? Constant.ISSUE_GEO_BOOST_DISTRICT : Constant.ISSUE_GEO_BOOST_STATE;
+            }
+            case STATE: {
+                String targetStates = post.getTargetStates();
+                boolean inState = statePrefix != null && targetStates != null && targetStates.contains(statePrefix);
+                return inState ? Constant.ISSUE_GEO_BOOST_STATE : Constant.ISSUE_GEO_BOOST_NATIONAL;
+            }
+            case COUNTRY: return Constant.ISSUE_GEO_BOOST_NATIONAL;
+            default:      return Constant.ISSUE_GEO_BOOST_NATIONAL;
+        }
+    }
+
+    private double computeIssueScore(Post post, String userPincode, String districtPrefix, String statePrefix) {
+        int    likes    = post.getLikeCount()    != null ? post.getLikeCount()    : 0;
+        int    comments = post.getCommentCount() != null ? post.getCommentCount() : 0;
+        int    views    = post.getViewCount()    != null ? post.getViewCount()    : 0;
+        double engagement = (likes * Constant.POST_WEIGHT_LIKE) + (comments * Constant.POST_WEIGHT_COMMENT) + (views * Constant.POST_WEIGHT_VIEW);
+        long ageHours = post.getCreatedAt() != null
+                ? TimeUnit.MILLISECONDS.toHours(System.currentTimeMillis() - post.getCreatedAt().getTime()) : 0L;
+        double freshness = 1.0 / (1.0 + ageHours * Constant.POST_DECAY_RATE);
+        return engagement * freshness * resolveGeoBoost(post, userPincode, districtPrefix, statePrefix);
+    }
+
+    private double resolveGeoBoost(Post post, String userPincode, String districtPrefix, String statePrefix) {
+        BroadcastScope scope = post.getBroadcastScope();
+        if (scope == null) return Constant.POST_BOOST_NATIONAL;
+        switch (scope) {
+            case AREA: {
+                String p = post.getTargetPincodes();
+                return (p != null && p.contains(userPincode)) ? Constant.POST_BOOST_AREA : Constant.POST_BOOST_DISTRICT;
+            }
+            case DISTRICT: {
+                String d = post.getTargetDistricts();
+                return (districtPrefix != null && d != null && d.contains(districtPrefix)) ? Constant.POST_BOOST_DISTRICT : Constant.POST_BOOST_STATE;
+            }
+            case STATE: {
+                String s = post.getTargetStates();
+                return (statePrefix != null && s != null && s.contains(statePrefix)) ? Constant.POST_BOOST_STATE : Constant.POST_BOOST_NATIONAL;
+            }
+            case COUNTRY: return Constant.POST_BOOST_NATIONAL;
+            default:      return Constant.POST_BOOST_NATIONAL;
+        }
+    }
+
+    // =========================================================================
+    // PROMOTION / DEMOTION
+    // =========================================================================
+
+    @Transactional(rollbackFor = Exception.class)
+    public void checkAndPromoteIssuePost(Long postId) {
+        try {
+            Post post = postRepository.findById(postId).orElse(null);
+            if (post == null || !isUserIssuePost(post) || post.getStatus() != PostStatus.ACTIVE) return;
+
+            BroadcastScope current = post.getBroadcastScope();
+            if (current == null) return;
+
+            long   ageHours = getAgeInHours(post);
+            int    likes    = post.getLikeCount()    != null ? post.getLikeCount()    : 0;
+            int    comments = post.getCommentCount() != null ? post.getCommentCount() : 0;
+            double velocity = ageHours > 0 ? (double)(likes + comments) / ageHours : (likes + comments);
+
+            switch (current) {
+                case AREA:
+                    if (ageHours <= Constant.ISSUE_DISTRICT_PROMOTE_MAX_AGE_HOURS
+                            && (likes >= Constant.ISSUE_DISTRICT_PROMOTE_LIKES
+                            || comments >= Constant.ISSUE_DISTRICT_PROMOTE_COMMENTS)) {
+                        String pincode = getFirstPincode(post);
+                        if (pincode != null && pincode.length() >= 3) {
+                            post.setBroadcastScope(BroadcastScope.DISTRICT);
+                            post.setTargetDistricts(pincode.substring(0, 3));
+                            post.setUpdatedAt(new Date());
+                            postRepository.save(post);
+                            log.info("[Promotion] Post={} AREA→DISTRICT likes={} comments={} vel={}/hr",
+                                    postId, likes, comments, String.format("%.2f", velocity));
+                        }
+                    }
+                    break;
+                case DISTRICT:
+                    if (ageHours <= Constant.ISSUE_STATE_PROMOTE_MAX_AGE_HOURS
+                            && (likes >= Constant.ISSUE_STATE_PROMOTE_LIKES
+                            || comments >= Constant.ISSUE_STATE_PROMOTE_COMMENTS)) {
+                        String pincode = getFirstPincode(post);
+                        if (pincode != null && pincode.length() >= 2) {
+                            post.setBroadcastScope(BroadcastScope.STATE);
+                            post.setTargetStates(pincode.substring(0, 2));
+                            post.setUpdatedAt(new Date());
+                            postRepository.save(post);
+                            log.info("[Promotion] Post={} DISTRICT→STATE likes={} comments={} vel={}/hr",
+                                    postId, likes, comments, String.format("%.2f", velocity));
+                        }
+                    }
+                    break;
+                case STATE:
+                    if (ageHours <= Constant.ISSUE_NATIONAL_PROMOTE_MAX_AGE_HOURS
+                            && (likes >= Constant.ISSUE_NATIONAL_PROMOTE_LIKES
+                            || comments >= Constant.ISSUE_NATIONAL_PROMOTE_COMMENTS)) {
+                        post.setBroadcastScope(BroadcastScope.COUNTRY);
+                        post.setTargetCountry(Constant.DEFAULT_TARGET_COUNTRY);
+                        post.setUpdatedAt(new Date());
+                        postRepository.save(post);
+                        log.info("[Promotion] Post={} STATE→NATIONAL likes={} comments={} vel={}/hr",
+                                postId, likes, comments, String.format("%.2f", velocity));
+                    }
+                    break;
+                default:
+                    break;
+            }
+        } catch (Exception e) {
+            log.error("[Promotion] Failed for post={}: {}", postId, e.getMessage());
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void demoteStaleIssuePosts() {
+        log.info("[Demotion] Starting stale issue post demotion...");
+        int demoted = 0;
+        try {
+            for (Post post : postRepository.findByBroadcastScopeAndStatusOrderByCreatedAtDesc(BroadcastScope.DISTRICT, PostStatus.ACTIVE, PageRequest.of(0, 500))) {
+                if (!isUserIssuePost(post) || !isStale(post)) continue;
+                post.setBroadcastScope(BroadcastScope.AREA);
+                post.setTargetDistricts(null);
+                post.setUpdatedAt(new Date());
+                postRepository.save(post);
+                log.info("[Demotion] Post={} DISTRICT→AREA", post.getId());
+                demoted++;
+            }
+            for (Post post : postRepository.findByBroadcastScopeAndStatusOrderByCreatedAtDesc(BroadcastScope.STATE, PostStatus.ACTIVE, PageRequest.of(0, 300))) {
+                if (!isUserIssuePost(post) || !isStale(post)) continue;
+                String pincode = getFirstPincode(post);
+                if (pincode != null && pincode.length() >= 3) {
+                    post.setBroadcastScope(BroadcastScope.DISTRICT);
+                    post.setTargetStates(null);
+                    post.setTargetDistricts(pincode.substring(0, 3));
+                    post.setUpdatedAt(new Date());
+                    postRepository.save(post);
+                    log.info("[Demotion] Post={} STATE→DISTRICT", post.getId());
+                    demoted++;
+                }
+            }
+            for (Post post : postRepository.findByBroadcastScopeAndStatusOrderByCreatedAtDesc(BroadcastScope.COUNTRY, PostStatus.ACTIVE, PageRequest.of(0, 100))) {
+                if (!isUserIssuePost(post) || !isStale(post)) continue;
+                String pincode = getFirstPincode(post);
+                if (pincode != null && pincode.length() >= 2) {
+                    post.setBroadcastScope(BroadcastScope.STATE);
+                    post.setTargetStates(pincode.substring(0, 2));
+                    post.setUpdatedAt(new Date());
+                    postRepository.save(post);
+                    log.info("[Demotion] Post={} NATIONAL→STATE", post.getId());
+                    demoted++;
+                }
+            }
+            log.info("[Demotion] Complete — demoted={}", demoted);
+        } catch (Exception e) {
+            log.error("[Demotion] Job failed", e);
+        }
+    }
+
+    // =========================================================================
+    // PRIVATE HELPERS
+    // =========================================================================
+
+    private boolean isUserIssuePost(Post post) {
+        String p = post.getTargetPincodes();
+        return p != null && !p.isBlank();
+    }
+
+    private String getFirstPincode(Post post) {
+        String raw = post.getTargetPincodes();
+        if (raw == null || raw.isBlank()) return null;
+        String[] parts = raw.split(",");
+        return parts.length > 0 ? parts[0].trim() : null;
+    }
+
+    private long getAgeInHours(Post post) {
+        return post.getCreatedAt() == null ? 0
+                : TimeUnit.MILLISECONDS.toHours(System.currentTimeMillis() - post.getCreatedAt().getTime());
+    }
+
+    private boolean isStale(Post post) {
+        Date last = post.getUpdatedAt() != null ? post.getUpdatedAt() : post.getCreatedAt();
+        return last != null && TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - last.getTime()) >= Constant.POST_DEMOTION_INACTIVE_DAYS;
     }
 }

@@ -11,10 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -50,7 +47,10 @@ public class PostUtility {
         put("Telangana", "50,51,52,53,54");
         put("Tripura", "79");
         put("Uttar Pradesh", "20,21,22,23,24,25,26,27,28");
-        put("Uttarakhand", "24,24");
+        // BUG FIX #5: was "24,24" (duplicated prefix 24, which is actually UP).
+        // Uttarakhand correct prefixes are 24,25,26 — shared with UP which is intentional
+        // in India's postal system; district-level prefix (3 digits) distinguishes them.
+        put("Uttarakhand", "24,25,26");
         put("West Bengal", "70,71,72,73,74");
         put("Andaman and Nicobar Islands", "74");
         put("Chandigarh", "16");
@@ -61,6 +61,11 @@ public class PostUtility {
         put("Lakshadweep", "68");
         put("Puducherry", "60,63");
     }};
+
+    // BUG FIX #11: SecureRandom instance — reused (thread-safe) rather than recreated per call.
+    // Original code used java.util.Random which is predictable and not suitable for
+    // generating file name tokens used in upload paths.
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     // ===== CONSOLIDATED VALIDATION METHODS =====
 
@@ -77,7 +82,11 @@ public class PostUtility {
         if (user.getActualUsername() == null || user.getActualUsername().trim().isEmpty()) {
             throw new UserNotFoundException("User username cannot be null or empty");
         }
-        if (!user.getIsActive()) {
+        // BUG FIX #4: getIsActive() returns Boolean (wrapper), not boolean (primitive).
+        // The original "!user.getIsActive()" auto-unboxes the wrapper and throws
+        // NullPointerException when getIsActive() returns null (possible on legacy rows).
+        // Boolean.TRUE.equals() safely handles null — returns false without crashing.
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
             throw new ValidationException("User account is inactive");
         }
     }
@@ -305,7 +314,8 @@ public class PostUtility {
             }
 
             // Only show posts from active users
-            if (post.getUser() == null || !post.getUser().getIsActive()) {
+            // BUG FIX #4 (same pattern): guard getIsActive() against null
+            if (post.getUser() == null || !Boolean.TRUE.equals(post.getUser().getIsActive())) {
                 return false;
             }
 
@@ -694,51 +704,10 @@ public class PostUtility {
     }
 
     // ===== MEDIA FILE HANDLING METHODS =====
-
-    public static String uploadMediaFile(MultipartFile file, Long userId, String uploadDir) {
-        try {
-            validateUserId(userId);
-            validateMediaFile(file);
-
-            Path uploadPath = Paths.get(uploadDir);
-            if (!Files.exists(uploadPath)) {
-                Files.createDirectories(uploadPath);
-                log.info("Created upload directory: {}", uploadPath);
-            }
-
-            String originalFileName = file.getOriginalFilename();
-            if (originalFileName == null || originalFileName.trim().isEmpty()) {
-                throw new MediaValidationException("Invalid file name");
-            }
-
-            String fileExtension = getFileExtension(originalFileName);
-            String sanitizedFileName = sanitizeFileName(originalFileName);
-
-            String uniqueFileName = String.format("%d_%s_%d_%s%s",
-                    userId,
-                    generateSecureRandomString(8),
-                    System.currentTimeMillis(),
-                    sanitizedFileName.substring(0, Math.min(sanitizedFileName.length(), 20)),
-                    fileExtension);
-
-            Path filePath = uploadPath.resolve(uniqueFileName);
-            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
-
-            if (!Files.exists(filePath) || Files.size(filePath) != file.getSize()) {
-                throw new MediaValidationException("File upload verification failed");
-            }
-
-            log.info("Media file uploaded successfully: {} (size: {} bytes)",
-                    uniqueFileName, file.getSize());
-
-
-            return "/uploads/posts/" + uniqueFileName;
-
-        } catch (IOException e) {
-            log.error("Failed to upload media file for user: {}", userId, e);
-            throw new MediaValidationException("Failed to upload media file: " + e.getMessage(), e);
-        }
-    }
+    // uploadMediaFile / deleteMediaFile / getMediaFilePath removed — all storage
+    // is now handled by DriveStorageService via DrivePostMediaAdapter.
+    // validateMediaFile, validateFileContent, validateImageFile, validateVideoFile
+    // are kept because DrivePostMediaAdapter still calls them for validation.
 
     public static void validateMediaFile(MultipartFile file) {
         validateMediaFile(file, 5242880L, 536870912L); // Default sizes: 5MB for images, 512MB for videos
@@ -884,28 +853,6 @@ public class PostUtility {
                 file.getOriginalFilename(), file.getSize() / 1024.0 / 1024.0, contentType);
     }
 
-    public static void deleteMediaFile(String fileName, String uploadDir) {
-        if (fileName == null || fileName.trim().isEmpty()) {
-            return;
-        }
-
-        try {
-            Path filePath = Paths.get(uploadDir, fileName);
-            if (Files.exists(filePath)) {
-                Files.delete(filePath);
-                log.info("Media file deleted successfully: {}", fileName);
-            } else {
-                log.warn("Attempted to delete non-existent file: {}", fileName);
-            }
-        } catch (IOException e) {
-            log.error("Failed to delete media file: {}", fileName, e);
-            throw new MediaValidationException("Failed to delete media file: " + e.getMessage(), e);
-        } catch (Exception e) {
-            log.error("Unexpected error while deleting media file: {}", fileName, e);
-            throw new MediaValidationException("Unexpected error while deleting media file: " + e.getMessage(), e);
-        }
-    }
-
     // ===== POST BUSINESS LOGIC HELPER METHODS =====
 
     public static boolean isPostOwner(Post post, User user) {
@@ -952,12 +899,17 @@ public class PostUtility {
         return nameWithoutExt.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
+    /**
+     * BUG FIX #11: method was named generateSecureRandomString but used java.util.Random
+     * which is predictable and NOT cryptographically secure. File upload tokens generated
+     * with predictable random can be guessed, enabling unauthorised file access.
+     * Now uses SecureRandom (static instance reused for efficiency — SecureRandom is thread-safe).
+     */
     public static String generateSecureRandomString(int length) {
         String characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        Random random = new Random();
         StringBuilder sb = new StringBuilder(length);
         for (int i = 0; i < length; i++) {
-            sb.append(characters.charAt(random.nextInt(characters.length())));
+            sb.append(characters.charAt(SECURE_RANDOM.nextInt(characters.length())));
         }
         return sb.toString();
     }
@@ -989,14 +941,6 @@ public class PostUtility {
         if (isImageFile(fileName)) return "image";
         if (isVideoFile(fileName)) return "video";
         return "unknown";
-    }
-
-    public static String getMediaFilePath(String fileName, String uploadDir) {
-        if (fileName == null || fileName.trim().isEmpty()) {
-            return null;
-        }
-        Path filePath = Paths.get(uploadDir, fileName);
-        return Files.exists(filePath) ? filePath.toString() : null;
     }
 
     // ===== STATISTICS HELPER METHODS =====
@@ -1249,9 +1193,10 @@ public class PostUtility {
      * Check if post is eligible for display
      */
     public static boolean isPostEligibleForDisplay(Post post) {
+        // BUG FIX #4 (same pattern): guard getIsActive() against null
         return post != null &&
                 post.isEligibleForDisplay() &&
                 post.getUser() != null &&
-                post.getUser().getIsActive();
+                Boolean.TRUE.equals(post.getUser().getIsActive());
     }
 }

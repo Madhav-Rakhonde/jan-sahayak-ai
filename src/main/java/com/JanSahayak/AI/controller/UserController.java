@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
@@ -34,6 +35,34 @@ public class UserController {
     private final UserRepo userRepository;
 
     // ===== User Lookup Methods =====
+
+    /**
+     * Get the currently authenticated user's own profile.
+     *
+     * @Transactional keeps the Hibernate session open through Jackson serialization,
+     * preventing LazyInitializationException on lazy collections (likes, posts, etc.).
+     *
+     * NOTE: User.getUsername() returns the EMAIL (Spring Security contract).
+     * The display username is serialized as "actualUsername" from getActualUsername().
+     */
+    @GetMapping("/me")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<User>> getCurrentUserProfile() {
+        try {
+            User user = getCurrentUser();
+            return ResponseEntity.ok(ApiResponse.success("Current user retrieved successfully", user));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in getCurrentUserProfile: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    ApiResponse.error("Unauthorized", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in getCurrentUserProfile", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while retrieving current user"));
+        }
+    }
 
     /**
      * Find user by username (display field)
@@ -326,7 +355,6 @@ public class UserController {
         try {
             User currentUser = getCurrentUser();
 
-            // Create user object with updates
             User userToUpdate = User.builder()
                     .id(currentUser.getId())
                     .email(updateRequest.getEmail())
@@ -365,7 +393,6 @@ public class UserController {
             @Valid @RequestBody UserUpdateRequest updateRequest) {
 
         try {
-            // Create user object with updates
             User userToUpdate = User.builder()
                     .id(userId)
                     .email(updateRequest.getEmail())
@@ -401,7 +428,7 @@ public class UserController {
 
     /**
      * Get all active users with pagination
-     * Accessible by departments and admins only
+     * Accessible by admins only
      */
     @GetMapping("/active")
     @PreAuthorize("hasAnyRole('ROLE_ADMIN')")
@@ -513,7 +540,6 @@ public class UserController {
         }
 
         try {
-            // Use findByEmail since email is the login credential
             User user = userRepository.findByEmail(email)
                     .orElseThrow(() -> new UserNotFoundException("User not found with email: " + email));
 
@@ -532,11 +558,6 @@ public class UserController {
         }
     }
 
-    // ===== DTO Classes =====
-
-    /**
-     * DTO for user update requests
-     */
     public static class UserUpdateRequest {
         @jakarta.validation.constraints.Email(message = "Invalid email format")
         private String email;

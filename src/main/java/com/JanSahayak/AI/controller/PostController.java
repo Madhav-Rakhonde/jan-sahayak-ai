@@ -8,7 +8,6 @@ import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.security.CurrentUser;
 import com.JanSahayak.AI.service.PostService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +17,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.multipart.MultipartHttpServletRequest;
 
 import java.util.List;
 import java.util.Map;
@@ -34,7 +32,7 @@ public class PostController {
     // ===== Regular Post Creation Endpoints =====
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ROLE_USER','ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PostResponse>> createPost(
             @Valid @RequestBody PostCreateDto postDto,
             @CurrentUser User user) {
@@ -74,7 +72,6 @@ public class PostController {
                         mediaFile.getContentType());
             }
 
-            // Validate parameters
             if (content == null || content.trim().isEmpty()) {
                 return ResponseEntity.badRequest()
                         .body(ApiResponse.error("Validation failed", "Post content is required"));
@@ -85,7 +82,6 @@ public class PostController {
                         .body(ApiResponse.error("Validation failed", "Target pincode is required"));
             }
 
-            // Create DTO
             PostCreateDto postDto = PostCreateDto.builder()
                     .content(content.trim())
                     .targetPincode(targetPincode.trim())
@@ -802,14 +798,24 @@ public class PostController {
         }
     }
 
+    /**
+     * GET /api/posts/{postId}
+     *
+     * CHANGED: Now calls postService.getPostByIdForUser() instead of findById().
+     *
+     * Resolved post access control:
+     *   - Active posts  → returned normally to all authenticated users
+     *   - Resolved posts → returned only to creator, tagged dept, or admin.
+     *     Everyone else receives HTTP 404 (we don't reveal the post exists).
+     */
     @GetMapping("/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PostResponse>> getPostById(
             @PathVariable Long postId,
             @CurrentUser User user) {
         try {
-            Post post = postService.findById(postId);
-            PostResponse response = postService.convertToPostResponse(post, user);
+            // Resolved-post access control is enforced inside getPostByIdForUser()
+            PostResponse response = postService.getPostByIdForUser(postId, user);
             return ResponseEntity.ok(ApiResponse.success("Post retrieved successfully", response));
         } catch (PostNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -855,8 +861,15 @@ public class PostController {
         }
     }
 
+    /**
+     * GET /api/posts/resolved  (Admin only)
+     *
+     * CHANGED: Restricted to ROLE_ADMIN only.
+     * Normal users must use /my-posts/resolved to see their own resolved posts.
+     * Department users view individual resolved posts via GET /api/posts/{postId}.
+     */
     @GetMapping("/resolved")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllResolvedPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -880,19 +893,8 @@ public class PostController {
             @RequestParam(required = false) Integer limit,
             @CurrentUser User currentUser) {
         try {
-            // For security, we could validate if the user can access another user's posts
-            // For now, allowing any authenticated user to view posts by user ID
-            // In production, you might want to restrict this based on business rules
-
-            // We need to get the target user, but the service method expects a User object
-            // This is a limitation - the service should probably accept userId instead
-            // For now, we'll need to modify this based on your UserService availability
-
-            // This endpoint might need UserService to fetch the user first
-            // Placeholder implementation:
             return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                     .body(ApiResponse.error("Endpoint requires UserService integration", "Not implemented"));
-
         } catch (Exception e) {
             log.error("Failed to get posts by user: {}", userId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -934,6 +936,15 @@ public class PostController {
         }
     }
 
+    /**
+     * GET /api/posts/my-posts/resolved
+     *
+     * CHANGED: Passes the requesting user (currentUser) as the first argument to
+     * getResolvedPostsByUser() so the service can enforce the ownership check.
+     * Users can only see their own resolved posts (service throws 403 if they try to
+     * access someone else's — but since the endpoint only accepts the current user,
+     * this is enforced structurally here too).
+     */
     @GetMapping("/my-posts/resolved")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getMyResolvedPosts(
@@ -941,13 +952,51 @@ public class PostController {
             @RequestParam(required = false) Integer limit,
             @CurrentUser User user) {
         try {
-            PaginatedResponse<Post> posts = postService.getResolvedPostsByUser(user, beforeId, limit);
+            // Pass user as BOTH requestingUser and targetUser — you can only see your own resolved posts
+            PaginatedResponse<Post> posts = postService.getResolvedPostsByUser(user, user, beforeId, limit);
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("Your resolved posts retrieved successfully", response));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get resolved posts by user: {}", user.getActualUsername(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Failed to get your resolved posts", "Internal server error"));
+        }
+    }
+
+    /**
+     * GET /api/posts/feed/issue
+     *
+     * NEW: Issue post recommendation feed for the authenticated user.
+     *
+     * Returns user-created civic issue posts ranked by:
+     *   engagement (likes + comments + views) × freshness × geographic proximity
+     *
+     * Posts at the user's area pincode get 2× boost over national posts.
+     * Posts that gained engagement quickly are promoted to wider geographic scope
+     * automatically (area → district → state → national) by checkAndPromoteIssuePost().
+     *
+     * Only ACTIVE posts are returned. Resolved posts never appear here.
+     *
+     * @param limit  number of posts to return (default 20, max 100)
+     */
+    @GetMapping("/feed/issue")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getIssuePostFeed(
+            @RequestParam(required = false) Integer limit,
+            @CurrentUser User user) {
+        try {
+            PaginatedResponse<PostResponse> feed = postService.getIssuePostFeed(user, limit);
+            return ResponseEntity.ok(ApiResponse.success("Issue post feed retrieved successfully", feed));
+        } catch (ValidationException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to get issue post feed for user: {}", user.getActualUsername(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to get issue post feed", "Internal server error"));
         }
     }
 
@@ -976,7 +1025,6 @@ public class PostController {
                     .body(ApiResponse.error("Failed to count resolved posts", "Internal server error"));
         }
     }
-    // ===== File Cleanup Endpoints =====
 
     @PostMapping("/cleanup/files")
     @PreAuthorize("hasRole('ROLE_ADMIN')")

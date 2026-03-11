@@ -1,363 +1,412 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.CommentCreateDto;
-import com.JanSahayak.AI.DTO.CommentDto;
-import com.JanSahayak.AI.DTO.CommentUpdateDto;
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.exception.*;
-import com.JanSahayak.AI.model.Comment;
+import com.JanSahayak.AI.DTO.*;
+import com.JanSahayak.AI.exception.ApiResponse;
 import com.JanSahayak.AI.model.Post;
+import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
+import com.JanSahayak.AI.security.CurrentUser;
 import com.JanSahayak.AI.service.CommentService;
 import com.JanSahayak.AI.service.PostService;
-import com.JanSahayak.AI.service.UserService;
+import com.JanSahayak.AI.service.SocialPostService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import com.JanSahayak.AI.security.CurrentUser;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Date;
-
+/**
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║                     CommentController  /api/comments                     ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                          ║
+ * ║  Owns ALL comment operations for both Post and SocialPost.               ║
+ * ║  Delegates 100 % of business logic to CommentService.                    ║
+ * ║                                                                          ║
+ * ╠═══════════════════════╦══════════╦═══════════════════════════════════════╣
+ * ║ Group                 ║ Method   ║ Path                                  ║
+ * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
+ * ║ CREATE                ║ POST     ║ /post/{postId}                        ║
+ * ║                       ║ POST     ║ /social-posts/{postId}                ║
+ * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
+ * ║ READ — all comments   ║ GET      ║ /post/{postId}                        ║
+ * ║                       ║ GET      ║ /social-posts/{postId}                ║
+ * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
+ * ║ READ — top-level only ║ GET      ║ /post/{postId}/top-level              ║
+ * ║                       ║ GET      ║ /social-posts/{postId}/top-level      ║
+ * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
+ * ║ READ — replies        ║ GET      ║ /{commentId}/replies                  ║
+ * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
+ * ║ READ — counts         ║ GET      ║ /social-posts/{postId}/count          ║
+ * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
+ * ║ READ — current user   ║ GET      ║ /my                                   ║
+ * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
+ * ║ UPDATE                ║ PUT      ║ /{commentId}                          ║
+ * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
+ * ║ DELETE                ║ DELETE   ║ /{commentId}                          ║
+ * ╚═══════════════════════╩══════════╩═══════════════════════════════════════╝
+ */
 @RestController
 @RequestMapping("/api/comments")
 @RequiredArgsConstructor
 @Slf4j
 public class CommentController {
 
-    private final CommentService commentService;
-    private final PostService postService;
-    private final UserService userService;
+    private final CommentService    commentService;
+    private final PostService       postService;
+    private final SocialPostService socialPostService;
 
-    // ===== Comment Creation Methods =====
+    // =========================================================================
+    // CREATE
+    // =========================================================================
 
     /**
-     * Create a new comment on a post - Updated to return CommentDto to prevent LazyInitializationException
+     * Create a comment (or reply) on a regular Post.
+     *
+     * POST /api/comments/post/{postId}
+     *
+     * Side-effects handled by CommentService:
+     *   • assertPostAcceptsInteractions() — rejects RESOLVED / DELETED / FLAGGED posts
+     *   • checkAndPromoteIssuePost()      — geographic promotion after comment
+     *   • notifyPostCommented()           — push notification (swallowed on failure)
      */
-    @PostMapping("/posts/{postId}")
+    @PostMapping("/post/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<CommentDto>> createComment(
-            @PathVariable Long postId,
-            @Valid @RequestBody CommentCreateDto commentDto,
+    public ResponseEntity<ApiResponse<CommentDto>> createCommentOnPost(
+            @PathVariable @NotNull Long postId,
+            @RequestBody @Valid CommentCreateDto commentDto,
             @CurrentUser User currentUser) {
+
         try {
+            log.info("[Comment] CREATE on post={} user={}", postId, currentUser.getActualUsername());
             Post post = postService.findById(postId);
-
-            CommentDto comment = commentService.createComment(commentDto, currentUser, post);
-
+            CommentDto created = commentService.createCommentOnPost(commentDto, currentUser, post);
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(ApiResponse.success("Comment created successfully", comment));
-        } catch (CommentNotFoundException | PostNotFoundException | UserNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Resource not found", e.getMessage()));
-        } catch (ValidationException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
-        } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
+                    .body(ApiResponse.success("Comment created successfully", created));
+
         } catch (Exception e) {
-            log.error("Unexpected error creating comment for post: {}", postId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to create comment"));
+            log.error("[Comment] CREATE failed on post={}", postId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to create comment", e.getMessage()));
         }
     }
 
-    // ===== Comment Update Methods =====
-
     /**
-     * Update an existing comment
+     * Create a comment (or reply) on a SocialPost.
+     *
+     * POST /api/comments/social-posts/{postId}
+     *
+     * Side-effects handled by CommentService:
+     *   • allowsComments status guard + per-post allowComments toggle guard
+     *   • notifySocialPostCommented() — push notification (swallowed on failure)
      */
-    @PutMapping("/{commentId}")
+    @PostMapping("/social-posts/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Comment>> updateComment(
-            @PathVariable Long commentId,
-            @Valid @RequestBody CommentUpdateDto commentDto,
+    public ResponseEntity<ApiResponse<CommentDto>> createCommentOnSocialPost(
+            @PathVariable @NotNull Long postId,
+            @RequestBody @Valid CommentCreateDto commentDto,
             @CurrentUser User currentUser) {
+
         try {
+            log.info("[Comment] CREATE on socialPost={} user={}", postId, currentUser.getActualUsername());
+            SocialPost sp = socialPostService.findById(postId);
+            CommentDto created = commentService.createCommentOnSocialPost(commentDto, currentUser, sp);
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(ApiResponse.success("Comment created successfully", created));
 
-            Comment updatedComment = commentService.updateComment(commentId, commentDto, currentUser);
-
-            return ResponseEntity.ok(ApiResponse.success("Comment updated successfully", updatedComment));
-        } catch (CommentNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Comment not found", e.getMessage()));
-        } catch (ValidationException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
-        } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
         } catch (Exception e) {
-            log.error("Unexpected error updating comment: {}", commentId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to update comment"));
+            log.error("[Comment] CREATE failed on socialPost={}", postId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to create comment", e.getMessage()));
         }
     }
 
-    // ===== Comment Query Methods =====
+    // =========================================================================
+    // READ — ALL COMMENTS (cursor-paginated)
+    // =========================================================================
 
     /**
-     * Get a comment by ID
+     * All comments (top-level + replies) for a regular Post, newest first.
+     *
+     * GET /api/comments/post/{postId}?beforeId=N&limit=20
      */
-    @GetMapping("/{commentId}")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Comment>> getCommentById(@PathVariable Long commentId) {
-        try {
-            Comment comment = commentService.findById(commentId);
-            return ResponseEntity.ok(ApiResponse.success("Comment found", comment));
-        } catch (CommentNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Comment not found", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Unexpected error getting comment: {}", commentId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to get comment"));
-        }
-    }
-
-    /**
-     * Get all comments for a post with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
-     */
-    @GetMapping("/posts/{postId}")
+    @GetMapping("/post/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentsByPost(
-            @PathVariable Long postId,
+            @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
+
         try {
+            log.debug("[Comment] LIST all for post={}", postId);
             Post post = postService.findById(postId);
-
             PaginatedResponse<CommentDto> comments = commentService.getCommentsByPost(post, beforeId, limit);
+            return ResponseEntity.ok(ApiResponse.success("Comments retrieved", comments));
 
-            return ResponseEntity.ok(ApiResponse.success("Comments retrieved successfully", comments));
-        } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
         } catch (Exception e) {
-            log.error("Unexpected error getting comments for post: {}", postId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to get comments"));
+            log.error("[Comment] LIST failed for post={}", postId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to retrieve comments", e.getMessage()));
         }
     }
 
     /**
-     * Get top-level comments for a post with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
+     * All comments for a SocialPost, newest first.
+     *
+     * GET /api/comments/social-posts/{postId}?beforeId=N&limit=20
      */
-    @GetMapping("/posts/{postId}/top-level")
+    @GetMapping("/social-posts/{postId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentsBySocialPost(
+            @PathVariable @NotNull Long postId,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
+
+        try {
+            log.debug("[Comment] LIST all for socialPost={}", postId);
+            SocialPost sp = socialPostService.findById(postId);
+            PaginatedResponse<CommentDto> comments = commentService.getCommentsBySocialPost(sp, beforeId, limit);
+            return ResponseEntity.ok(ApiResponse.success("Comments retrieved", comments));
+
+        } catch (Exception e) {
+            log.error("[Comment] LIST failed for socialPost={}", postId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to retrieve comments", e.getMessage()));
+        }
+    }
+
+    // =========================================================================
+    // READ — TOP-LEVEL ONLY (no replies, for threaded UI first load)
+    // =========================================================================
+
+    /**
+     * Top-level comments only (no replies) for a regular Post.
+     *
+     * GET /api/comments/post/{postId}/top-level?beforeId=N&limit=20
+     *
+     * Use this for the initial threaded comment list.
+     * Fetch replies separately via GET /{commentId}/replies.
+     */
+    @GetMapping("/post/{postId}/top-level")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getTopLevelCommentsByPost(
-            @PathVariable Long postId,
+            @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
-        try {
-            Post post = postService.findById(postId);
 
+        try {
+            log.debug("[Comment] LIST top-level for post={}", postId);
+            Post post = postService.findById(postId);
             PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsByPost(post, beforeId, limit);
+            return ResponseEntity.ok(ApiResponse.success("Top-level comments retrieved", comments));
 
-            return ResponseEntity.ok(ApiResponse.success("Top-level comments retrieved successfully", comments));
-        } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
         } catch (Exception e) {
-            log.error("Unexpected error getting top-level comments for post: {}", postId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to get top-level comments"));
+            log.error("[Comment] LIST top-level failed for post={}", postId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to retrieve comments", e.getMessage()));
         }
     }
 
     /**
-     * Count comments for a post
+     * Top-level comments only for a SocialPost.
+     *
+     * GET /api/comments/social-posts/{postId}/top-level?beforeId=N&limit=20
      */
-    @GetMapping("/posts/{postId}/count")
+    @GetMapping("/social-posts/{postId}/top-level")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Long>> countCommentsByPost(@PathVariable Long postId) {
-        try {
-            Post post = postService.findById(postId);
-
-            Long count = commentService.countCommentsByPost(post);
-
-            return ResponseEntity.ok(ApiResponse.success("Comment count retrieved successfully", count));
-        } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Unexpected error counting comments for post: {}", postId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to count comments"));
-        }
-    }
-
-    /**
-     * Get comments by user with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
-     */
-    @GetMapping("/users/{userId}")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentsByUser(
-            @PathVariable Long userId,
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getTopLevelCommentsBySocialPost(
+            @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
+
         try {
-            User user = userService.findById(userId);
+            log.debug("[Comment] LIST top-level for socialPost={}", postId);
+            SocialPost sp = socialPostService.findById(postId);
+            PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsBySocialPost(sp, beforeId, limit);
+            return ResponseEntity.ok(ApiResponse.success("Top-level comments retrieved", comments));
 
-            PaginatedResponse<CommentDto> comments = commentService.getCommentsByUser(user, beforeId, limit);
-
-            return ResponseEntity.ok(ApiResponse.success("User comments retrieved successfully", comments));
-        } catch (UserNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("User not found", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
         } catch (Exception e) {
-            log.error("Unexpected error getting comments by user: {}", userId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to get user comments"));
+            log.error("[Comment] LIST top-level failed for socialPost={}", postId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to retrieve comments", e.getMessage()));
         }
     }
 
-    /**
-     * Get current user's comments with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
-     */
-    @GetMapping("/my-comments")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getMyComments(
-            @RequestParam(required = false) Long beforeId,
-            @RequestParam(required = false) Integer limit,
-            @CurrentUser User currentUser) {
-        try {
-
-            PaginatedResponse<CommentDto> comments = commentService.getCommentsByUser(currentUser, beforeId, limit);
-
-            return ResponseEntity.ok(ApiResponse.success("Your comments retrieved successfully", comments));
-        } catch (UserNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("User not found", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Unexpected error getting current user's comments", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to get your comments"));
-        }
-    }
+    // =========================================================================
+    // READ — REPLIES
+    // =========================================================================
 
     /**
-     * Get replies to a comment with cursor-based pagination - Updated to return CommentDto to prevent LazyInitializationException
+     * Paginated replies for a specific comment (works for both post types —
+     * the reply chain is keyed on parentCommentId, not on post type).
+     *
+     * GET /api/comments/{commentId}/replies?beforeId=N&limit=20
+     *
+     * Use this to lazy-load nested replies in a threaded UI.
      */
     @GetMapping("/{commentId}/replies")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentReplies(
-            @PathVariable Long commentId,
+            @PathVariable @NotNull Long commentId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
+
         try {
+            log.debug("[Comment] LIST replies for comment={}", commentId);
             PaginatedResponse<CommentDto> replies = commentService.getCommentReplies(commentId, beforeId, limit);
+            return ResponseEntity.ok(ApiResponse.success("Replies retrieved", replies));
 
-            return ResponseEntity.ok(ApiResponse.success("Comment replies retrieved successfully", replies));
-        } catch (CommentNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Comment not found", e.getMessage()));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
         } catch (Exception e) {
-            log.error("Unexpected error getting replies for comment: {}", commentId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to get comment replies"));
+            log.error("[Comment] LIST replies failed for comment={}", commentId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to retrieve replies", e.getMessage()));
         }
     }
 
-    // ===== Admin Methods =====
+    // =========================================================================
+    // READ — COUNT
+    // =========================================================================
 
     /**
-     * Get all comments with cursor-based pagination (Admin only) - Updated to return CommentDto to prevent LazyInitializationException
+     * Total comment count for a regular Post.
+     *
+     * GET /api/comments/post/{postId}/count
      */
-    @GetMapping("/admin/all")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getAllComments(
-            @RequestParam(required = false) Long beforeId,
-            @RequestParam(required = false) Integer limit) {
-        try {
-            PaginatedResponse<CommentDto> comments = commentService.getAllComments(beforeId, limit);
-
-            return ResponseEntity.ok(ApiResponse.success("All comments retrieved successfully", comments));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Unexpected error getting all comments", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to get all comments"));
-        }
-    }
-
-    /**
-     * Get recent comments with cursor-based pagination (Admin/Department) - Updated to return CommentDto to prevent LazyInitializationException
-     */
-    @GetMapping("/admin/recent")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_DEPARTMENT')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getRecentComments(
-            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date fromDate,
-            @RequestParam(required = false) Long beforeId,
-            @RequestParam(required = false) Integer limit) {
-        try {
-            PaginatedResponse<CommentDto> comments = commentService.getRecentComments(fromDate, beforeId, limit);
-
-            return ResponseEntity.ok(ApiResponse.success("Recent comments retrieved successfully", comments));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
-        } catch (Exception e) {
-            log.error("Unexpected error getting recent comments", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to get recent comments"));
-        }
-    }
-
-    /**
-     * Search comments by content with cursor-based pagination - Added new endpoint that returns CommentDto
-     */
-    @GetMapping("/search")
+    @GetMapping("/post/{postId}/count")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> searchComments(
-            @RequestParam String searchTerm,
+    public ResponseEntity<ApiResponse<Long>> getCommentCountByPost(
+            @PathVariable @NotNull Long postId) {
+
+        try {
+            Post post = postService.findById(postId);
+            Long count = commentService.countCommentsByPost(post);
+            return ResponseEntity.ok(ApiResponse.success("Comment count retrieved", count));
+
+        } catch (Exception e) {
+            log.error("[Comment] COUNT failed for post={}", postId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to get comment count", e.getMessage()));
+        }
+    }
+
+    /**
+     * Total comment count for a SocialPost.
+     *
+     * GET /api/comments/social-posts/{postId}/count
+     */
+    @GetMapping("/social-posts/{postId}/count")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Long>> getCommentCountBySocialPost(
+            @PathVariable @NotNull Long postId) {
+
+        try {
+            SocialPost sp = socialPostService.findById(postId);
+            Long count = commentService.countCommentsBySocialPost(sp);
+            return ResponseEntity.ok(ApiResponse.success("Comment count retrieved", count));
+
+        } catch (Exception e) {
+            log.error("[Comment] COUNT failed for socialPost={}", postId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to get comment count", e.getMessage()));
+        }
+    }
+
+    // =========================================================================
+    // READ — CURRENT USER'S COMMENT HISTORY
+    // =========================================================================
+
+    /**
+     * All comments made by the authenticated user, across all post types,
+     * ordered by newest first.
+     *
+     * GET /api/comments/my?beforeId=N&limit=20
+     *
+     * Useful for a "My Activity" / profile comment history screen.
+     */
+    @GetMapping("/my")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getMyComments(
+            @CurrentUser User currentUser,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit) {
-        try {
-            PaginatedResponse<CommentDto> comments = commentService.searchComments(searchTerm, beforeId, limit);
 
-            return ResponseEntity.ok(ApiResponse.success("Comments search completed successfully", comments));
-        } catch (ServiceException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Service error", e.getMessage()));
+        try {
+            log.debug("[Comment] LIST my comments for user={}", currentUser.getActualUsername());
+            PaginatedResponse<CommentDto> comments = commentService.getCommentsByUser(currentUser, beforeId, limit);
+            return ResponseEntity.ok(ApiResponse.success("Comments retrieved", comments));
+
         } catch (Exception e) {
-            log.error("Unexpected error searching comments with term: {}", searchTerm, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("Internal server error", "Failed to search comments"));
+            log.error("[Comment] LIST my comments failed for user={}", currentUser.getActualUsername(), e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to retrieve your comments", e.getMessage()));
+        }
+    }
+
+    // =========================================================================
+    // UPDATE
+    // =========================================================================
+
+    /**
+     * Edit a comment (owner only — enforced in CommentService).
+     *
+     * PUT /api/comments/{commentId}
+     *
+     * Works for comments on both Post and SocialPost.
+     * Content validation (length, prohibited words) is re-run on edit.
+     */
+    @PutMapping("/{commentId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<CommentDto>> updateComment(
+            @PathVariable @NotNull Long commentId,
+            @RequestBody @Valid CommentUpdateDto commentDto,
+            @CurrentUser User currentUser) {
+
+        try {
+            log.info("[Comment] UPDATE commentId={} user={}", commentId, currentUser.getActualUsername());
+            CommentDto updated = CommentDto.fromComment(
+                    commentService.updateComment(commentId, commentDto, currentUser));
+            return ResponseEntity.ok(ApiResponse.success("Comment updated successfully", updated));
+
+        } catch (Exception e) {
+            log.error("[Comment] UPDATE failed for commentId={}", commentId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to update comment", e.getMessage()));
+        }
+    }
+
+    // =========================================================================
+    // DELETE
+    // =========================================================================
+
+    /**
+     * Delete a comment (owner or ADMIN — enforced in CommentService).
+     *
+     * DELETE /api/comments/{commentId}
+     *
+     * Works for comments on both Post and SocialPost.
+     * Decrements the parent post's commentCount atomically inside the service.
+     *
+     * Returns: 204 No Content
+     */
+    @DeleteMapping("/{commentId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteComment(
+            @PathVariable @NotNull Long commentId,
+            @CurrentUser User currentUser) {
+
+        try {
+            log.info("[Comment] DELETE commentId={} user={}", commentId, currentUser.getActualUsername());
+            commentService.deleteComment(commentId, currentUser);
+            return ResponseEntity.status(HttpStatus.NO_CONTENT)
+                    .body(ApiResponse.success("Comment deleted successfully", null));
+
+        } catch (Exception e) {
+            log.error("[Comment] DELETE failed for commentId={}", commentId, e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Failed to delete comment", e.getMessage()));
         }
     }
 }

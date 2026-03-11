@@ -2,6 +2,7 @@ package com.JanSahayak.AI.repository;
 
 import com.JanSahayak.AI.model.PostView;
 import com.JanSahayak.AI.model.Post;
+import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -33,4 +34,12 @@ public interface PostViewRepo extends JpaRepository<PostView, Long> {
      */
     @Query("SELECT COUNT(pv) FROM PostView pv WHERE pv.post = :post")
     Long countByPost(@Param("post") Post post);
+    // Add these methods to PostViewRepo.java
+
+    Optional<PostView> findBySocialPostAndUserAndViewedAtAfter(
+            SocialPost socialPost, User user, Date viewedAt);
+
+    List<PostView> findBySocialPost(SocialPost socialPost);
+
+    Long countBySocialPost(SocialPost socialPost);
 }

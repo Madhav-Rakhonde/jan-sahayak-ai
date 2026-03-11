@@ -1,139 +1,104 @@
 package com.JanSahayak.AI.DTO;
 
 import com.JanSahayak.AI.model.User;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 
 import java.io.Serializable;
-import java.util.Date;
 
+/**
+ * Lightweight author snapshot attached to every SocialPostDto / CommentDto.
+ *
+ * SECURITY RULE: Only expose what the UI needs to render a post card.
+ * NEVER include: email, contactNumber, address, password, or any PII
+ * that the post viewer has no business seeing.
+ *
+ * Fields:
+ *   id           — needed so frontend can navigate to author's profile
+ *   username     — display name shown on the post card
+ *   profileImage — avatar shown on the post card
+ *   pincode      — kept for hyperlocal "same area" badge logic only
+ *   roleName     — needed to show "Department" / "Admin" badges on posts
+ *   isActive     — lets UI grey-out posts from deactivated accounts
+ */
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class AuthorDto implements Serializable {
-    private Long id;
-    private String username;
-    private String email;
-    private String contactNumber;
-    private String profileImage;
-    private String bio;
-    private String website;
-    private String address;
-    private String pincode;
+
+    private Long    id;
+    private String  username;       // getActualUsername() — display name, NOT email
+    private String  profileImage;
+    private String  pincode;        // for "Posted near you" badge — no other PII
+    private String  roleName;       // ROLE_USER / ROLE_DEPARTMENT / ROLE_ADMIN
     private Boolean isActive;
-    private String roleName;
-    private Date createdAt;
 
-    /**
-     * Convert User entity to AuthorDto
-     */
+    // ── Factory ──────────────────────────────────────────────────────────────
+
     public static AuthorDto fromUser(User user) {
-        if (user == null) {
-            return null;
-        }
+        if (user == null) return null;
 
-        AuthorDto dto = new AuthorDto();
-        dto.setId(user.getId());
-        dto.setUsername(user.getActualUsername());
-        dto.setEmail(user.getEmail());
-        dto.setContactNumber(user.getContactNumber());
-        dto.setProfileImage(user.getProfileImage());
-        dto.setBio(user.getBio());
-        dto.setWebsite(user.getWebsite());
-        dto.setAddress(user.getAddress());
-        dto.setPincode(user.getPincode());
-        dto.setIsActive(user.getIsActive());
-        dto.setCreatedAt(user.getCreatedAt());
-
-        // Safely extract role name
-        if (user.getRole() != null && user.getRole().getName() != null) {
-            dto.setRoleName(user.getRole().getName());
-        }
-
-        return dto;
+        return AuthorDto.builder()
+                .id(user.getId())
+                .username(user.getActualUsername())   // display name, NOT email
+                .profileImage(user.getProfileImage())
+                .pincode(user.getPincode())
+                .roleName(user.getRole() != null ? user.getRole().getName() : null)
+                .isActive(user.getIsActive())
+                .build();
     }
 
-    /**
-     * Get profile picture URL with fallback
-     */
-    public String getProfilePictureUrl() {
-        return profileImage;
-    }
+    // ── UI helpers ────────────────────────────────────────────────────────────
 
-    /**
-     * Check if user has profile image
-     */
-    public boolean hasProfileImage() {
-        return profileImage != null && !profileImage.trim().isEmpty();
-    }
-
-    /**
-     * Get display name for UI
-     */
+    /** Display name for post card header — always the username. */
     public String getDisplayName() {
         return username;
     }
 
-    /**
-     * Check if user is admin
-     */
-    public boolean isAdmin() {
-        return "ROLE_ADMIN".equals(roleName);
+    /** True if the author has uploaded a profile picture. */
+    public boolean hasProfileImage() {
+        return profileImage != null && !profileImage.trim().isEmpty();
     }
 
-    /**
-     * Check if user is department
-     */
+    /** Show a "Department" badge on posts from government accounts. */
     public boolean isDepartment() {
-        return "ROLE_DEPARTMENT".equals(roleName);
+        return "ROLE_DEPARTMENT".equalsIgnoreCase(roleName);
     }
 
-    /**
-     * Check if user is normal user
-     */
+    /** Show an "Admin" badge if needed. */
+    public boolean isAdmin() {
+        return "ROLE_ADMIN".equalsIgnoreCase(roleName);
+    }
+
+    /** True if the author is a regular citizen. */
     public boolean isNormalUser() {
-        return "ROLE_USER".equals(roleName);
+        return "ROLE_USER".equalsIgnoreCase(roleName);
     }
 
-    /**
-     * Check if user has valid pincode
-     */
+    // ── Location helpers (for "Posted near you" badge) ────────────────────────
+
     public boolean hasPincode() {
         return pincode != null && pincode.matches("\\d{6}");
     }
 
-    /**
-     * Get state prefix from pincode (first 2 digits)
-     */
     public String getStatePrefix() {
         return hasPincode() ? pincode.substring(0, 2) : null;
     }
 
-    /**
-     * Get district prefix from pincode (first 3 digits)
-     */
     public String getDistrictPrefix() {
         return hasPincode() ? pincode.substring(0, 3) : null;
     }
 
-    /**
-     * Check if user is in the same state as given pincode
-     */
     public boolean isInSameState(String otherPincode) {
-        if (!hasPincode() || otherPincode == null || otherPincode.length() < 2) {
-            return false;
-        }
+        if (!hasPincode() || otherPincode == null || otherPincode.length() < 2) return false;
         return getStatePrefix().equals(otherPincode.substring(0, 2));
     }
 
-    /**
-     * Check if user is in the same district as given pincode
-     */
     public boolean isInSameDistrict(String otherPincode) {
-        if (!hasPincode() || otherPincode == null || otherPincode.length() < 3) {
-            return false;
-        }
+        if (!hasPincode() || otherPincode == null || otherPincode.length() < 3) return false;
         return getDistrictPrefix().equals(otherPincode.substring(0, 3));
     }
 }

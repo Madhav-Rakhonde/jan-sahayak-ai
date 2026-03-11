@@ -18,6 +18,7 @@ public class CommentDto implements Serializable {
     private Date updatedAt;
     private AuthorDto author;
     private Long postId;
+    private Long socialPostId; // ✅ NEW FIELD FOR SOCIAL POSTS
     private Long parentCommentId;
     private Integer replyCount;
     private Boolean isReply;
@@ -39,9 +40,14 @@ public class CommentDto implements Serializable {
         // Convert the user to AuthorDto to prevent LazyInitializationException
         dto.setAuthor(AuthorDto.fromUser(comment.getUser()));
 
-        // Set post ID safely
+        // ✅ Set post ID safely (for issue posts)
         if (comment.getPost() != null) {
             dto.setPostId(comment.getPost().getId());
+        }
+
+        // ✅ Set social post ID safely (for social posts)
+        if (comment.getSocialPost() != null) {
+            dto.setSocialPostId(comment.getSocialPost().getId());
         }
 
         // Set parent comment ID safely and determine if it's a reply
@@ -70,6 +76,38 @@ public class CommentDto implements Serializable {
         }
         return dto;
     }
+
+    // ===== NEW HELPER METHODS FOR SOCIAL POSTS =====
+
+    /**
+     * Check if this comment is on a social post
+     */
+    public boolean isOnSocialPost() {
+        return socialPostId != null;
+    }
+
+    /**
+     * Check if this comment is on an issue post
+     */
+    public boolean isOnIssuePost() {
+        return postId != null;
+    }
+
+    /**
+     * Get the post ID (works for both post types)
+     */
+    public Long getAnyPostId() {
+        return postId != null ? postId : socialPostId;
+    }
+
+    /**
+     * Check if comment has a valid post reference
+     */
+    public boolean hasValidPostReference() {
+        return postId != null || socialPostId != null;
+    }
+
+    // ===== EXISTING HELPER METHODS =====
 
     /**
      * Check if this is a top-level comment (not a reply)
@@ -137,9 +175,7 @@ public class CommentDto implements Serializable {
     /**
      * Get author profile image URL
      */
-    public String getAuthorProfileImageUrl() {
-        return author != null ? author.getProfilePictureUrl() : null;
-    }
+
 
     /**
      * Check if author has profile image
