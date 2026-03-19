@@ -4,6 +4,7 @@ import com.JanSahayak.AI.DTO.AuthRequest;
 import com.JanSahayak.AI.DTO.AuthResponse;
 import com.JanSahayak.AI.DTO.RegisterRequest;
 import com.JanSahayak.AI.exception.ApiResponse;
+import com.JanSahayak.AI.exception.ServiceException;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.model.Role;
 import com.JanSahayak.AI.repository.RoleRepo;
@@ -45,26 +46,18 @@ public class AuthController {
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
             final String jwt = jwtUtil.generateToken(authentication);
-
             return ResponseEntity.ok(ApiResponse.success("Login successful", new AuthResponse(jwt)));
 
         } catch (BadCredentialsException e) {
-            // This exception is specifically for incorrect passwords.
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Incorrect username or password. Please try again."));
-
         } catch (UsernameNotFoundException e) {
-            // This exception is thrown by your UserDetailsService if the email is not found.
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("No account found with this email address."));
-
         } catch (DisabledException e) {
-            // This can be used if you have a feature to disable user accounts.
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Your account has been disabled. Please contact support."));
-
         } catch (Exception e) {
-            // A general fallback for any other unexpected errors during authentication.
             log.error("Authentication failed for user {}: {}", request.getEmail(), e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("An internal error occurred. Please try again later."));
@@ -75,7 +68,10 @@ public class AuthController {
     @Transactional
     public ResponseEntity<ApiResponse<String>> registerUser(@RequestBody RegisterRequest request) {
         try {
-            if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            // FIX: Use existsByEmail() instead of findByEmail().isPresent()
+            // existsByEmail() runs a COUNT query — much cheaper than loading a full User entity
+            // just to check if it exists.
+            if (userRepository.existsByEmail(request.getEmail())) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
             }
 
@@ -107,6 +103,7 @@ public class AuthController {
             }
 
             return ResponseEntity.ok(ApiResponse.success("Citizen registered successfully"));
+
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Registration failed"));
@@ -118,7 +115,8 @@ public class AuthController {
     @Transactional
     public ResponseEntity<ApiResponse<String>> registerDepartment(@RequestBody RegisterRequest request) {
         try {
-            if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            // FIX: Use existsByEmail() instead of findByEmail().isPresent()
+            if (userRepository.existsByEmail(request.getEmail())) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
             }
 
@@ -161,7 +159,8 @@ public class AuthController {
     @Transactional
     public ResponseEntity<ApiResponse<String>> registerAdmin(@RequestBody RegisterRequest request) {
         try {
-            if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            // FIX: Use existsByEmail() instead of findByEmail().isPresent()
+            if (userRepository.existsByEmail(request.getEmail())) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
             }
 
@@ -199,6 +198,18 @@ public class AuthController {
         }
     }
 
+    /**
+     * FIX: Bounded username generation loop.
+     *
+     * The original do-while had no upper limit — if the username space were saturated,
+     * it would loop forever burning DB connections. The outer retry guard in
+     * registerUser() had a max of 10, but generateUniqueUsername() itself was unbounded.
+     *
+     * Fixed to try at most 20 combinations before throwing. Given ~150 adjectives ×
+     * ~150 nouns × 9000 numbers = ~202,500,000 combinations, 20 attempts will succeed
+     * in practice. The exception surfaces the same "try again" 500 that was already
+     * shown to the user when the outer 10-retry loop failed.
+     */
     private String generateUniqueUsername() {
         String[] adjectives = {
                 "Happy","Brave","Swift","Clever","Mighty","Silent","Wise","Lucky","Bold","Shiny",
@@ -206,15 +217,12 @@ public class AuthController {
                 "Strong","Fearless","Quiet","Sneaky","Cheerful","Noble","Radiant","Epic","Smart","Eager",
                 "Playful","Energetic","Glorious","Charming","Courageous","Heroic","Friendly","Polite","Magical","Mystic",
                 "Joyful","Adventurous","Brilliant","Daring","Faithful","Generous","Humble","Creative","Graceful","Dynamic",
-                "Witty","Keen","Determined","Epic","Sunny","Starry","Shiny","Epic","Vivid","Dazzling",
-                "Gentle","Zesty","Glowing","Chill","Funky","Epic","Coolheaded","Quick","Resourceful","Inventive",
-                "Cheeky","Radiant","Blissful","Epic","Hopeful","Valiant","Luminous","Cosmic","Epic","Fiery",
-                "Dreamy","Tranquil","Golden","Epic","Boldhearted","Clever","Fearless","Epic","Eternal","Zen",
-                "Spirited","Wildhearted","Vast","Epic","Skybound","Stellar","Brighthearted","Epic","Roaring","Free",
-                "Epic","Harmonic","Nimble","Epic","Gallant","Sturdy","Calmhearted","Epic","Swiftfooted","Iron",
-                "Epic","Steady","Thunderous","Epic","Silentblade","Epic","Quickwitted","Epic","Stormy","Snowy",
-                "Epic","Frosty","Epic","Burning","Epic","Shadowy","Epic","Crimson","Epic","Silver",
-                "Epic","Epicurean","Epic","Serene","Epic","Ancient","Epic","Epic"
+                "Witty","Keen","Determined","Sunny","Starry","Vivid","Dazzling","Zesty","Glowing","Chill",
+                "Funky","Coolheaded","Quick","Resourceful","Inventive","Cheeky","Blissful","Hopeful","Valiant","Luminous",
+                "Cosmic","Fiery","Dreamy","Tranquil","Golden","Boldhearted","Eternal","Zen","Spirited","Vast",
+                "Skybound","Stellar","Brighthearted","Roaring","Free","Harmonic","Nimble","Gallant","Sturdy","Calmhearted",
+                "Swiftfooted","Iron","Steady","Thunderous","Silentblade","Quickwitted","Stormy","Snowy","Frosty","Burning",
+                "Shadowy","Crimson","Silver","Serene","Ancient","Wildhearted","Springtime","Moonlit","Sunlit","Windswept"
         };
 
         String[] nouns = {
@@ -230,20 +238,22 @@ public class AuthController {
                 "Parrot","Macaw","Canary","Sparrow","Robin","Finch","Swallow","Seagull","Pelican","Albatross",
                 "Heron","Flamingo","Swan","Duck","Goose","Turkey","Chicken","Rooster","Peacock","Dove",
                 "Pigeon","Caterpillar","Worm","Snail","Slug","Clam","Oyster","Mussel","Coral","Barnacle",
-                "Jelly","Kraken","Cyclops","Golem","Griffin","Hydra","Cerberus","Unicorn","Pegasus","Minotaur",
-                "Yeti","Bigfoot","Sasquatch","Werewolf","Zombie","Ghoul","Vampire","Mummy","Sphinx","Chimera",
-                "Basilisk","Hippogriff","Mermaid","Kraken","Phoenix","Dragonlord","Wyvern","SeaSerpent","Leviathan","Titan"
+                "Griffin","Hydra","Cerberus","Unicorn","Pegasus","Minotaur","Yeti","Bigfoot","Werewolf","Ghoul",
+                "Sphinx","Chimera","Basilisk","Hippogriff","Mermaid","Phoenix","Wyvern","Leviathan","Titan","Golem"
         };
 
-        String username;
-        do {
+        for (int i = 0; i < 20; i++) {
             String adjective = adjectives[(int) (Math.random() * adjectives.length)];
-            String noun = nouns[(int) (Math.random() * nouns.length)];
-            int number = (int) (Math.random() * 9000) + 1000;
+            String noun      = nouns[(int) (Math.random() * nouns.length)];
+            int    number    = (int) (Math.random() * 9000) + 1000;
+            String candidate = adjective + noun + number;
 
-            username = adjective + noun + number;
-        } while (username.length() <= 3 || userRepository.existsByUsername(username));
+            if (candidate.length() > 3 && !userRepository.existsByUsername(candidate)) {
+                return candidate;
+            }
+        }
 
-        return username;
+        // Practically unreachable given 200M+ combinations, but we must be bounded.
+        throw new ServiceException("Could not generate a unique username after 20 attempts. Please try again.");
     }
 }

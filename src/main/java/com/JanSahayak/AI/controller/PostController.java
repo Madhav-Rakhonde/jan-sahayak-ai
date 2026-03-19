@@ -8,6 +8,7 @@ import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.security.CurrentUser;
 import com.JanSahayak.AI.service.PostService;
+import com.JanSahayak.AI.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -28,6 +30,12 @@ import java.util.Map;
 public class PostController {
 
     private final PostService postService;
+
+    /**
+     * FIX: Injected UserService to implement the previously-stub getPostsByUser() endpoint.
+     * The original endpoint always returned HTTP 501 NOT_IMPLEMENTED.
+     */
+    private final UserService userService;
 
     // ===== Regular Post Creation Endpoints =====
 
@@ -67,9 +75,7 @@ public class PostController {
 
             if (mediaFile != null) {
                 log.info("Media file: {} (size: {} bytes, content-type: {})",
-                        mediaFile.getOriginalFilename(),
-                        mediaFile.getSize(),
-                        mediaFile.getContentType());
+                        mediaFile.getOriginalFilename(), mediaFile.getSize(), mediaFile.getContentType());
             }
 
             if (content == null || content.trim().isEmpty()) {
@@ -130,11 +136,9 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Broadcast post created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create broadcast post", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -160,14 +164,11 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Broadcast post with media created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (MediaValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Media validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Media validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create broadcast post with media", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -186,11 +187,9 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Country-wide broadcast created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create country-wide broadcast", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -210,14 +209,11 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Country-wide broadcast with media created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (MediaValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Media validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Media validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create country-wide broadcast with media", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -237,11 +233,9 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("State-level broadcast created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create state-level broadcast", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -262,14 +256,11 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("State-level broadcast with media created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (MediaValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Media validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Media validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create state-level broadcast with media", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -290,11 +281,9 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("District-level broadcast created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create district-level broadcast", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -316,14 +305,11 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("District-level broadcast with media created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (MediaValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Media validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Media validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create district-level broadcast with media", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -343,11 +329,9 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Area-level broadcast created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create area-level broadcast", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -368,14 +352,11 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Area-level broadcast with media created successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (MediaValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Media validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Media validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to create area-level broadcast with media", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -387,6 +368,7 @@ public class PostController {
 
     @GetMapping("/broadcast")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllBroadcastPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -404,6 +386,7 @@ public class PostController {
 
     @GetMapping("/broadcast/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getActiveBroadcastPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -421,6 +404,7 @@ public class PostController {
 
     @GetMapping("/broadcast/scope/{scope}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getBroadcastPostsByScope(
             @PathVariable BroadcastScope scope,
             @RequestParam(required = false) Long beforeId,
@@ -439,6 +423,7 @@ public class PostController {
 
     @GetMapping("/visible")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getVisiblePostsForUser(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -456,6 +441,7 @@ public class PostController {
 
     @GetMapping("/broadcast/visible")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getBroadcastPostsVisibleToUser(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -473,6 +459,7 @@ public class PostController {
 
     @GetMapping("/broadcast/country/all")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllCountryWideBroadcasts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -490,6 +477,7 @@ public class PostController {
 
     @GetMapping("/broadcast/country/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getActiveCountryWideBroadcasts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -507,6 +495,7 @@ public class PostController {
 
     @GetMapping("/broadcast/country")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getCountryWideBroadcasts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -523,6 +512,7 @@ public class PostController {
     }
 
     @GetMapping("/broadcast/state/{state}")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getStateLevelBroadcasts(
             @PathVariable String state,
             @RequestParam(required = false) Long beforeId,
@@ -533,8 +523,7 @@ public class PostController {
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("State-level broadcasts retrieved successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get state-level broadcasts for state: {}", state, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -543,6 +532,7 @@ public class PostController {
     }
 
     @GetMapping("/broadcast/district/{district}")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getDistrictLevelBroadcasts(
             @PathVariable String district,
             @RequestParam(required = false) Long beforeId,
@@ -553,8 +543,7 @@ public class PostController {
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("District-level broadcasts retrieved successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get district-level broadcasts for district: {}", district, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -563,6 +552,7 @@ public class PostController {
     }
 
     @GetMapping("/broadcast/area/{pincode}")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAreaLevelBroadcasts(
             @PathVariable String pincode,
             @RequestParam(required = false) Long beforeId,
@@ -573,8 +563,7 @@ public class PostController {
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("Area-level broadcasts retrieved successfully", response));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get area-level broadcasts for pincode: {}", pincode, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -586,6 +575,7 @@ public class PostController {
 
     @GetMapping("/broadcast/statistics")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Long>>> getBroadcastStatistics() {
         try {
             Map<String, Long> statistics = postService.getBroadcastStatistics();
@@ -599,6 +589,7 @@ public class PostController {
 
     @GetMapping("/broadcast/analytics")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Object>>> getBroadcastAnalytics(
             @RequestParam(defaultValue = "30") int days,
             @CurrentUser User user) {
@@ -606,11 +597,9 @@ public class PostController {
             Map<String, Object> analytics = postService.getBroadcastAnalytics(user, days);
             return ResponseEntity.ok(ApiResponse.success("Broadcast analytics retrieved successfully", analytics));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get broadcast analytics", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -634,14 +623,11 @@ public class PostController {
             PostResponse response = postService.convertToPostResponse(updatedPost, user);
             return ResponseEntity.ok(ApiResponse.success("Broadcast targets updated successfully", response));
         } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Post not found", e.getMessage()));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to update broadcast targets for post: {}", postId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -662,14 +648,11 @@ public class PostController {
             PostResponse response = postService.convertToPostResponse(updatedPost, user);
             return ResponseEntity.ok(ApiResponse.success("Post media updated successfully", response));
         } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Post not found", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (MediaValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Media validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Media validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to update post media for post: {}", postId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -687,11 +670,9 @@ public class PostController {
             PostResponse response = postService.convertToPostResponse(updatedPost, user);
             return ResponseEntity.ok(ApiResponse.success("Post media removed successfully", response));
         } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Post not found", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to remove post media for post: {}", postId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -710,14 +691,11 @@ public class PostController {
             PostResponse response = postService.convertToPostResponse(updatedPost, user);
             return ResponseEntity.ok(ApiResponse.success("Post content updated successfully", response));
         } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Post not found", e.getMessage()));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to update post content for post: {}", postId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -736,14 +714,11 @@ public class PostController {
             PostResponse response = postService.convertToPostResponse(updatedPost, user);
             return ResponseEntity.ok(ApiResponse.success("Post content updated successfully", response));
         } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Post not found", e.getMessage()));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to update post content with DTO for post: {}", postId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -763,11 +738,9 @@ public class PostController {
             PostResponse response = postService.convertToPostResponse(updatedPost, user);
             return ResponseEntity.ok(ApiResponse.success("Post resolution updated successfully", response));
         } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Post not found", e.getMessage()));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to update post resolution for post: {}", postId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -779,6 +752,7 @@ public class PostController {
 
     @GetMapping("/tagged-with-user/{userId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getPostsTaggedWithUser(
             @PathVariable Long userId,
             @RequestParam(required = false) Long beforeId,
@@ -789,8 +763,7 @@ public class PostController {
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("Posts tagged with user retrieved successfully", response));
         } catch (UserNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("User not found", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("User not found", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get posts tagged with user: {}", userId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -798,28 +771,17 @@ public class PostController {
         }
     }
 
-    /**
-     * GET /api/posts/{postId}
-     *
-     * CHANGED: Now calls postService.getPostByIdForUser() instead of findById().
-     *
-     * Resolved post access control:
-     *   - Active posts  → returned normally to all authenticated users
-     *   - Resolved posts → returned only to creator, tagged dept, or admin.
-     *     Everyone else receives HTTP 404 (we don't reveal the post exists).
-     */
     @GetMapping("/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PostResponse>> getPostById(
             @PathVariable Long postId,
             @CurrentUser User user) {
         try {
-            // Resolved-post access control is enforced inside getPostByIdForUser()
             PostResponse response = postService.getPostByIdForUser(postId, user);
             return ResponseEntity.ok(ApiResponse.success("Post retrieved successfully", response));
         } catch (PostNotFoundException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("Post not found", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Post not found", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get post by ID: {}", postId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -829,6 +791,7 @@ public class PostController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -846,6 +809,7 @@ public class PostController {
 
     @GetMapping("/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllActivePosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -861,15 +825,9 @@ public class PostController {
         }
     }
 
-    /**
-     * GET /api/posts/resolved  (Admin only)
-     *
-     * CHANGED: Restricted to ROLE_ADMIN only.
-     * Normal users must use /my-posts/resolved to see their own resolved posts.
-     * Department users view individual resolved posts via GET /api/posts/{postId}.
-     */
     @GetMapping("/resolved")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllResolvedPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -885,16 +843,30 @@ public class PostController {
         }
     }
 
+    /**
+     * FIX: Implemented the previously-stub getPostsByUser() endpoint.
+     *
+     * The original always returned HTTP 501 NOT_IMPLEMENTED with the message
+     * "Endpoint requires UserService integration". UserService is now injected
+     * and the endpoint works correctly — loads the target user then delegates
+     * to postService.getPostsByUser() exactly as the /my-posts endpoint does.
+     */
     @GetMapping("/user/{userId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getPostsByUser(
             @PathVariable Long userId,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
             @CurrentUser User currentUser) {
         try {
-            return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
-                    .body(ApiResponse.error("Endpoint requires UserService integration", "Not implemented"));
+            User targetUser = userService.findById(userId);
+            PaginatedResponse<Post> posts = postService.getPostsByUser(targetUser, beforeId, limit);
+            PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, currentUser);
+            return ResponseEntity.ok(ApiResponse.success("Posts retrieved successfully", response));
+        } catch (UserNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("User not found", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get posts by user: {}", userId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -904,6 +876,7 @@ public class PostController {
 
     @GetMapping("/my-posts")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getMyPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -921,6 +894,7 @@ public class PostController {
 
     @GetMapping("/my-posts/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getMyActivePosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -936,29 +910,19 @@ public class PostController {
         }
     }
 
-    /**
-     * GET /api/posts/my-posts/resolved
-     *
-     * CHANGED: Passes the requesting user (currentUser) as the first argument to
-     * getResolvedPostsByUser() so the service can enforce the ownership check.
-     * Users can only see their own resolved posts (service throws 403 if they try to
-     * access someone else's — but since the endpoint only accepts the current user,
-     * this is enforced structurally here too).
-     */
     @GetMapping("/my-posts/resolved")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getMyResolvedPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
             @CurrentUser User user) {
         try {
-            // Pass user as BOTH requestingUser and targetUser — you can only see your own resolved posts
             PaginatedResponse<Post> posts = postService.getResolvedPostsByUser(user, user, beforeId, limit);
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("Your resolved posts retrieved successfully", response));
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("Access denied", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get resolved posts by user: {}", user.getActualUsername(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -966,24 +930,9 @@ public class PostController {
         }
     }
 
-    /**
-     * GET /api/posts/feed/issue
-     *
-     * NEW: Issue post recommendation feed for the authenticated user.
-     *
-     * Returns user-created civic issue posts ranked by:
-     *   engagement (likes + comments + views) × freshness × geographic proximity
-     *
-     * Posts at the user's area pincode get 2× boost over national posts.
-     * Posts that gained engagement quickly are promoted to wider geographic scope
-     * automatically (area → district → state → national) by checkAndPromoteIssuePost().
-     *
-     * Only ACTIVE posts are returned. Resolved posts never appear here.
-     *
-     * @param limit  number of posts to return (default 20, max 100)
-     */
     @GetMapping("/feed/issue")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getIssuePostFeed(
             @RequestParam(required = false) Integer limit,
             @CurrentUser User user) {
@@ -991,8 +940,7 @@ public class PostController {
             PaginatedResponse<PostResponse> feed = postService.getIssuePostFeed(user, limit);
             return ResponseEntity.ok(ApiResponse.success("Issue post feed retrieved successfully", feed));
         } catch (ValidationException e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (Exception e) {
             log.error("Failed to get issue post feed for user: {}", user.getActualUsername(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -1002,6 +950,7 @@ public class PostController {
 
     @GetMapping("/count/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Long>> countActivePosts() {
         try {
             Long count = postService.countActivePosts();
@@ -1015,6 +964,7 @@ public class PostController {
 
     @GetMapping("/count/resolved")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Long>> countResolvedPosts() {
         try {
             Long count = postService.countResolvedPosts();

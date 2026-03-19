@@ -21,50 +21,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Date;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
-/**
- * PostInteractionService (merged)
- *
- * Single service that owns ALL post interactions:
- *
- *  ┌──────────┬─────────────────────────────────────────────────────────────┐
- *  │ VIEWS    │ recordPostView, recordSocialPostView                        │
- *  │          │ Deduplication: 1 view per user per post per hour           │
- *  ├──────────┼─────────────────────────────────────────────────────────────┤
- *  │ LIKES    │ likePost / likeSocialPost (two-button UI)                  │
- *  │ DISLIKES │ dislikePost / dislikeSocialPost (two-button UI)            │
- *  │          │ togglePostLike / toggleSocialPostLike (legacy, kept for BC)│
- *  │          │ Like ↔ Dislike flip is done in-place on the PostLike row. │
- *  ├──────────┼─────────────────────────────────────────────────────────────┤
- *  │ SAVE     │ toggleSocialPostSave (SocialPost only)                     │
- *  │          │ toggleBroadcastPostSave (gov. broadcast Post only)         │
- *  │          │ getSavedPostsForUser / getSavedPostsForUserWithCursor      │
- *  ├──────────┼─────────────────────────────────────────────────────────────┤
- *  │ SHARE    │ recordPostShare (Post — blocks resolved issue posts)       │
- *  │          │ recordSocialPostShare                                       │
- *  │          │ getShareBreakdownForPost / getShareBreakdownForSocialPost  │
- *  ├──────────┼─────────────────────────────────────────────────────────────┤
- *  │ CLEANUP  │ cleanupForPostDeletion, cleanupForSocialPostDeletion        │
- *  │          │ cleanupForUserDeletion                                      │
- *  └──────────┴─────────────────────────────────────────────────────────────┘
- *
- * ─── HLIG v2 INTEGRATION ────────────────────────────────────────────────────
- * Every SocialPost interaction fires an @Async signal to InterestProfileService.
- * These calls never block the HTTP thread (fire-and-forget).
- * Failures are caught and logged — they never fail the actual user interaction.
- * Regular Post (gov broadcast) interactions do NOT fire HLIG signals.
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * All write methods are @Transactional and race-condition safe via DB unique
- * constraints + DataIntegrityViolationException handling.
- *
- * Migration note: PostSaveShareService is now deprecated. Inject this class
- * wherever PostSaveShareService was previously used — all method signatures
- * are identical.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -78,19 +36,10 @@ public class PostInteractionService {
     private final SavedPostRepo  savedPostRepo;
     private final PostShareRepo  postShareRepo;
 
-    // FIX #6: CommunityService was not injected — like counters on communities
-    // always stayed 0. @Lazy breaks the circular dependency:
-    // CommunityService → SocialPostRepo,
-    // PostInteractionService → CommunityService.
     @Lazy
     @Autowired
     private CommunityService communityService;
 
-    // ── HLIG v2: Interest-profile signal bus ──────────────────────────────────
-    // @Lazy breaks circular dependency:
-    //   InterestProfileService → UserInterestProfileRepo (no loop here)
-    //   PostInteractionService → InterestProfileService
-    // All methods on InterestProfileService are @Async — never block this thread.
     @Lazy
     @Autowired
     private InterestProfileService interestProfileService;
@@ -99,10 +48,6 @@ public class PostInteractionService {
     // VIEWS — REGULAR POST
     // =========================================================================
 
-    /**
-     * Record a view on a regular Post.
-     * No-op if the same user already viewed within the deduplication window (1 hour).
-     */
     @Transactional(rollbackFor = Exception.class)
     public PostView recordPostView(Post post, User user) {
         try {
@@ -148,12 +93,6 @@ public class PostInteractionService {
     // VIEWS — SOCIAL POST
     // =========================================================================
 
-    /**
-     * Record a view on a SocialPost.
-     * No-op if the same user already viewed within the deduplication window (1 hour).
-     *
-     * HLIG v2: fires onView() signal after a successful (non-duplicate) view.
-     */
     @Transactional(rollbackFor = Exception.class)
     public PostView recordSocialPostView(SocialPost socialPost, User user) {
         try {
@@ -182,7 +121,6 @@ public class PostInteractionService {
             PostView saved = postViewRepository.save(view);
             socialPostRepository.save(socialPost);
 
-            // HLIG v2: fire async view signal (weight +0.5)
             fireHligSignal(() -> interestProfileService.onView(user.getId(), socialPost),
                     "VIEW", socialPost.getId(), user.getId());
 
@@ -200,16 +138,9 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // LIKE — REGULAR POST (two-button UI)
+    // LIKE — REGULAR POST
     // =========================================================================
 
-    /**
-     * Like a regular Post (two-button UI).
-     *
-     *  No reaction   → LIKE added,   likeCount++                          → true
-     *  Already LIKED → LIKE removed, likeCount--                          → false
-     *  Had DISLIKE   → flipped,      dislikeCount--, likeCount++          → true
-     */
     @Transactional(rollbackFor = Exception.class)
     public boolean likePost(Post post, User user) {
         try {
@@ -221,14 +152,12 @@ public class PostInteractionService {
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isLike()) {
-                    // Toggle off — user un-likes
                     postLikeRepository.delete(row);
                     post.decrementLikeCount();
                     postRepository.save(post);
                     log.info("[Like] Removed: post={} user={} likeCount={}", post.getId(), user.getActualUsername(), post.getLikeCount());
                     return false;
                 } else {
-                    // Flip DISLIKE → LIKE in-place (preserves unique constraint)
                     row.setReactionType(PostLike.ReactionType.LIKE);
                     postLikeRepository.save(row);
                     post.decrementDislikeCount();
@@ -257,16 +186,9 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // DISLIKE — REGULAR POST (two-button UI)
+    // DISLIKE — REGULAR POST
     // =========================================================================
 
-    /**
-     * Dislike a regular Post (two-button UI).
-     *
-     *  No reaction      → DISLIKE added,   dislikeCount++                 → true
-     *  Already DISLIKED → DISLIKE removed, dislikeCount--                 → false
-     *  Had LIKE         → flipped,         likeCount--, dislikeCount++    → true
-     */
     @Transactional(rollbackFor = Exception.class)
     public boolean dislikePost(Post post, User user) {
         try {
@@ -278,14 +200,12 @@ public class PostInteractionService {
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isDislike()) {
-                    // Toggle off — user un-dislikes
                     postLikeRepository.delete(row);
                     post.decrementDislikeCount();
                     postRepository.save(post);
                     log.info("[Dislike] Removed: post={} user={} dislikeCount={}", post.getId(), user.getActualUsername(), post.getDislikeCount());
                     return false;
                 } else {
-                    // Flip LIKE → DISLIKE in-place
                     row.setReactionType(PostLike.ReactionType.DISLIKE);
                     postLikeRepository.save(row);
                     post.decrementLikeCount();
@@ -314,18 +234,9 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // LIKE — SOCIAL POST (two-button UI)
+    // LIKE — SOCIAL POST
     // =========================================================================
 
-    /**
-     * Like a SocialPost (two-button UI).
-     * Same semantics as likePost().
-     *
-     * HLIG v2:
-     *   New like    → fires onLike()   (+3.0)
-     *   Un-like     → fires onUnlike() (−3.0)
-     *   Flip D→L    → fires onLike()   (+3.0)
-     */
     @Transactional(rollbackFor = Exception.class)
     public boolean likeSocialPost(SocialPost socialPost, User user) {
         try {
@@ -337,26 +248,21 @@ public class PostInteractionService {
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isLike()) {
-                    // Un-like
                     postLikeRepository.delete(row);
                     socialPost.decrementLikeCount();
                     socialPostRepository.save(socialPost);
-                    // HLIG: negative signal for un-like
                     fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost),
                             "UNLIKE", socialPost.getId(), user.getId());
                     log.info("[Like] Removed: socialPost={} user={} likeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getLikeCount());
                     return false;
                 } else {
-                    // Flip DISLIKE → LIKE in-place
                     row.setReactionType(PostLike.ReactionType.LIKE);
                     postLikeRepository.save(row);
                     socialPost.decrementDislikeCount();
                     socialPost.incrementLikeCount();
                     socialPostRepository.save(socialPost);
-                    // HLIG: treat flip as fresh like
                     fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost),
                             "LIKE", socialPost.getId(), user.getId());
-                    // Community counter
                     if (socialPost.getCommunity() != null) {
                         try { communityService.onLikeAdded(socialPost.getCommunity().getId()); }
                         catch (Exception e) { log.warn("[Community] onLikeAdded (flip) failed: {}", e.getMessage()); }
@@ -365,15 +271,12 @@ public class PostInteractionService {
                     return true;
                 }
             } else {
-                // New like
                 PostLike newLike = buildLike(null, socialPost, user, PostLike.ReactionType.LIKE);
                 socialPost.incrementLikeCount();
                 postLikeRepository.save(newLike);
                 socialPostRepository.save(socialPost);
-                // HLIG: strong positive signal
                 fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost),
                         "LIKE", socialPost.getId(), user.getId());
-                // Community counter
                 if (socialPost.getCommunity() != null) {
                     try { communityService.onLikeAdded(socialPost.getCommunity().getId()); }
                     catch (Exception e) { log.warn("[Community] onLikeAdded (new) failed: {}", e.getMessage()); }
@@ -393,15 +296,9 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // DISLIKE — SOCIAL POST (two-button UI)
+    // DISLIKE — SOCIAL POST
     // =========================================================================
 
-    /**
-     * Dislike a SocialPost (two-button UI).
-     * Same semantics as dislikePost().
-     *
-     * HLIG v2: fires onDislike() (−5.0) on new dislike or flip from LIKE.
-     */
     @Transactional(rollbackFor = Exception.class)
     public boolean dislikeSocialPost(SocialPost socialPost, User user) {
         try {
@@ -413,23 +310,19 @@ public class PostInteractionService {
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isDislike()) {
-                    // Un-dislike (remove)
                     postLikeRepository.delete(row);
                     socialPost.decrementDislikeCount();
                     socialPostRepository.save(socialPost);
-                    // FIX BUG-03: fire compensating signal to reverse the -5.0 dislike weight
                     fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost),
                             "UN-DISLIKE", socialPost.getId(), user.getId());
                     log.info("[Dislike] Removed: socialPost={} user={} dislikeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getDislikeCount());
                     return false;
                 } else {
-                    // Flip LIKE → DISLIKE in-place
                     row.setReactionType(PostLike.ReactionType.DISLIKE);
                     postLikeRepository.save(row);
                     socialPost.decrementLikeCount();
                     socialPost.incrementDislikeCount();
                     socialPostRepository.save(socialPost);
-                    // HLIG: strong negative signal
                     fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost),
                             "DISLIKE", socialPost.getId(), user.getId());
                     log.info("[Dislike] Flipped LIKE→DISLIKE: socialPost={} user={}", socialPost.getId(), user.getActualUsername());
@@ -440,7 +333,6 @@ public class PostInteractionService {
                 socialPost.incrementDislikeCount();
                 postLikeRepository.save(newDislike);
                 socialPostRepository.save(socialPost);
-                // HLIG: strong negative signal
                 fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost),
                         "DISLIKE", socialPost.getId(), user.getId());
                 log.info("[Dislike] Added: socialPost={} user={} dislikeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getDislikeCount());
@@ -458,36 +350,27 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // LIKE / DISLIKE LEGACY TOGGLES (backward compatibility — do not remove)
+    // LEGACY TOGGLES (backward compatibility)
     // =========================================================================
 
-    /**
-     * @deprecated Use {@link #likePost(Post, User)} for the two-button UI.
-     * Kept for backward compatibility with callers that relied on the original toggle.
-     */
     @Deprecated
     @Transactional(rollbackFor = Exception.class)
     public boolean togglePostLike(Post post, User user) {
         return likePost(post, user);
     }
 
-    /**
-     * @deprecated Use {@link #likeSocialPost(SocialPost, User)} for the two-button UI.
-     */
     @Deprecated
     @Transactional(rollbackFor = Exception.class)
     public boolean toggleSocialPostLike(SocialPost socialPost, User user) {
         return likeSocialPost(socialPost, user);
     }
 
-    /** @deprecated Use {@link #recordPostView(Post, User)} */
     @Deprecated
     @Transactional(rollbackFor = Exception.class)
     public PostView recordPostViewWithCounterUpdate(Post post, User user) {
         return recordPostView(post, user);
     }
 
-    /** @deprecated Use {@link #togglePostLike(Post, User)} */
     @Deprecated
     @Transactional(rollbackFor = Exception.class)
     public boolean togglePostLikeWithCounterUpdate(Post post, User user) {
@@ -495,7 +378,7 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // REACTION STATUS CHECKS
+    // REACTION STATUS CHECKS — single post (used for single post detail page)
     // =========================================================================
 
     public boolean hasUserLikedPost(Post post, User user) {
@@ -529,17 +412,57 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // SAVE — SOCIAL POST
+    // BATCH INTERACTION CHECKS — eliminates N+1 queries in feed (NEW)
     // =========================================================================
 
     /**
-     * Toggle save / un-save for a SocialPost.
-     *
-     * HLIG v2: fires onSave() (+3.5) when saved, onUnsave() (−3.5) when removed.
-     *
-     * @return true  → post is now SAVED
-     *         false → post is now UN-SAVED
+     * Returns IDs of social posts (from given list) that the user has LIKED.
+     * Replaces N individual hasUserLikedSocialPost() calls with 1 query.
      */
+    public Set<Long> getBatchLikedSocialPostIds(User user, List<Long> postIds) {
+        if (user == null || postIds == null || postIds.isEmpty())
+            return Collections.emptySet();
+        return new HashSet<>(
+                postLikeRepository.findLikedSocialPostIdsByUser(user.getId(), postIds));
+    }
+
+    /**
+     * Returns IDs of social posts (from given list) that the user has DISLIKED.
+     * Replaces N individual hasUserDislikedSocialPost() calls with 1 query.
+     */
+    public Set<Long> getBatchDislikedSocialPostIds(User user, List<Long> postIds) {
+        if (user == null || postIds == null || postIds.isEmpty())
+            return Collections.emptySet();
+        return new HashSet<>(
+                postLikeRepository.findDislikedSocialPostIdsByUser(user.getId(), postIds));
+    }
+
+    /**
+     * Returns IDs of social posts (from given list) that the user has SAVED.
+     * Replaces N individual hasSavedSocialPost() calls with 1 query.
+     */
+    public Set<Long> getBatchSavedSocialPostIds(User user, List<Long> postIds) {
+        if (user == null || postIds == null || postIds.isEmpty())
+            return Collections.emptySet();
+        return new HashSet<>(
+                savedPostRepo.findSavedSocialPostIdsByUser(user.getId(), postIds));
+    }
+
+    /**
+     * Returns IDs of social posts (from given list) that the user has VIEWED.
+     * Replaces N individual hasUserViewedSocialPostRecently() calls with 1 query.
+     */
+    public Set<Long> getBatchViewedSocialPostIds(User user, List<Long> postIds) {
+        if (user == null || postIds == null || postIds.isEmpty())
+            return Collections.emptySet();
+        return new HashSet<>(
+                postViewRepository.findViewedSocialPostIdsByUser(user.getId(), postIds));
+    }
+
+    // =========================================================================
+    // SAVE — SOCIAL POST
+    // =========================================================================
+
     @Transactional(rollbackFor = Exception.class)
     public boolean toggleSocialPostSave(SocialPost socialPost, User user) {
         validateSocialPost(socialPost);
@@ -555,7 +478,6 @@ public class PostInteractionService {
                 savedPostRepo.delete(existing.get());
                 socialPost.decrementSaveCount();
                 socialPostRepository.save(socialPost);
-                // HLIG: un-save is a moderate negative signal
                 fireHligSignal(() -> interestProfileService.onUnsave(user.getId(), socialPost),
                         "UNSAVE", socialPost.getId(), user.getId());
                 log.info("[Save] Removed: socialPost={} user={} saveCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getSaveCount());
@@ -565,7 +487,6 @@ public class PostInteractionService {
                 socialPost.incrementSaveCount();
                 savedPostRepo.save(sp);
                 socialPostRepository.save(socialPost);
-                // HLIG: save is a strong intent signal (intentional bookmark)
                 fireHligSignal(() -> interestProfileService.onSave(user.getId(), socialPost),
                         "SAVE", socialPost.getId(), user.getId());
                 log.info("[Save] Added: socialPost={} user={} saveCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getSaveCount());
@@ -586,14 +507,6 @@ public class PostInteractionService {
     // SAVE — GOVERNMENT BROADCAST POST
     // =========================================================================
 
-    /**
-     * Toggle save / un-save for a government broadcast Post.
-     * Rejects plain citizen issue posts with a ValidationException.
-     * NOTE: Gov broadcast Post saves do NOT fire HLIG signals.
-     *
-     * @return true  → post is now SAVED
-     *         false → post is now UN-SAVED
-     */
     @Transactional(rollbackFor = Exception.class)
     public boolean toggleBroadcastPostSave(Post post, User user) {
         validatePost(post);
@@ -647,10 +560,6 @@ public class PostInteractionService {
 
     // ── Saved post listing ────────────────────────────────────────────────────
 
-    /**
-     * Paginated saved posts for the current user, newest first.
-     * Mix of SocialPost and broadcast Post saves — check isSocialPostSave() / isBroadcastPostSave().
-     */
     @Transactional(readOnly = true)
     public Page<SavedPost> getSavedPostsForUser(User user, int page, int size) {
         validateUser(user);
@@ -658,10 +567,6 @@ public class PostInteractionService {
         return savedPostRepo.findByUserOrderBySavedAtDesc(user, pageable);
     }
 
-    /**
-     * Cursor-based saved posts (id &lt; beforeId) for infinite scroll.
-     * Pass null/0 for beforeId to get the first page.
-     */
     @Transactional(readOnly = true)
     public Page<SavedPost> getSavedPostsForUserWithCursor(User user, Long beforeId, int size) {
         validateUser(user);
@@ -672,9 +577,6 @@ public class PostInteractionService {
         return savedPostRepo.findByUserAndIdLessThanOrderBySavedAtDesc(user, beforeId, pageable);
     }
 
-    /**
-     * Paginated SocialPost saves only — for a dedicated "Saved Social Posts" tab.
-     */
     @Transactional(readOnly = true)
     public Page<SavedPost> getSavedSocialPostsForUser(User user, int page, int size) {
         validateUser(user);
@@ -682,9 +584,6 @@ public class PostInteractionService {
         return savedPostRepo.findSocialPostSavesByUserOrderBySavedAtDesc(user, pageable);
     }
 
-    /**
-     * Paginated broadcast Post saves only — for a dedicated "Saved Government Posts" tab.
-     */
     @Transactional(readOnly = true)
     public Page<SavedPost> getSavedBroadcastPostsForUser(User user, int page, int size) {
         validateUser(user);
@@ -710,19 +609,9 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // SHARE — REGULAR POST (issue / broadcast)
+    // SHARE — REGULAR POST
     // =========================================================================
 
-    /**
-     * Record a share event for a regular Post.
-     * NOTE: Regular Post shares do NOT fire HLIG signals.
-     *
-     * Business rules enforced:
-     *  - Resolved issue Posts CANNOT be shared.
-     *  - Non-eligible (inactive/deleted) Posts CANNOT be shared.
-     *
-     * @param shareType platform used; defaults to LINK_COPY when null
-     */
     @Transactional(rollbackFor = Exception.class)
     public PostShare recordPostShare(Post post, User user, ShareType shareType) {
         validatePost(post);
@@ -761,7 +650,6 @@ public class PostInteractionService {
         }
     }
 
-    /** Convenience overload — defaults to LINK_COPY. */
     @Transactional(rollbackFor = Exception.class)
     public PostShare recordPostShare(Post post, User user) {
         return recordPostShare(post, user, ShareType.LINK_COPY);
@@ -771,13 +659,6 @@ public class PostInteractionService {
     // SHARE — SOCIAL POST
     // =========================================================================
 
-    /**
-     * Record a share event for a SocialPost and increment its share_count.
-     *
-     * HLIG v2: fires onShare() (+3.0) after a successful share.
-     *
-     * @param shareType platform used; defaults to LINK_COPY when null
-     */
     @Transactional(rollbackFor = Exception.class)
     public PostShare recordSocialPostShare(SocialPost socialPost, User user, ShareType shareType) {
         validateSocialPost(socialPost);
@@ -798,7 +679,6 @@ public class PostInteractionService {
             PostShare saved = postShareRepo.save(share);
             socialPostRepository.save(socialPost);
 
-            // HLIG: share is a strong positive signal — user wants others to see this topic
             if (user != null) {
                 fireHligSignal(() -> interestProfileService.onShare(user.getId(), socialPost),
                         "SHARE", socialPost.getId(), user.getId());
@@ -817,7 +697,6 @@ public class PostInteractionService {
         }
     }
 
-    /** Convenience overload — defaults to LINK_COPY. */
     @Transactional(rollbackFor = Exception.class)
     public PostShare recordSocialPostShare(SocialPost socialPost, User user) {
         return recordSocialPostShare(socialPost, user, ShareType.LINK_COPY);
@@ -835,35 +714,26 @@ public class PostInteractionService {
         return postShareRepo.countBySocialPost(socialPost);
     }
 
-    /** Returns Object[]{ShareType, Long count} rows per platform for a Post.
-     *  FIX BUG-14: filter rows where shareType is null (legacy data) to prevent NPE/ClassCastException. */
     public List<Object[]> getShareBreakdownForPost(Post post) {
         if (post == null) return List.of();
         return postShareRepo.countByPostGroupByShareType(post)
                 .stream()
-                .filter(row -> row[0] != null) // skip legacy rows with null shareType
+                .filter(row -> row[0] != null)
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    /** Returns Object[]{ShareType, Long count} rows per platform for a SocialPost.
-     *  FIX BUG-14: filter rows where shareType is null (legacy data) to prevent NPE/ClassCastException. */
     public List<Object[]> getShareBreakdownForSocialPost(SocialPost socialPost) {
         if (socialPost == null) return List.of();
         return postShareRepo.countBySocialPostGroupByShareType(socialPost)
                 .stream()
-                .filter(row -> row[0] != null) // skip legacy rows with null shareType
+                .filter(row -> row[0] != null)
                 .collect(java.util.stream.Collectors.toList());
     }
 
     // =========================================================================
-    // HLIG v2 — "NOT INTERESTED" & "SCROLLED PAST" (new endpoints)
+    // HLIG v2 — NOT INTERESTED & SCROLLED PAST
     // =========================================================================
 
-    /**
-     * User explicitly marks a post as "Not Interested".
-     * Fires HLIG onNotInterested() signal (−8.0 — strongest negative weight).
-     * Call from: RecommendationController.markNotInterested()
-     */
     public void markNotInterested(SocialPost socialPost, User user) {
         validateSocialPost(socialPost);
         validateUser(user);
@@ -872,11 +742,6 @@ public class PostInteractionService {
         log.info("[HLIG] Not-interested: socialPost={} user={}", socialPost.getId(), user.getId());
     }
 
-    /**
-     * User scrolled past a post without engaging.
-     * Fires HLIG onScrolledPast() signal (−0.3 — mild negative weight).
-     * Call from: RecommendationController.recordScrollPast()
-     */
     public void recordScrollPast(SocialPost socialPost, User user) {
         validateSocialPost(socialPost);
         validateUser(user);
@@ -885,13 +750,9 @@ public class PostInteractionService {
     }
 
     // =========================================================================
-    // CLEANUP — called from deletion flows
+    // CLEANUP
     // =========================================================================
 
-    /**
-     * Hard-delete cleanup for a SocialPost.
-     * Removes all save and share records. Soft-delete does NOT need this.
-     */
     @Transactional(rollbackFor = Exception.class)
     public void cleanupForSocialPostDeletion(SocialPost socialPost) {
         if (socialPost == null) return;
@@ -900,10 +761,6 @@ public class PostInteractionService {
         log.info("Cleaned up saves and shares for socialPost={}", socialPost.getId());
     }
 
-    /**
-     * Hard-delete cleanup for a regular Post.
-     * Removes shares and (for broadcast posts) save records.
-     */
     @Transactional(rollbackFor = Exception.class)
     public void cleanupForPostDeletion(Post post) {
         if (post == null) return;
@@ -912,35 +769,17 @@ public class PostInteractionService {
         log.info("Cleaned up shares and saves for post={}", post.getId());
     }
 
-    /**
-     * Account deletion cleanup.
-     * Removes all saves and shares created by the user.
-     *
-     * FIX: savedPostRepo.deleteAllByUser(user) was previously commented out,
-     * which left orphaned SavedPost rows in the DB after account deletion.
-     * Re-enabled — GDPR compliant.
-     */
     @Transactional(rollbackFor = Exception.class)
     public void cleanupForUserDeletion(User user) {
         if (user == null) return;
-        savedPostRepo.deleteAllByUser(user);   // FIX: was commented out — now active
+        savedPostRepo.deleteAllByUser(user);
         postShareRepo.deleteAllByUser(user);
         log.info("Cleaned up saves and shares for user={}", user.getActualUsername());
     }
 
     // =========================================================================
-    // ById ENTRY POINTS — called by the controller
+    // ById ENTRY POINTS
     // =========================================================================
-    //
-    // ROOT CAUSE FIX: The controller was calling socialPostRepo.findById() in its
-    // own implicit transaction (outside the service @Transactional boundary), then
-    // passing the now-DETACHED SocialPost entity into the service. When Hibernate
-    // tried to INSERT a PostLike referencing that detached entity, the FK
-    // (social_post_id / post_id) resolved to null → "Column 'post_id' cannot be null".
-    //
-    // Fix: the controller passes only the ID. These ById methods load the entity
-    // with socialPostRepository.findById() INSIDE the @Transactional boundary,
-    // so the entity is managed throughout the entire operation.
 
     @Transactional(rollbackFor = Exception.class)
     public PostView recordSocialPostViewById(Long socialPostId, User user) {
@@ -1002,8 +841,6 @@ public class PostInteractionService {
         return recordPostShare(post, user, shareType);
     }
 
-    // Read-only ById helpers for counts / status checks (controller GET endpoints)
-
     @Transactional(readOnly = true)
     public SocialPost getSocialPostById(Long id) {
         return requireSocialPost(id);
@@ -1033,7 +870,6 @@ public class PostInteractionService {
     }
 
     private void validatePostInteractable(Post post) {
-        // FIX BUG-12: null-check status first to avoid NPE when getDisplayName() is called
         PostStatus status = post.getStatus();
         if (status == null) {
             throw new ValidationException("Post has no status — cannot interact.");
@@ -1067,11 +903,6 @@ public class PostInteractionService {
         if (sp.getId() == null) throw new ValidationException("SocialPost must be persisted (id is null)");
     }
 
-    /**
-     * Fire a HLIG signal safely — never throws, never blocks the caller.
-     * Failures are caught, logged as WARN, and silently dropped.
-     * The user's actual interaction (like/save/share) must never fail due to HLIG.
-     */
     private void fireHligSignal(Runnable signal, String signalType, Long postId, Long userId) {
         try {
             signal.run();
@@ -1081,19 +912,11 @@ public class PostInteractionService {
         }
     }
 
-    /**
-     * Load a SocialPost by id INSIDE the current transaction.
-     * Throws ResourceNotFoundException (→ 404) if not found.
-     */
     private SocialPost requireSocialPost(Long id) {
         return socialPostRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("SocialPost not found with id: " + id));
     }
 
-    /**
-     * Load a Post by id INSIDE the current transaction.
-     * Throws ResourceNotFoundException (→ 404) if not found.
-     */
     private Post requirePost(Long id) {
         return postRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Post not found with id: " + id));

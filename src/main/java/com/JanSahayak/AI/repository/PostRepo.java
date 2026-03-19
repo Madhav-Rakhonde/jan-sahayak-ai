@@ -125,6 +125,13 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("SELECT p FROM Post p WHERE p.user = :user AND p.broadcastScope IS NOT NULL")
     List<Post> findByUserAndBroadcastScopeIsNotNull(@Param("user") User user);
 
+    // ===== FIX: Single GROUP BY query to replace N per-scope COUNT loops =====
+    // Used by PostService.getBroadcastStatistics() to avoid 2×N individual COUNT queries.
+    // Returns rows of [BroadcastScope, PostStatus, count].
+    @Query("SELECT p.broadcastScope, p.status, COUNT(p) FROM Post p " +
+            "WHERE p.broadcastScope IS NOT NULL GROUP BY p.broadcastScope, p.status")
+    List<Object[]> countByBroadcastScopeGrouped();
+
     // ===== Enhanced Feed System Methods =====
     Long countByUserInAndStatus(List<User> users, PostStatus status);
 
@@ -283,9 +290,17 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findPostsWithoutTargetCountry();
 
     Long countByUserAndBroadcastScopeAndTargetCountry(User user, BroadcastScope scope, String targetCountry);
-    List<Post> findByStatusOrderByCreatedAtDesc(PostStatus status, Pageable pageable);
 
-    @Query("SELECT p FROM Post p WHERE p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
+    // ===== FIX: JOIN FETCH user+role on primary status feed queries =====
+    // These replace the bare findByStatusOrderByCreatedAtDesc variants to eliminate
+    // N lazy-load queries for post.getUser() and user.getRole() in feed rendering.
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role " +
+            "WHERE p.status = :status ORDER BY p.createdAt DESC")
+    List<Post> findByStatusOrderByCreatedAtDesc(
+            @Param("status") PostStatus status, Pageable pageable);
+
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role " +
+            "WHERE p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByStatusAndIdLessThanOrderByCreatedAtDesc(
             @Param("status") PostStatus status,
             @Param("beforeId") Long beforeId,
@@ -801,9 +816,6 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     // ===== UNIFIED SEARCH — CURSOR-BASED (used by SearchService) ==============
     // ==========================================================================
 
-    /**
-     * Search posts by keyword — FIRST page (no cursor).
-     */
     @Query("""
             SELECT p FROM Post p
             WHERE p.status = :status
@@ -816,9 +828,6 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable
     );
 
-    /**
-     * Search posts by keyword — NEXT pages.
-     */
     @Query("""
             SELECT p FROM Post p
             WHERE p.status = :status
@@ -833,9 +842,6 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable
     );
 
-    /**
-     * Pincode-scoped search — FIRST page.
-     */
     @Query("""
             SELECT p FROM Post p
             WHERE p.status       = :status
@@ -850,9 +856,6 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable
     );
 
-    /**
-     * Pincode-scoped search — NEXT pages.
-     */
     @Query("""
             SELECT p FROM Post p
             WHERE p.status       = :status
@@ -873,37 +876,20 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     // ===== JOIN FETCH METHODS — fixes LazyInitializationException on User =====
     // ==========================================================================
 
-    /**
-     * Fetches all posts for a user with the User eagerly loaded in the same query.
-     * Use instead of findByUserOrderByCreatedAtDesc to avoid lazy-loading the User
-     * proxy outside a Hibernate session (LazyInitializationException fix).
-     */
     @Query("SELECT p FROM Post p JOIN FETCH p.user u WHERE p.user = :user ORDER BY p.createdAt DESC")
     List<Post> findByUserWithUserOrderByCreatedAtDesc(@Param("user") User user);
 
-    /**
-     * Fetches posts for a user filtered by status with User eagerly loaded.
-     * Use instead of findByUserAndStatusOrderByCreatedAtDesc.
-     */
     @Query("SELECT p FROM Post p JOIN FETCH p.user u WHERE p.user = :user AND p.status = :status ORDER BY p.createdAt DESC")
     List<Post> findByUserWithUserAndStatusOrderByCreatedAtDesc(
             @Param("user") User user,
             @Param("status") PostStatus status);
 
-    /**
-     * Cursor-based pagination for user posts with User eagerly loaded.
-     * Use instead of findByUserAndIdLessThanOrderByCreatedAtDesc.
-     */
     @Query("SELECT p FROM Post p JOIN FETCH p.user u WHERE p.user = :user AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByUserWithUserAndIdLessThanOrderByCreatedAtDesc(
             @Param("user") User user,
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
-    /**
-     * Cursor-based pagination for user posts filtered by status with User eagerly loaded.
-     * Use instead of findByUserAndStatusAndIdLessThanOrderByCreatedAtDesc.
-     */
     @Query("SELECT p FROM Post p JOIN FETCH p.user u WHERE p.user = :user AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByUserWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
             @Param("user") User user,

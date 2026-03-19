@@ -636,14 +636,37 @@ public class SocialPostService {
     private List<SocialPostDto> convertToDtoBatch(List<SocialPost> posts, User user) {
         if (posts == null || posts.isEmpty()) return Collections.emptyList();
 
+        // Collect all post IDs upfront
+        List<Long> postIds = posts.stream()
+                .map(SocialPost::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        // ── Load polls (already batched correctly) ────────────────────────────
         Map<Long, Poll> pollMap = loadPollMap(posts);
 
+        // ── BATCH load interactions (was: 3 queries × N posts = N*3 queries) ──
+        // Now: exactly 3 queries regardless of feed size
+        Set<Long> likedPostIds   = Collections.emptySet();
+        Set<Long> dislikedPostIds = Collections.emptySet();
+        Set<Long> savedPostIds   = Collections.emptySet();
+        Set<Long> viewedPostIds  = Collections.emptySet();
+
+        if (user != null) {
+            likedPostIds    = postInteractionService.getBatchLikedSocialPostIds(user, postIds);
+            dislikedPostIds = postInteractionService.getBatchDislikedSocialPostIds(user, postIds);
+            savedPostIds    = postInteractionService.getBatchSavedSocialPostIds(user, postIds);
+            viewedPostIds   = postInteractionService.getBatchViewedSocialPostIds(user, postIds);
+        }
+
+        // ── Batch load poll votes (already done correctly) ────────────────────
         Set<Long>             votedPollIds    = Collections.emptySet();
         Map<Long, List<Long>> votedOptionsMap = Collections.emptyMap();
 
         if (user != null && !pollMap.isEmpty()) {
             List<Long> pollIds = pollMap.values().stream()
-                    .map(Poll::getId).collect(Collectors.toList());
+                    .map(Poll::getId)
+                    .collect(Collectors.toList());
             votedPollIds = new HashSet<>(
                     pollVoteRepository.findVotedPollIdsByUserAndPollIds(user.getId(), pollIds));
             List<Object[]> rows =
@@ -656,12 +679,34 @@ public class SocialPostService {
             }
         }
 
-        final Map<Long, Poll>       fp  = pollMap;
-        final Set<Long>             fvp = votedPollIds;
-        final Map<Long, List<Long>> fvo = votedOptionsMap;
+        // Capture finals for lambda
+        final Set<Long>             fLiked    = likedPostIds;
+        final Set<Long>             fDisliked = dislikedPostIds;
+        final Set<Long>             fSaved    = savedPostIds;
+        final Set<Long>             fViewed   = viewedPostIds;
+        final Map<Long, Poll>       fp        = pollMap;
+        final Set<Long>             fvp       = votedPollIds;
+        final Map<Long, List<Long>> fvo       = votedOptionsMap;
 
         return posts.stream()
-                .map(p -> convertToDtoFromMaps(p, user, fp, fvp, fvo))
+                .map(post -> {
+                    try {
+                        if (post == null) return null;
+                        boolean isLiked    = fLiked.contains(post.getId());
+                        boolean isSaved    = fSaved.contains(post.getId());
+                        boolean isViewed   = fViewed.contains(post.getId());
+                        Poll poll          = fp.get(post.getId());
+                        boolean hasVoted   = poll != null && fvp.contains(poll.getId());
+                        List<Long> votedIds = hasVoted
+                                ? fvo.getOrDefault(poll.getId(), List.of())
+                                : List.of();
+                        return SocialPostDto.fromSocialPostWithInteractions(
+                                post, isLiked, isSaved, isViewed, poll, hasVoted, votedIds);
+                    } catch (Exception e) {
+                        log.warn("Failed to convert post {} to DTO: {}", post.getId(), e.getMessage());
+                        return null;
+                    }
+                })
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }

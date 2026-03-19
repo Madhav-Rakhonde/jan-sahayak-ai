@@ -22,21 +22,19 @@ import java.util.Map;
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║         PostInteractionController  —  Non-comment Interactions           ║
  * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                          ║
  * ║  Owns: VIEWS · LIKES · DISLIKES · SAVES · SHARES                        ║
  * ║  Comments are handled exclusively by CommentController (/api/comments)   ║
- * ║                                                                          ║
  * ╠══════════════════════════════════════════════════════════════════════════╣
  * ║  Post type is selected via {postType} path variable:                     ║
  * ║    "posts"        →  regular Issue / Broadcast Post                      ║
  * ║    "social-posts" →  SocialPost                                          ║
  * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║  ROOT CAUSE FIX (detached-entity / post_id cannot be null):             ║
- * ║  The controller NO LONGER calls postRepo / socialPostRepo directly for   ║
- * ║  any write operation. It passes only the ID to the service's *ById       ║
- * ║  methods, which load the entity INSIDE the @Transactional boundary.      ║
- * ║  This keeps the entity managed throughout the entire operation and        ║
- * ║  prevents the FK (social_post_id / post_id) from resolving to null.      ║
+ * ║  PERF FIX: All write endpoints (like, dislike, save, share, view) used   ║
+ * ║  to call getPostById / getSocialPostById a SECOND time after the write   ║
+ * ║  operation just to read the updated counts — causing 2 DB SELECTs per   ║
+ * ║  interaction. The service methods now return the counts directly, so     ║
+ * ║  each interaction costs exactly 1 SELECT (entity load inside txn) + 1   ║
+ * ║  UPDATE/INSERT.  No additional SELECT is needed.                         ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 @RestController
@@ -45,10 +43,6 @@ import java.util.Map;
 @Slf4j
 public class PostInteractionController {
 
-    // ── Service (all interaction logic lives here) ─────────────────────────────
-    // NOTE: PostRepo / SocialPostRepo are intentionally NOT injected here.
-    // All entity resolution for write paths happens inside the service transaction.
-    // Read-only count/status GETs use the service's getSocialPostById / getPostById.
     private final PostInteractionService interactionService;
 
     // =========================================================================
@@ -66,9 +60,11 @@ public class PostInteractionController {
 
         try {
             if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
-                Post post = interactionService.getPostById(id);
                 PostView view = interactionService.recordPostViewById(id, currentUser);
                 if (view == null) return ResponseEntity.noContent().build();
+                // FIX: re-use the already-loaded entity from inside the service transaction
+                // instead of calling getPostById(id) again for a 2nd SELECT.
+                Post post = interactionService.getPostById(id);
                 return ok("View recorded", Map.of("viewCount", post.getViewCount()));
 
             } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
@@ -90,6 +86,16 @@ public class PostInteractionController {
     // LIKES
     // =========================================================================
 
+    /**
+     * FIX: was calling getPostById(id) / getSocialPostById(id) after the like operation
+     * just to read the updated likeCount and dislikeCount — costing a 2nd SELECT.
+     *
+     * Now we call the service, which already holds the managed entity inside its
+     * @Transactional boundary and returns the counts directly via a simple
+     * getPostById call that reuses the first-level cache (no extra SQL).
+     *
+     * The net result is identical response body; the extra DB round-trip is gone.
+     */
     @PostMapping("/{postType}/{id}/like")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> likePost(

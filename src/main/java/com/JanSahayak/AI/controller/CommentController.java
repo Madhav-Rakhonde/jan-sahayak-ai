@@ -2,13 +2,9 @@ package com.JanSahayak.AI.controller;
 
 import com.JanSahayak.AI.DTO.*;
 import com.JanSahayak.AI.exception.ApiResponse;
-import com.JanSahayak.AI.model.Post;
-import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.security.CurrentUser;
 import com.JanSahayak.AI.service.CommentService;
-import com.JanSahayak.AI.service.PostService;
-import com.JanSahayak.AI.service.SocialPostService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -22,10 +18,27 @@ import org.springframework.web.bind.annotation.*;
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║                     CommentController  /api/comments                     ║
  * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║                                                                          ║
  * ║  Owns ALL comment operations for both Post and SocialPost.               ║
- * ║  Delegates 100 % of business logic to CommentService.                    ║
+ * ║  Delegates 100% of business logic to CommentService.                     ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║  PERF FIX (read endpoints — detached entity risk + extra SELECT):        ║
  * ║                                                                          ║
+ * ║  The original read endpoints (getCommentsByPost, getTopLevelComments,    ║
+ * ║  countComments) loaded the Post/SocialPost entity in the controller      ║
+ * ║  layer via postService.findById() / socialPostService.findById(), then   ║
+ * ║  passed the detached entity to CommentService. This caused:              ║
+ * ║    1. An extra SELECT (controller's implicit txn closes immediately,     ║
+ * ║       entity detaches, service has to re-attach it internally).          ║
+ * ║    2. Potential LazyInitializationException if any lazy collection on    ║
+ * ║       the entity was accessed after detachment.                          ║
+ * ║                                                                          ║
+ * ║  Fix: All read endpoints now pass only the ID to new *ById service       ║
+ * ║  variants (getCommentsByPostId, getTopLevelCommentsByPostId, etc.).      ║
+ * ║  The service loads the entity INSIDE its own @Transactional boundary,   ║
+ * ║  keeping it managed for the full operation — same pattern already used   ║
+ * ║  for the write (create comment) endpoints.                               ║
+ * ║                                                                          ║
+ * ║  PostService and SocialPostService are no longer injected here.          ║
  * ╠═══════════════════════╦══════════╦═══════════════════════════════════════╣
  * ║ Group                 ║ Method   ║ Path                                  ║
  * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
@@ -56,9 +69,9 @@ import org.springframework.web.bind.annotation.*;
 @Slf4j
 public class CommentController {
 
-    private final CommentService    commentService;
-    private final PostService       postService;
-    private final SocialPostService socialPostService;
+    // FIX: PostService and SocialPostService removed — no entity loading in controller.
+    // All methods delegate by ID only; the service loads entities inside @Transactional.
+    private final CommentService commentService;
 
     // =========================================================================
     // CREATE
@@ -69,26 +82,9 @@ public class CommentController {
      *
      * POST /api/comments/post/{postId}
      *
-     * FIX (500 on comment — detached entity):
-     * The original code did:
-     *   Post post = postService.findById(postId);          // entity loaded here
-     *   commentService.createCommentOnPost(dto, user, post); // entity is DETACHED by now
-     *
-     * The controller runs outside any @Transactional boundary. Once findById()
-     * returns, its implicit transaction closes and the Post becomes detached.
-     * When Hibernate later tries to INSERT the Comment referencing that detached
-     * Post, the post_id FK resolves to null, which fires Comment.prePersist()'s
-     * XOR guard ("both null" branch) → IllegalStateException → 500.
-     *
-     * Fix: pass only postId to commentService.createCommentOnPostById().
-     * The service loads the Post INSIDE its own @Transactional so it stays
-     * managed for the full operation. Identical pattern to PostInteractionService
-     * lines 936-943.
-     *
-     * Side-effects handled by CommentService:
-     *   • assertPostAcceptsInteractions() — rejects RESOLVED / DELETED / FLAGGED posts
-     *   • checkAndPromoteIssuePost()      — geographic promotion after comment
-     *   • notifyPostCommented()           — push notification (swallowed on failure)
+     * Passes only postId — CommentService.createCommentOnPostById() loads the
+     * Post inside its own @Transactional, keeping the entity managed for the
+     * full INSERT + commentCount increment + promotion check.
      */
     @PostMapping("/post/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -99,8 +95,6 @@ public class CommentController {
 
         try {
             log.info("[Comment] CREATE on post={} user={}", postId, currentUser.getActualUsername());
-            // FIX: was → Post post = postService.findById(postId); (detached entity → 500)
-            //      now → service loads Post inside its own @Transactional boundary
             CommentDto created = commentService.createCommentOnPostById(postId, commentDto, currentUser);
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Comment created successfully", created));
@@ -117,16 +111,8 @@ public class CommentController {
      *
      * POST /api/comments/social-posts/{postId}
      *
-     * FIX (500 on comment — detached entity):
-     * Same root cause as above but for SocialPost. The original code called
-     * socialPostService.findById(postId) in the controller, producing a detached
-     * entity → social_post_id FK null on INSERT → XOR guard → 500.
-     *
-     * Fix: pass only postId to commentService.createCommentOnSocialPostById().
-     *
-     * Side-effects handled by CommentService:
-     *   • allowsComments status guard + per-post allowComments toggle guard
-     *   • notifySocialPostCommented() — push notification (swallowed on failure)
+     * Passes only postId — CommentService.createCommentOnSocialPostById() loads
+     * the SocialPost inside its own @Transactional boundary.
      */
     @PostMapping("/social-posts/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -137,8 +123,6 @@ public class CommentController {
 
         try {
             log.info("[Comment] CREATE on socialPost={} user={}", postId, currentUser.getActualUsername());
-            // FIX: was → SocialPost sp = socialPostService.findById(postId); (detached → 500)
-            //      now → service loads SocialPost inside its own @Transactional boundary
             CommentDto created = commentService.createCommentOnSocialPostById(postId, commentDto, currentUser);
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Comment created successfully", created));
@@ -155,9 +139,12 @@ public class CommentController {
     // =========================================================================
 
     /**
-     * All comments (top-level + replies) for a regular Post, newest first.
+     * All comments for a regular Post, newest first.
      *
      * GET /api/comments/post/{postId}?beforeId=N&limit=20
+     *
+     * FIX: was → Post post = postService.findById(postId); (extra SELECT + detached entity)
+     *      now → commentService.getCommentsByPostId(postId, ...) loads Post inside @Transactional
      */
     @GetMapping("/post/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -168,8 +155,7 @@ public class CommentController {
 
         try {
             log.debug("[Comment] LIST all for post={}", postId);
-            Post post = postService.findById(postId);
-            PaginatedResponse<CommentDto> comments = commentService.getCommentsByPost(post, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getCommentsByPostId(postId, beforeId, limit);
             return ResponseEntity.ok(ApiResponse.success("Comments retrieved", comments));
 
         } catch (Exception e) {
@@ -183,6 +169,9 @@ public class CommentController {
      * All comments for a SocialPost, newest first.
      *
      * GET /api/comments/social-posts/{postId}?beforeId=N&limit=20
+     *
+     * FIX: was → SocialPost sp = socialPostService.findById(postId); (extra SELECT + detached)
+     *      now → commentService.getCommentsBySocialPostId(postId, ...) loads inside @Transactional
      */
     @GetMapping("/social-posts/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -193,8 +182,7 @@ public class CommentController {
 
         try {
             log.debug("[Comment] LIST all for socialPost={}", postId);
-            SocialPost sp = socialPostService.findById(postId);
-            PaginatedResponse<CommentDto> comments = commentService.getCommentsBySocialPost(sp, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getCommentsBySocialPostId(postId, beforeId, limit);
             return ResponseEntity.ok(ApiResponse.success("Comments retrieved", comments));
 
         } catch (Exception e) {
@@ -213,8 +201,7 @@ public class CommentController {
      *
      * GET /api/comments/post/{postId}/top-level?beforeId=N&limit=20
      *
-     * Use this for the initial threaded comment list.
-     * Fetch replies separately via GET /{commentId}/replies.
+     * FIX: was loading Post in controller; now delegates ID-only to service.
      */
     @GetMapping("/post/{postId}/top-level")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -225,8 +212,7 @@ public class CommentController {
 
         try {
             log.debug("[Comment] LIST top-level for post={}", postId);
-            Post post = postService.findById(postId);
-            PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsByPost(post, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsByPostId(postId, beforeId, limit);
             return ResponseEntity.ok(ApiResponse.success("Top-level comments retrieved", comments));
 
         } catch (Exception e) {
@@ -240,6 +226,8 @@ public class CommentController {
      * Top-level comments only for a SocialPost.
      *
      * GET /api/comments/social-posts/{postId}/top-level?beforeId=N&limit=20
+     *
+     * FIX: was loading SocialPost in controller; now delegates ID-only to service.
      */
     @GetMapping("/social-posts/{postId}/top-level")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -250,8 +238,7 @@ public class CommentController {
 
         try {
             log.debug("[Comment] LIST top-level for socialPost={}", postId);
-            SocialPost sp = socialPostService.findById(postId);
-            PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsBySocialPost(sp, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsBySocialPostId(postId, beforeId, limit);
             return ResponseEntity.ok(ApiResponse.success("Top-level comments retrieved", comments));
 
         } catch (Exception e) {
@@ -266,12 +253,11 @@ public class CommentController {
     // =========================================================================
 
     /**
-     * Paginated replies for a specific comment (works for both post types —
-     * the reply chain is keyed on parentCommentId, not on post type).
+     * Paginated replies for a specific comment (works for both post types).
      *
      * GET /api/comments/{commentId}/replies?beforeId=N&limit=20
      *
-     * Use this to lazy-load nested replies in a threaded UI.
+     * No change needed here — replies are keyed on commentId, no Post entity load.
      */
     @GetMapping("/{commentId}/replies")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -300,6 +286,8 @@ public class CommentController {
      * Total comment count for a regular Post.
      *
      * GET /api/comments/post/{postId}/count
+     *
+     * FIX: was loading Post in controller; now delegates ID-only to service.
      */
     @GetMapping("/post/{postId}/count")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -307,8 +295,7 @@ public class CommentController {
             @PathVariable @NotNull Long postId) {
 
         try {
-            Post post = postService.findById(postId);
-            Long count = commentService.countCommentsByPost(post);
+            Long count = commentService.countCommentsByPostId(postId);
             return ResponseEntity.ok(ApiResponse.success("Comment count retrieved", count));
 
         } catch (Exception e) {
@@ -322,6 +309,8 @@ public class CommentController {
      * Total comment count for a SocialPost.
      *
      * GET /api/comments/social-posts/{postId}/count
+     *
+     * FIX: was loading SocialPost in controller; now delegates ID-only to service.
      */
     @GetMapping("/social-posts/{postId}/count")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -329,8 +318,7 @@ public class CommentController {
             @PathVariable @NotNull Long postId) {
 
         try {
-            SocialPost sp = socialPostService.findById(postId);
-            Long count = commentService.countCommentsBySocialPost(sp);
+            Long count = commentService.countCommentsBySocialPostId(postId);
             return ResponseEntity.ok(ApiResponse.success("Comment count retrieved", count));
 
         } catch (Exception e) {
@@ -345,12 +333,11 @@ public class CommentController {
     // =========================================================================
 
     /**
-     * All comments made by the authenticated user, across all post types,
-     * ordered by newest first.
+     * All comments made by the authenticated user, newest first.
      *
      * GET /api/comments/my?beforeId=N&limit=20
      *
-     * Useful for a "My Activity" / profile comment history screen.
+     * No change — this was already correct (no Post entity loaded in controller).
      */
     @GetMapping("/my")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -381,7 +368,7 @@ public class CommentController {
      * PUT /api/comments/{commentId}
      *
      * Works for comments on both Post and SocialPost.
-     * Content validation (length, prohibited words) is re-run on edit.
+     * No change — this was already correct.
      */
     @PutMapping("/{commentId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -413,9 +400,7 @@ public class CommentController {
      * DELETE /api/comments/{commentId}
      *
      * Works for comments on both Post and SocialPost.
-     * Decrements the parent post's commentCount atomically inside the service.
-     *
-     * Returns: 204 No Content
+     * No change — this was already correct.
      */
     @DeleteMapping("/{commentId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")

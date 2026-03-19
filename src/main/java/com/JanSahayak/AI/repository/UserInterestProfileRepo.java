@@ -17,13 +17,8 @@ public interface UserInterestProfileRepo
 
     // ── Profile reads ─────────────────────────────────────────────────────────
 
-    /** Full profile ordered by decayed weight DESC — used for profile display. */
     List<UserInterestProfile> findByUserIdOrderByWeightDesc(Long userId);
 
-    /**
-     * Top-N topics for dot-product scoring.
-     * Bound to 20 (Constant.HLIG_TOP_N) to keep feed latency < 5 ms.
-     */
     @Query("SELECT u FROM UserInterestProfile u WHERE u.userId = :uid ORDER BY u.weight DESC")
     List<UserInterestProfile> findTopNByUserId(@Param("uid") Long userId, Pageable pageable);
 
@@ -31,11 +26,6 @@ public interface UserInterestProfileRepo
 
     // ── Phase detection (O(1) via cached column) ──────────────────────────────
 
-    /**
-     * Returns the cached total signal count for phase detection.
-     * This avoids a COUNT(*) per feed request.
-     * If no profile exists returns 0 (cold user).
-     */
     @Query(value = """
         SELECT COALESCE(MAX(total_signals_cache), 0)
         FROM user_interest_profiles
@@ -44,15 +34,12 @@ public interface UserInterestProfileRepo
         """, nativeQuery = true)
     int getTotalSignalsCache(@Param("uid") Long userId);
 
-    // ── Atomic upsert ─────────────────────────────────────────────────────────
+    // ── Atomic single-topic upsert ─────────────────────────────────────────────
 
     /**
-     * Race-safe atomic upsert.
-     * Updates weight, interaction_count, total_signals_cache, bubble_risk_flag,
-     * and last_engaged_at in one SQL statement. No read-before-write.
-     *
-     * Uses GREATEST(0, weight + delta) to prevent negative weights.
-     * signalDelta should be +1 for positive signals, 0 for decrement-only.
+     * Race-safe atomic upsert for a SINGLE topic.
+     * Used for single-signal paths (e.g. applyLanguageSignal).
+     * For multi-topic signals prefer batchUpsertWeights() below.
      */
     @Modifying
     @Transactional
@@ -78,18 +65,58 @@ public interface UserInterestProfileRepo
             @Param("sigDelta") int    signalDelta
     );
 
-    // ── Collaborative filtering — single query, not N per-topic ───────────────
+    // ── FIX: Batch multi-topic upsert ──────────────────────────────────────────
 
     /**
-     * Finds up to :limit neighbours who share interest in any of the given topics.
-     * Single query replaces the old "N queries, one per CORE topic" pattern.
-     * Returns user IDs only — no LAZY loading of full profiles.
+     * FIX: Replaces calling upsertWeight() once per topic inside a forEach loop.
      *
-     * For 1M users this query runs in < 20 ms with idx_uip_topic.
+     * The old applySignalWithTopics() pattern issued one native SQL upsert per topic
+     * per user interaction (e.g. a post with 5 topics fired 5 individual upserts on
+     * every like/view/save). For a busy user engaging 100×/day with 5-topic posts,
+     * that is 500 upserts/day from a single user — compounding severely at scale.
      *
-     * Uses GROUP BY user_id + ORDER BY MAX(weight) DESC to return one row per
-     * user ordered by their strongest topic weight.
+     * This method uses PostgreSQL's unnest() to pass the full topic/delta arrays in a
+     * single round-trip. The database processes all rows in one INSERT … ON CONFLICT
+     * statement, reducing N round-trips to 1.
+     *
+     * Usage in InterestProfileService.applySignalWithTopics():
+     *   String[] topicArr = topics.keySet().toArray(new String[0]);
+     *   double[] deltaArr = topics.values().stream()
+     *       .mapToDouble(s -> baseWeight * s).toArray();
+     *   repo.batchUpsertWeights(userId, topicArr, deltaArr, sigDelta);
+     *
+     * PostgreSQL requirement: pg_trgm and unnest() are both built-in; no extension needed.
      */
+    @Modifying
+    @Transactional
+    @Query(value = """
+        INSERT INTO user_interest_profiles
+            (user_id, topic, weight, interaction_count, total_signals_cache,
+             bubble_risk_flag, last_engaged_at, created_at)
+        SELECT :uid, t, GREATEST(0.0, d), GREATEST(0, :sigDelta), GREATEST(0, :sigDelta),
+               FALSE,
+               CASE WHEN d > 0 THEN NOW() ELSE NULL END,
+               NOW()
+        FROM unnest(:topics::text[], :deltas::float8[]) AS x(t, d)
+        ON CONFLICT (user_id, topic) DO UPDATE
+        SET weight              = GREATEST(0.0, user_interest_profiles.weight + EXCLUDED.weight),
+            interaction_count   = user_interest_profiles.interaction_count + :sigDelta,
+            total_signals_cache = user_interest_profiles.total_signals_cache + :sigDelta,
+            bubble_risk_flag    = (user_interest_profiles.interaction_count + :sigDelta > 200),
+            last_engaged_at     = CASE
+                WHEN EXCLUDED.last_engaged_at IS NOT NULL THEN NOW()
+                ELSE user_interest_profiles.last_engaged_at
+            END
+        """, nativeQuery = true)
+    void batchUpsertWeights(
+            @Param("uid")      Long     userId,
+            @Param("topics")   String[] topics,
+            @Param("deltas")   double[] deltas,
+            @Param("sigDelta") int      signalDelta
+    );
+
+    // ── Collaborative filtering ────────────────────────────────────────────────
+
     @Query(value = """
         SELECT user_id
         FROM user_interest_profiles
@@ -107,17 +134,8 @@ public interface UserInterestProfileRepo
             @Param("lim")        int          limit
     );
 
-    // ── Nightly decay — paginated to avoid full-table lock ────────────────────
+    // ── Nightly decay ─────────────────────────────────────────────────────────
 
-    /**
-     * Decays a batch of rows older than :minAgeDays.
-     * Call repeatedly until rows_affected = 0.
-     *
-     * Batch size 10,000 rows per call — safe for InnoDB without table-lock.
-     * Excludes rows with weight already 0 (no-op rows).
-     *
-     * @return number of rows updated (stop looping when 0)
-     */
     @Modifying
     @Transactional
     @Query(value = """
@@ -132,33 +150,8 @@ public interface UserInterestProfileRepo
         """, nativeQuery = true)
     int bulkDecayBatch(@Param("minAgeDays") int minAgeDays);
 
-    // ── Nightly prune — removes near-zero weight rows after decay ─────────────
+    // ── Nightly prune ─────────────────────────────────────────────────────────
 
-    /**
-     * Deletes rows whose weight has decayed below the given threshold.
-     *
-     * WHY THIS IS CRITICAL AT SCALE:
-     * Without pruning, users who stop using the app accumulate rows that are
-     * effectively zero but never get deleted. At 1M users × 20 topics each the
-     * table reaches 20M rows on day one. With natural churn and topic drift,
-     * an unpruned table can grow to 50M–100M rows within 6 months, causing:
-     *   - Slow nightly decay jobs (more rows to scan even if most are 0)
-     *   - Larger indexes (slower findNeighboursByTopics and findTopNByUserId)
-     *   - Increased PostgreSQL storage cost
-     *
-     * Called by InterestProfileService.applyNightlyDecay() AFTER the decay pass.
-     * Uses a LIMIT to prevent a single massive DELETE from locking the table.
-     * InterestProfileService loops this until 0 rows are deleted.
-     *
-     * Safe to re-run: deleting a near-zero row is idempotent — on next interaction
-     * upsertWeight() recreates it with the correct fresh weight.
-     *
-     * The threshold matches Constant.HLIG_SCORE_MIN_THRESHOLD (0.001).
-     * Any row below this weight contributes nothing to feed scoring and is noise.
-     *
-     * @param threshold rows with weight below this value are deleted (e.g. 0.001)
-     * @return number of rows deleted
-     */
     @Modifying
     @Transactional
     @Query(value = """
@@ -174,10 +167,6 @@ public interface UserInterestProfileRepo
 
     // ── NeighbourBoost helper ─────────────────────────────────────────────────
 
-    /**
-     * Counts how many of the given neighbour user IDs liked the given social post.
-     * Used by HLIGScorer.neighbourBoost().
-     */
     @Query(value = """
         SELECT COUNT(*)
         FROM post_likes
@@ -192,14 +181,6 @@ public interface UserInterestProfileRepo
 
     // ── Seen-post dedup helper ────────────────────────────────────────────────
 
-    /**
-     * Returns the set of post IDs this user has already viewed in the last 72 hours.
-     * Used by HLIGFeedService to filter already-seen posts from the candidate pool.
-     *
-     * 72-hour window is intentional: beyond 72 hours a post may have new comments
-     * or context worth re-surfacing, and the seen-set would be enormous for active
-     * users if we tracked longer windows.
-     */
     @Query(value = """
         SELECT social_post_id
         FROM post_views
@@ -210,10 +191,6 @@ public interface UserInterestProfileRepo
 
     // ── Bulk seed (onboarding) ────────────────────────────────────────────────
 
-    /**
-     * Batch insert for onboarding seed topics (5 cards at signup).
-     * Uses INSERT ... ON CONFLICT DO NOTHING to skip topics the user already has.
-     */
     @Modifying
     @Transactional
     @Query(value = """
@@ -228,22 +205,22 @@ public interface UserInterestProfileRepo
             @Param("weight") double weight
     );
 
+    // ── Language preference helpers ───────────────────────────────────────────
 
-    // Reads the denormalized preferred_languages column from the top-weight row
     @Query("""
-  SELECT u.preferredLanguages FROM UserInterestProfile u
-  WHERE u.userId = :userId
-  ORDER BY u.weight DESC
-  LIMIT 1
-""")
+        SELECT u.preferredLanguages FROM UserInterestProfile u
+        WHERE u.userId = :userId
+        ORDER BY u.weight DESC
+        LIMIT 1
+    """)
     String getPreferredLanguages(@Param("userId") Long userId);
 
-    // Finds all "lang:XX" topic rows for language preference rebuilding
     @Query("SELECT u FROM UserInterestProfile u WHERE u.userId = :userId AND u.topic LIKE 'lang:%'")
     List<UserInterestProfile> findLanguageTopicsByUserId(@Param("userId") Long userId);
 
-    // Updates the denormalized preferred_languages on the top-weight row
     @Modifying
-    @Query("UPDATE UserInterestProfile u SET u.preferredLanguages = :langs WHERE u.userId = :userId AND u.weight = (SELECT MAX(u2.weight) FROM UserInterestProfile u2 WHERE u2.userId = :userId)")
+    @Query("UPDATE UserInterestProfile u SET u.preferredLanguages = :langs " +
+            "WHERE u.userId = :userId " +
+            "AND u.weight = (SELECT MAX(u2.weight) FROM UserInterestProfile u2 WHERE u2.userId = :userId)")
     void updatePreferredLanguages(@Param("userId") Long userId, @Param("langs") String langs);
 }

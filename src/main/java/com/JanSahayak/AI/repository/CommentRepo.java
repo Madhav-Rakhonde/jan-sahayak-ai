@@ -19,7 +19,8 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
     // Count comments for a post
     @Query("SELECT COUNT(c) FROM Comment c WHERE c.post = :post")
     Long countByPost(@Param("post") Post post);
-    // Add these methods to CommentRepo.java
+
+    // ── SocialPost comment queries ────────────────────────────────────────────
 
     List<Comment> findBySocialPostAndIdLessThanOrderByCreatedAtAsc(
             SocialPost socialPost, Long id, Pageable pageable);
@@ -39,23 +40,36 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
             @Param("id") Long id,
             Pageable pageable);
 
-    // ======== CORRECTED TOP-LEVEL COMMENT METHODS ========
-    // This is the corrected non-paginated method for fetching top-level comments.
+    // ── Top-level comment queries (with JOIN FETCH) ───────────────────────────
+
     @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post = :post AND c.parentComment IS NULL ORDER BY c.createdAt ASC")
     List<Comment> findTopLevelCommentsByPost(@Param("post") Post post);
 
-    // This is the corrected paginated method for fetching top-level comments.
     @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post = :post AND c.parentComment IS NULL ORDER BY c.createdAt ASC")
     List<Comment> findTopLevelCommentsByPost(@Param("post") Post post, Pageable pageable);
 
-    // This is the corrected paginated method with a cursor for fetching top-level comments.
     @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post = :post AND c.parentComment IS NULL AND c.id < :beforeId ORDER BY c.createdAt ASC")
     List<Comment> findTopLevelCommentsByPostAndIdLessThan(@Param("post") Post post, @Param("beforeId") Long beforeId, Pageable pageable);
 
-    // ======== OTHER PAGINATED METHODS ========
-    List<Comment> findByPostOrderByCreatedAtAsc(Post post, Pageable pageable);
+    // ── Paginated post comment queries ────────────────────────────────────────
 
-    @Query("SELECT c FROM Comment c WHERE c.post = :post AND c.id < :beforeId ORDER BY c.createdAt ASC")
+    /**
+     * FIX: Added JOIN FETCH c.user to eliminate N lazy-load queries.
+     *
+     * The original findByPostOrderByCreatedAtAsc() returned Comment entities without
+     * fetching the user. Every call to comment.getUser().getActualUsername() (in
+     * CommentDto.fromComment()) then triggered a separate SELECT — one per comment.
+     * For a page of 20 comments = 20 extra queries.
+     *
+     * JOIN FETCH loads the user in the same query, reducing 20+1 queries to 1.
+     */
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post = :post ORDER BY c.createdAt ASC")
+    List<Comment> findByPostOrderByCreatedAtAsc(@Param("post") Post post, Pageable pageable);
+
+    /**
+     * FIX: Cursor-paginated variant — also added JOIN FETCH c.user for the same reason.
+     */
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.post = :post AND c.id < :beforeId ORDER BY c.createdAt ASC")
     List<Comment> findByPostAndIdLessThanOrderByCreatedAtAsc(@Param("post") Post post, @Param("beforeId") Long beforeId, Pageable pageable);
 
     @Query("SELECT c FROM Comment c " +
@@ -80,9 +94,16 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
-    List<Comment> findByParentCommentOrderByCreatedAtAsc(Comment parentComment, Pageable pageable);
+    /**
+     * FIX: Added JOIN FETCH c.user to eliminate N lazy-load queries when iterating replies.
+     */
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.parentComment = :parentComment ORDER BY c.createdAt ASC")
+    List<Comment> findByParentCommentOrderByCreatedAtAsc(@Param("parentComment") Comment parentComment, Pageable pageable);
 
-    @Query("SELECT c FROM Comment c WHERE c.parentComment = :parentComment AND c.id < :beforeId ORDER BY c.createdAt ASC")
+    /**
+     * FIX: Cursor-paginated replies — also added JOIN FETCH c.user.
+     */
+    @Query("SELECT c FROM Comment c JOIN FETCH c.user WHERE c.parentComment = :parentComment AND c.id < :beforeId ORDER BY c.createdAt ASC")
     List<Comment> findByParentCommentAndIdLessThanOrderByCreatedAtAsc(@Param("parentComment") Comment parentComment, @Param("beforeId") Long beforeId, Pageable pageable);
 
     List<Comment> findAllByOrderByCreatedAtDesc(Pageable pageable);

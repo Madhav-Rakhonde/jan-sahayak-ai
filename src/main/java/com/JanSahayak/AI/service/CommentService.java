@@ -643,4 +643,66 @@ public class CommentService {
         return createCommentOnSocialPost(dto, user, sp);
     }
 
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getCommentsByPostId(Long postId, Long beforeId, Integer limit) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found: " + postId));
+        return getCommentsByPost(post, beforeId, limit);
+    }
+
+    /**
+     * All comments for a SocialPost, cursor-paginated.
+     * Controller calls this instead of loading SocialPost then calling getCommentsBySocialPost(sp, ...).
+     */
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getCommentsBySocialPostId(Long postId, Long beforeId, Integer limit) {
+        SocialPost sp = socialPostRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("SocialPost not found: " + postId));
+        return getCommentsBySocialPost(sp, beforeId, limit);
+    }
+
+    // ── Read: top-level only ─────────────────────────────────────────────────
+
+    /**
+     * Top-level comments only for a Post, cursor-paginated.
+     */
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getTopLevelCommentsByPostId(Long postId, Long beforeId, Integer limit) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found: " + postId));
+        return getTopLevelCommentsByPost(post, beforeId, limit);
+    }
+
+    /**
+     * Top-level comments only for a SocialPost, cursor-paginated.
+     */
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommentDto> getTopLevelCommentsBySocialPostId(Long postId, Long beforeId, Integer limit) {
+        SocialPost sp = socialPostRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("SocialPost not found: " + postId));
+        return getTopLevelCommentsBySocialPost(sp, beforeId, limit);
+    }
+
+    // ── Read: counts ─────────────────────────────────────────────────────────
+
+    /**
+     * Total comment count for a Post.
+     */
+    @Transactional(readOnly = true)
+    public Long countCommentsByPostId(Long postId) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found: " + postId));
+        return countCommentsByPost(post);
+    }
+
+    /**
+     * Total comment count for a SocialPost.
+     */
+    @Transactional(readOnly = true)
+    public Long countCommentsBySocialPostId(Long postId) {
+        SocialPost sp = socialPostRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("SocialPost not found: " + postId));
+        return countCommentsBySocialPost(sp);
+    }
+
 }

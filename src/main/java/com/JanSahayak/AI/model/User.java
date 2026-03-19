@@ -128,7 +128,22 @@ public class User implements UserDetails {
     @JsonIgnore
     private List<PostView> postViews = new ArrayList<>();
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    /**
+     * FIX: Changed from FetchType.EAGER to FetchType.LAZY.
+     *
+     * EAGER loading caused the Role entity to be fetched alongside EVERY user lookup —
+     * including the Spring Security authentication path that fires on every API request.
+     * This doubled query count on the hottest path in the application.
+     *
+     * Role is now loaded lazily. The authentication path in UserService uses
+     * UserRepo.findByEmailWithRole() which does a JOIN FETCH in a single query,
+     * so there is no extra round-trip for authentication.
+     *
+     * Any other code that needs the role (e.g. isAdmin(), isDepartment()) must be
+     * called within a Hibernate session or via a query that JOIN FETCHes the role.
+     * The role is always available within @Transactional service methods.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "role_id", nullable = false, foreignKey = @ForeignKey(name = "fk_user_role"))
     @JsonIgnore
     private Role role;
@@ -151,7 +166,6 @@ public class User implements UserDetails {
 
     /**
      * PincodeLookup data enriched at runtime — NOT stored in the DB.
-     * Populated by the service layer when location-aware queries are needed.
      */
     @Transient
     private PincodeLookup pincodeLookupData;
@@ -233,12 +247,6 @@ public class User implements UserDetails {
         return hasPincode();
     }
 
-    /**
-     * Safe count — Hibernate lazy collections are never null, they're
-     * uninitialized PersistentBag proxies. Calling .size() on them outside
-     * a session throws LazyInitializationException. Hibernate.isInitialized()
-     * checks whether the proxy has been loaded before we touch it.
-     */
     public int getPostCount() {
         return (posts != null && Hibernate.isInitialized(posts)) ? posts.size() : 0;
     }

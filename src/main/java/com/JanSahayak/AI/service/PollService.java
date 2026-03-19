@@ -11,8 +11,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 @Service
@@ -23,11 +25,9 @@ public class PollService {
     private final PollRepository        pollRepository;
     private final PollOptionRepository  pollOptionRepository;
     private final PollVoteRepository    pollVoteRepository;
-    private final SocialPostRepo  socialPostRepository;
-    private final UserRepo       userRepository;
+    private final SocialPostRepo        socialPostRepository;
+    private final UserRepo              userRepository;
 
-    // FIX #3: CommunityService was not injected — polls in communities were invisible
-    // in the community feed and post counters were never incremented.
     // @Lazy breaks the circular dependency: CommunityService → SocialPostRepo,
     // PollService → CommunityService.
     @Lazy
@@ -38,26 +38,20 @@ public class PollService {
     @Transactional
     public PollResponse createPollPost(CreatePollRequest req, User creator) {
 
-        // ── Step 1: Validate ──────────────────────────────────────────────────
         validatePollRequest(req);
 
-        // ── Step 2: Auto-create SocialPost ────────────────────────────────────
-        // Content = poll question (this is what appears in the feed as the post text)
         SocialPost socialPost = SocialPost.builder()
-                .content(req.getQuestion())          // poll question becomes post content
+                .content(req.getQuestion())
                 .user(creator)
                 .status(PostStatus.ACTIVE)
                 .allowComments(true)
                 .build();
 
-        // Inherit location from user's pincode (your existing method)
         socialPost.inheritLocationFromUser(creator);
 
         SocialPost savedSocialPost = socialPostRepository.save(socialPost);
         log.info("Auto-created SocialPost {} for poll by user {}", savedSocialPost.getId(), creator.getId());
 
-        // FIX #3: Wire onPostPublished so polls in communities are visible in the
-        // community feed and community post/stats counters are correctly incremented.
         if (savedSocialPost.getCommunityId() != null) {
             try {
                 communityService.onPostPublished(savedSocialPost, savedSocialPost.getCommunityId());
@@ -70,12 +64,10 @@ public class PollService {
         Poll poll = buildPoll(req, creator, savedSocialPost);
         Poll savedPoll = pollRepository.save(poll);
 
-
         attachOptions(savedPoll, req.getOptions());
 
         log.info("Created Poll {} with {} options for SocialPost {}",
                 savedPoll.getId(), req.getOptions().size(), savedSocialPost.getId());
-
 
         return PollResponse.from(savedPoll, false, true, List.of());
     }
@@ -99,24 +91,34 @@ public class PollService {
             throw new IllegalArgumentException("This poll only allows one choice.");
         }
 
-        for (Long optionId : optionIds) {
-            PollOption option = pollOptionRepository.findById(optionId)
-                    .orElseThrow(() -> new RuntimeException("Option not found: " + optionId));
+        // FIX: Load all options in one batch query instead of 1 SELECT per option in a loop.
+        // The old code called pollOptionRepository.findById(optionId) inside a for-loop,
+        // causing N individual SELECTs for N option IDs. findAllById() issues a single
+        // SELECT ... WHERE id IN (...) regardless of how many IDs are provided.
+        List<PollOption> options = pollOptionRepository.findAllById(optionIds);
+        if (options.size() != optionIds.size()) {
+            throw new RuntimeException("One or more poll options not found.");
+        }
 
+        List<PollVote> votes = new ArrayList<>();
+        for (PollOption option : options) {
             if (!option.getPoll().getId().equals(pollId)) {
-                throw new IllegalArgumentException("Option does not belong to this poll.");
+                throw new IllegalArgumentException("Option " + option.getId() + " does not belong to this poll.");
             }
-
-            pollVoteRepository.save(PollVote.builder()
+            votes.add(PollVote.builder()
                     .poll(poll)
                     .user(voter)
                     .pollOption(option)
                     .build());
-
             option.incrementVoteCount();
-            pollOptionRepository.save(option);
             poll.incrementTotalVotes();
         }
+
+        // FIX: Batch INSERT for all votes (was 1 INSERT per vote in a loop).
+        pollVoteRepository.saveAll(votes);
+
+        // FIX: Batch UPDATE for all option vote counts (was 1 UPDATE per option in a loop).
+        pollOptionRepository.saveAll(options);
 
         Poll updatedPoll = pollRepository.save(poll);
         List<Long> votedIds = pollVoteRepository.findOptionIdsByPollIdAndUserId(pollId, voter.getId());
@@ -124,6 +126,7 @@ public class PollService {
     }
 
 
+    @Transactional(readOnly = true)
     public PollResponse getPollResponse(Long pollId, User requestingUser) {
         Poll poll = pollRepository.findByIdWithOptions(pollId)
                 .orElseThrow(() -> new RuntimeException("Poll not found: " + pollId));
@@ -137,6 +140,7 @@ public class PollService {
         return PollResponse.from(poll, userHasVoted, showResults, votedIds);
     }
 
+    @Transactional(readOnly = true)
     public PollResponse getPollBySocialPostId(Long socialPostId, User requestingUser) {
         Poll poll = pollRepository.findBySocialPostId(socialPostId)
                 .orElseThrow(() -> new RuntimeException("No poll found for this post."));
@@ -179,7 +183,6 @@ public class PollService {
     }
 
     private Poll buildPoll(CreatePollRequest req, User creator, SocialPost socialPost) {
-        // Calculate expiresAt from duration string ("1d", "3d", "7d", "never")
         Date expiresAt = null;
         if (req.getExpiresIn() != null && !req.getExpiresIn().equals("never")) {
             int days = switch (req.getExpiresIn()) {
@@ -201,15 +204,22 @@ public class PollService {
                 .build();
     }
 
+    /**
+     * FIX: Replaced per-option pollOptionRepository.save() inside a forEach loop with
+     * a single pollOptionRepository.saveAll() call. The old code issued one INSERT
+     * per option (up to 4 inserts per poll creation). saveAll() issues a single
+     * batch INSERT regardless of how many options are being saved.
+     */
     private void attachOptions(Poll poll, List<String> optionTexts) {
-        IntStream.range(0, optionTexts.size()).forEach(i -> {
-            PollOption option = PollOption.builder()
-                    .poll(poll)
-                    .optionText(optionTexts.get(i).trim())
-                    .optionOrder(i + 1)
-                    .build();
-            pollOptionRepository.save(option);
-            poll.getOptions().add(option);
-        });
+        List<PollOption> options = IntStream.range(0, optionTexts.size())
+                .mapToObj(i -> PollOption.builder()
+                        .poll(poll)
+                        .optionText(optionTexts.get(i).trim())
+                        .optionOrder(i + 1)
+                        .build())
+                .collect(Collectors.toList());
+
+        pollOptionRepository.saveAll(options);  // single batch INSERT
+        poll.getOptions().addAll(options);
     }
 }

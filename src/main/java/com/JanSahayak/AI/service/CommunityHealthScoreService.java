@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -25,22 +26,38 @@ public class CommunityHealthScoreService {
 
     // ── Scheduler ─────────────────────────────────────────────────────────────
 
-    /** Recalculate health score for all active communities every 6 hours. */
+    /**
+     * Recalculate health score for all active communities every 6 hours.
+     *
+     * FIX: Replaced communityRepo.save(community) inside the per-community loop
+     * with a single communityRepo.saveAll(updated) after the loop completes.
+     *
+     * The old code issued one UPDATE statement per community. With 500 communities
+     * that is 500 individual round-trips to the database. saveAll() batches all
+     * updates into a single flush, dramatically reducing DB round-trip time.
+     */
     @Scheduled(cron = "0 0 */6 * * *")
     public void scheduledRecalculation() {
         log.info("Community health score recalculation started");
         List<Community> communities = communityRepo.findAllActive();
-        int updated = 0;
+        List<Community> updated = new ArrayList<>();
+
         for (Community community : communities) {
             try {
                 recalculate(community);
-                communityRepo.save(community);
-                updated++;
+                updated.add(community);
             } catch (Exception e) {
-                log.error("Health score recalculation failed for community {}: {}", community.getId(), e.getMessage());
+                log.error("Health score recalculation failed for community {}: {}",
+                        community.getId(), e.getMessage());
             }
         }
-        log.info("Health score recalculation complete — {} communities updated", updated);
+
+        // FIX: single batch UPDATE instead of N individual saves
+        if (!updated.isEmpty()) {
+            communityRepo.saveAll(updated);
+        }
+
+        log.info("Health score recalculation complete — {} communities updated", updated.size());
     }
 
     /** Reset weekly counters every Sunday at midnight. */
@@ -75,22 +92,18 @@ public class CommunityHealthScoreService {
                 .healthScore(c.getHealthScore())
                 .healthTier(c.getHealthTier())
                 .healthTierEmoji(c.getHealthTierEmoji())
-                // Component scores
                 .postFreqScore(c.getHealthPostFreqScore())
                 .memberGrowthScore(c.getHealthMemberGrowthScore())
                 .engagementScore(c.getHealthEngagementScore())
                 .modActivityScore(c.getHealthModActivityScore())
                 .retentionScore(c.getHealthRetentionScore())
-                // Raw 7-day metrics
                 .postsLast7d(c.getPostsLast7d())
                 .newMembersLast7d(c.getNewMembersLast7d())
                 .activePostersLast7d(c.getActivePostersLast7d())
                 .totalMembers(c.getMemberCount())
                 .totalPosts(c.getPostCount())
-                // Feed surfacing (v3 — replaces sharedToFeedCount)
                 .feedSurfaceCount(c.getFeedSurfaceCount())
                 .feedReachLevel(deriveFeedReachLevel(c))
-                // Trend & suggestion
                 .weeklyPostTrend(trend)
                 .suggestion(suggestion)
                 .scoreUpdatedAt(c.getHealthScoreUpdatedAt())
@@ -100,11 +113,11 @@ public class CommunityHealthScoreService {
     // ── Calculation ───────────────────────────────────────────────────────────
 
     private void recalculate(Community c) {
-        double postFreq    = calcPostFreqScore(c);
-        double engagement  = calcEngagementScore(c);
+        double postFreq     = calcPostFreqScore(c);
+        double engagement   = calcEngagementScore(c);
         double memberGrowth = calcMemberGrowthScore(c);
-        double modActivity = calcModActivityScore(c);
-        double retention   = calcRetentionScore(c);
+        double modActivity  = calcModActivityScore(c);
+        double retention    = calcRetentionScore(c);
 
         c.setHealthPostFreqScore(postFreq);
         c.setHealthEngagementScore(engagement);
@@ -144,13 +157,13 @@ public class CommunityHealthScoreService {
     private double calcModActivityScore(Community c) {
         if (c.getLastActiveAt() == null) return 0.0;
         long daysSince = (System.currentTimeMillis() - c.getLastActiveAt().getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSince <= 0)           return 100.0;
+        if (daysSince <= 0)                                       return 100.0;
         if (daysSince >= Constant.COMMUNITY_HEALTH_DORMANT_DAYS) return 0.0;
         return cap100(100.0 * (Constant.COMMUNITY_HEALTH_DORMANT_DAYS - daysSince) / Constant.COMMUNITY_HEALTH_DORMANT_DAYS);
     }
 
     private double calcRetentionScore(Community c) {
-        int total  = c.getMemberCount()       != null && c.getMemberCount()       > 0 ? c.getMemberCount()       : 1;
+        int total  = c.getMemberCount()         != null && c.getMemberCount()         > 0 ? c.getMemberCount()         : 1;
         int active = c.getActivePostersLast7d() != null ? c.getActivePostersLast7d() : 0;
         double ratio = (double) active / total;
         return cap100(100.0 * ratio / Constant.COMMUNITY_HEALTH_IDEAL_RETENTION_RATIO);
@@ -159,12 +172,11 @@ public class CommunityHealthScoreService {
     // ── Insight helpers ───────────────────────────────────────────────────────
 
     private String buildSuggestion(Community c) {
-        // Find the weakest component and give a targeted tip
-        double postFreq    = c.getHealthPostFreqScore()     != null ? c.getHealthPostFreqScore()     : 0;
-        double engagement  = c.getHealthEngagementScore()   != null ? c.getHealthEngagementScore()   : 0;
+        double postFreq     = c.getHealthPostFreqScore()     != null ? c.getHealthPostFreqScore()     : 0;
+        double engagement   = c.getHealthEngagementScore()   != null ? c.getHealthEngagementScore()   : 0;
         double memberGrowth = c.getHealthMemberGrowthScore() != null ? c.getHealthMemberGrowthScore() : 0;
-        double modActivity = c.getHealthModActivityScore()  != null ? c.getHealthModActivityScore()  : 0;
-        double retention   = c.getHealthRetentionScore()    != null ? c.getHealthRetentionScore()    : 0;
+        double modActivity  = c.getHealthModActivityScore()  != null ? c.getHealthModActivityScore()  : 0;
+        double retention    = c.getHealthRetentionScore()    != null ? c.getHealthRetentionScore()    : 0;
 
         double min = Math.min(postFreq, Math.min(engagement, Math.min(memberGrowth, Math.min(modActivity, retention))));
 
@@ -179,20 +191,17 @@ public class CommunityHealthScoreService {
         if (c.getPostsLast7d() == null) return "→";
         int weekly  = c.getPostsLast7d();
         int overall = c.getPostCount() != null ? c.getPostCount() : 0;
-        // If weekly posts > 20% of total lifetime posts, the community is growing
         if (overall > 0 && (double) weekly / overall > 0.20) return "↑";
         if (weekly == 0) return "↓";
         return "→";
     }
 
     private String deriveFeedReachLevel(Community c) {
-        // Based on the community's average engagement per post
         int posts = c.getPostCount() != null && c.getPostCount() > 0 ? c.getPostCount() : 1;
-        int total = (c.getTotalLikeCount() != null ? c.getTotalLikeCount() : 0)
+        int total = (c.getTotalLikeCount()    != null ? c.getTotalLikeCount()    : 0)
                 + (c.getTotalCommentCount() != null ? c.getTotalCommentCount() : 0);
         double avgScore = (double) total / posts;
 
-        // FIX BUG-17: use Constant.COMMUNITY_THRESHOLD_* instead of CommunityService.THRESHOLD_*
         if      (avgScore >= Constant.COMMUNITY_THRESHOLD_NATIONAL)  return "NATIONAL";
         else if (avgScore >= Constant.COMMUNITY_THRESHOLD_STATE)      return "STATE";
         else if (avgScore >= Constant.COMMUNITY_THRESHOLD_DISTRICT)   return "DISTRICT";

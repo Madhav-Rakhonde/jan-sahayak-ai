@@ -20,43 +20,41 @@ public class Role {
     private Long id;
 
     @Column(nullable = false, unique = true, length = 50)
-    private String name; // e.g. "ROLE_ADMIN", "ROLE_USER" ,"ROLE_DEPARTMENT"
+    private String name; // e.g. "ROLE_ADMIN", "ROLE_USER", "ROLE_DEPARTMENT"
 
-    @OneToMany(mappedBy = "role", cascade = CascadeType.ALL)
+    /**
+     * FIX: Removed CascadeType.ALL.
+     *
+     * CascadeType.ALL on a Role → Users relationship is a silent data-loss bomb:
+     * deleting a Role row would cascade DELETE to every User with that role,
+     * wiping out all user accounts assigned to it.
+     *
+     * Roles and Users have independent lifecycles — role deletion (an admin-only,
+     * extremely rare operation) must never silently remove user accounts.
+     * The service layer is responsible for re-assigning users before any role deletion.
+     *
+     * FetchType is explicitly LAZY (default for OneToMany, stated here for clarity).
+     */
+    @OneToMany(mappedBy = "role", fetch = FetchType.LAZY)
     @JsonIgnore
     private Set<User> users = new HashSet<>();
 
     // ===== Helper Methods =====
 
-    /**
-     * Get the role name without "ROLE_" prefix
-     */
     public String getSimpleName() {
         return name != null && name.startsWith("ROLE_") ?
                 name.substring(5) : name;
     }
 
-    /**
-     * Check if this is an admin role
-     */
     public boolean isAdminRole() {
         return "ROLE_ADMIN".equals(name);
     }
 
-    /**
-     * Check if this is a user role
-     */
     public boolean isUserRole() {
         return "ROLE_USER".equals(name);
     }
 
-    /**
-     * Get count of users with this role
-     */
     public int getUserCount() {
         return users != null ? users.size() : 0;
     }
-
-
-
 }

@@ -10,46 +10,86 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-
-import java.util.*;
+import java.util.Date;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
-    // For duplicate like prevention
+
+    // =========================================================================
+    // SINGLE-RECORD LOOKUPS
+    // =========================================================================
+
     Optional<PostLike> findByPostAndUser(Post post, User user);
 
-    // For checking if user liked post
+    Optional<PostLike> findBySocialPostAndUser(SocialPost socialPost, User user);
+
     boolean existsByPostAndUser(Post post, User user);
 
-    // For statistics
+    // =========================================================================
+    // COUNT QUERIES
+    // =========================================================================
+
+    @Query("SELECT COUNT(pl) FROM PostLike pl WHERE pl.post = :post")
+    Long countByPost(@Param("post") Post post);
+
+    Long countBySocialPost(SocialPost socialPost);
+
     Long countByPostAndCreatedAtAfter(Post post, Date date);
 
-    // For getting users who liked a post (with pagination)
+    // =========================================================================
+    // LIST QUERIES
+    // =========================================================================
+
+    List<PostLike> findBySocialPost(SocialPost socialPost);
+
+    List<PostLike> findByPostOrderByCreatedAtDesc(Post post, Pageable pageable);
+
+    @Query("SELECT pl.user FROM PostLike pl WHERE pl.post = :post ORDER BY pl.id DESC")
+    List<User> findUsersWhoLikedPost(@Param("post") Post post, Pageable pageable);
+
     @Query("SELECT pl.user FROM PostLike pl WHERE pl.post = :post AND pl.id < :beforeId ORDER BY pl.id DESC")
     List<User> findUsersWhoLikedPostWithCursor(@Param("post") Post post,
                                                @Param("beforeId") Long beforeId,
                                                Pageable pageable);
 
-    @Query("SELECT pl.user FROM PostLike pl WHERE pl.post = :post ORDER BY pl.id DESC")
-    List<User> findUsersWhoLikedPost(@Param("post") Post post, Pageable pageable);
-
-    // For admin/cleanup purposes
-    List<PostLike> findByPostOrderByCreatedAtDesc(Post post, Pageable pageable);
+    // =========================================================================
+    // BATCH INTERACTION QUERIES — eliminates N+1 in feed
+    // =========================================================================
 
     /**
-     * Count total likes for a post
+     * Returns IDs of social posts (from given list) that the user has LIKED.
+     * Used by PostInteractionService.getBatchLikedSocialPostIds()
      */
-    @Query("SELECT COUNT(pl) FROM PostLike pl WHERE pl.post = :post")
-    Long countByPost(@Param("post") Post post);
+    @Query("SELECT p.socialPost.id FROM PostLike p " +
+            "WHERE p.user.id = :userId " +
+            "AND p.socialPost.id IN :postIds " +
+            "AND p.reactionType = com.JanSahayak.AI.model.PostLike.ReactionType.LIKE")
+    List<Long> findLikedSocialPostIdsByUser(
+            @Param("userId") Long userId,
+            @Param("postIds") List<Long> postIds);
 
-    // Add these methods to PostLikeRepo.java
+    /**
+     * Returns IDs of social posts (from given list) that the user has DISLIKED.
+     * Used by PostInteractionService.getBatchDislikedSocialPostIds()
+     */
+    @Query("SELECT p.socialPost.id FROM PostLike p " +
+            "WHERE p.user.id = :userId " +
+            "AND p.socialPost.id IN :postIds " +
+            "AND p.reactionType = com.JanSahayak.AI.model.PostLike.ReactionType.DISLIKE")
+    List<Long> findDislikedSocialPostIdsByUser(
+            @Param("userId") Long userId,
+            @Param("postIds") List<Long> postIds);
 
-    Optional<PostLike> findBySocialPostAndUser(SocialPost socialPost, User user);
-
-    List<PostLike> findBySocialPost(SocialPost socialPost);
-
-    Long countBySocialPost(SocialPost socialPost);
-
-
+    /**
+     * Returns IDs of regular posts (from given list) that the user has LIKED.
+     */
+    @Query("SELECT p.post.id FROM PostLike p " +
+            "WHERE p.user.id = :userId " +
+            "AND p.post.id IN :postIds " +
+            "AND p.reactionType = com.JanSahayak.AI.model.PostLike.ReactionType.LIKE")
+    List<Long> findLikedPostIdsByUser(
+            @Param("userId") Long userId,
+            @Param("postIds") List<Long> postIds);
 }

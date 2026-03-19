@@ -23,9 +23,24 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     // ===== Basic UserTag Queries =====
 
     /**
-     * Find tags by post and active status
+     * FIX: Added JOIN FETCH taggedUser and taggedBy to eliminate N lazy-load
+     * queries when callers access tag.getTaggedUser().getActualUsername() in a
+     * stream. The old version caused 1 SELECT per tag in every convertToPostResponse call.
      */
-    List<UserTag> findByPostAndIsActiveTrue(@NonNull Post post);
+    @Query("SELECT t FROM UserTag t JOIN FETCH t.taggedUser JOIN FETCH t.taggedBy " +
+            "WHERE t.post = :post AND t.isActive = true ORDER BY t.taggedAt ASC")
+    List<UserTag> findByPostAndIsActiveTrue(@NonNull @Param("post") Post post);
+
+    /**
+     * FIX: Batch version — loads all active tags for a list of post IDs in one query.
+     * Use this in feed/list rendering instead of calling findByPostAndIsActiveTrue()
+     * once per post. Callers group the result by post ID:
+     *   Map<Long, List<UserTag>> tagsByPost = repo.findByPostIdsAndIsActiveTrueFetch(ids)
+     *       .stream().collect(Collectors.groupingBy(t -> t.getPost().getId()));
+     */
+    @Query("SELECT t FROM UserTag t JOIN FETCH t.taggedUser JOIN FETCH t.post " +
+            "WHERE t.post.id IN :postIds AND t.isActive = true")
+    List<UserTag> findByPostIdsAndIsActiveTrueFetch(@NonNull @Param("postIds") List<Long> postIds);
 
     /**
      * Find specific user tag in post
@@ -49,9 +64,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
 
     // ===== Optimized Post Discovery Queries =====
 
-    /**
-     * Find posts where user is tagged with performance optimization
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -66,9 +78,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     })
     List<Post> findPostsWhereUserIsTagged(@NonNull @Param("user") User user);
 
-    /**
-     * Find posts where user is tagged by specific status
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -83,9 +92,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     })
     List<Post> findPostsWhereUserIsTaggedByStatus(@NonNull @Param("user") User user, @NonNull @Param("status") PostStatus status);
 
-    /**
-     * Find posts where user is tagged by multiple statuses
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -100,9 +106,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     })
     List<Post> findPostsWhereUserIsTaggedByStatuses(@NonNull @Param("user") User user, @NonNull @Param("statuses") List<PostStatus> statuses);
 
-    /**
-     * Find recent posts where user is tagged (within last N days)
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -119,15 +122,9 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
 
     // ===== Optimized Count Queries =====
 
-    /**
-     * Count total tags for a user - Optimized
-     */
     @Query("SELECT COUNT(ut.id) FROM UserTag ut WHERE ut.taggedUser = :user AND ut.isActive = true")
     Long countByTaggedUser(@NonNull @Param("user") User user);
 
-    /**
-     * Count tagged posts by user and post status - Optimized
-     */
     @Query("""
             SELECT COUNT(DISTINCT ut.post.id) FROM UserTag ut 
             WHERE ut.taggedUser = :user 
@@ -136,9 +133,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     Long countByTaggedUserAndPostStatus(@NonNull @Param("user") User user, @NonNull @Param("status") PostStatus status);
 
-    /**
-     * Count tags created after a certain date (for recent activity tracking)
-     */
     @Query("""
             SELECT COUNT(ut.id) FROM UserTag ut 
             WHERE ut.taggedUser = :user 
@@ -147,23 +141,14 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     Long countByTaggedUserAndTaggedAtAfter(@NonNull @Param("user") User user, @NonNull @Param("date") Date date);
 
-    /**
-     * Count tags created by a user
-     */
     @Query("SELECT COUNT(ut.id) FROM UserTag ut WHERE ut.taggedBy = :user AND ut.isActive = true")
     Long countByTaggedBy(@NonNull @Param("user") User user);
 
-    /**
-     * Count total active tags in the system
-     */
     @Query("SELECT COUNT(ut.id) FROM UserTag ut WHERE ut.isActive = true")
     Long countActiveUserTags();
 
-    // ===== Statistics and Analytics Queries - Optimized =====
+    // ===== Statistics and Analytics Queries =====
 
-    /**
-     * Find most tagged users (for analytics) - with limit for performance
-     */
     @Query(value = """
             SELECT ut.taggedUser, COUNT(ut.id) as tagCount 
             FROM UserTag ut 
@@ -173,9 +158,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<Object[]> findMostTaggedUsers(Pageable pageable);
 
-    /**
-     * Find users who tag others most frequently - with limit for performance
-     */
     @Query(value = """
             SELECT ut.taggedBy, COUNT(ut.id) as tagCount 
             FROM UserTag ut 
@@ -185,9 +167,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<Object[]> findMostActiveTaggers(Pageable pageable);
 
-    /**
-     * Get tagging statistics by date range - Optimized
-     */
     @Query(value = """
             SELECT DATE(ut.taggedAt) as tagDate, COUNT(ut.id) as tagCount 
             FROM UserTag ut 
@@ -199,9 +178,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     List<Object[]> getTaggingStatisticsByDateRange(@NonNull @Param("startDate") Date startDate,
                                                    @NonNull @Param("endDate") Date endDate);
 
-    /**
-     * Get post status distribution for tagged posts
-     */
     @Query("""
             SELECT ut.post.status, COUNT(DISTINCT ut.post.id) as postCount 
             FROM UserTag ut 
@@ -211,11 +187,8 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<Object[]> getPostStatusDistributionForUser(@NonNull @Param("user") User user);
 
-    // ===== Geographic and Targeted Queries - Optimized =====
+    // ===== Geographic and Targeted Queries =====
 
-    /**
-     * Find users tagged in posts from specific pincode
-     */
     @Query("""
             SELECT DISTINCT ut.taggedUser 
             FROM UserTag ut 
@@ -226,9 +199,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<User> findUsersTaggedInPostsFromPincode(@NonNull @Param("pincode") String pincode);
 
-    /**
-     * Find posts where users from specific pincode are tagged
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -239,9 +209,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<Post> findPostsWithTaggedUsersFromPincode(@NonNull @Param("pincode") String pincode);
 
-    /**
-     * Find department users tagged in posts (for resolution tracking)
-     */
     @Query("""
             SELECT ut FROM UserTag ut 
             JOIN ut.taggedUser u 
@@ -254,11 +221,8 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     List<UserTag> findDepartmentUserTagsByPostStatus(@NonNull @Param("status") PostStatus status,
                                                      @NonNull @Param("roleName") String roleName);
 
-    // ===== Cleanup and Maintenance Queries - Safe =====
+    // ===== Cleanup and Maintenance Queries =====
 
-    /**
-     * Find orphaned tags (tags where post or user no longer exists or is inactive)
-     */
     @Query("""
             SELECT ut FROM UserTag ut 
             WHERE ut.isActive = true 
@@ -270,31 +234,22 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<UserTag> findOrphanedTags();
 
-    /**
-     * Find tags older than specified date - with limit for safety
-     */
     @Query("SELECT ut FROM UserTag ut WHERE ut.taggedAt < :cutoffDate ORDER BY ut.taggedAt ASC")
     List<UserTag> findTagsOlderThan(@NonNull @Param("cutoffDate") Date cutoffDate, Pageable pageable);
 
     // ===== Performance Optimization Queries =====
 
     /**
-     * Find tags by post IDs (for batch operations)
+     * Batch lookup by post IDs (no JOIN FETCH — used for existence checks only).
      */
     @Query("SELECT ut FROM UserTag ut WHERE ut.post.id IN :postIds AND ut.isActive = true")
     List<UserTag> findByPostIdsAndIsActiveTrue(@NonNull @Param("postIds") List<Long> postIds);
 
-    /**
-     * Find tags by user IDs (for batch operations)
-     */
     @Query("SELECT ut FROM UserTag ut WHERE ut.taggedUser.id IN :userIds AND ut.isActive = true")
     List<UserTag> findByTaggedUserIdsAndIsActiveTrue(@NonNull @Param("userIds") List<Long> userIds);
 
-    // ===== Resolution Tracking Queries - Parameterized =====
+    // ===== Resolution Tracking Queries =====
 
-    /**
-     * Find tags in resolved posts for performance analysis
-     */
     @Query("""
             SELECT ut FROM UserTag ut 
             WHERE ut.isActive = true 
@@ -304,9 +259,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<UserTag> findTagsInResolvedPosts(@NonNull @Param("status") PostStatus status);
 
-    /**
-     * Legacy method for backward compatibility
-     */
     @Query("""
             SELECT ut FROM UserTag ut 
             WHERE ut.isActive = true 
@@ -316,9 +268,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<UserTag> findTagsInResolvedPosts();
 
-    /**
-     * Calculate average resolution time for posts where user is tagged
-     */
     @Query("""
             SELECT AVG(TIMESTAMPDIFF(HOUR, ut.post.createdAt, ut.post.resolvedAt)) 
             FROM UserTag ut 
@@ -329,9 +278,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     Double getAverageResolutionTimeForUser(@NonNull @Param("user") User user, @NonNull @Param("status") PostStatus status);
 
-    /**
-     * Find unresolved tags older than specified days
-     */
     @Query("""
             SELECT ut FROM UserTag ut 
             WHERE ut.isActive = true 
@@ -345,9 +291,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
 
     // ===== Production-Ready Cursor-based Post Discovery Queries =====
 
-    /**
-     * Find posts where user is tagged with cursor pagination - Production optimized
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -364,9 +307,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
                                                     @NonNull @Param("beforeId") Long beforeId,
                                                     @NonNull Pageable pageable);
 
-    /**
-     * Find posts where user is tagged without cursor (first page) - Production optimized
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -380,9 +320,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     })
     List<Post> findPostsWhereUserIsTaggedOrderByIdDesc(@NonNull @Param("user") User user, @NonNull Pageable pageable);
 
-    /**
-     * Find posts where user is tagged by status with cursor pagination - Production optimized
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -401,9 +338,6 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
                                                             @NonNull @Param("beforeId") Long beforeId,
                                                             @NonNull Pageable pageable);
 
-    /**
-     * Find posts where user is tagged by status without cursor (first page) - Production optimized
-     */
     @Query(value = """
             SELECT DISTINCT p FROM Post p 
             JOIN UserTag ut ON ut.post = p 
@@ -420,29 +354,27 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
                                                                @NonNull @Param("status") PostStatus status,
                                                                @NonNull Pageable pageable);
 
-    // ===== Cursor-based Tagged Users in Post Queries - Enhanced =====
+    // ===== Cursor-based Tagged Users in Post Queries =====
 
     /**
-     * Find active user tags by post with cursor pagination
+     * FIX: Both paginated variants now use explicit @Query with JOIN FETCH taggedUser
+     * to avoid lazy-load queries when iterating UserTag.getTaggedUser().
      */
-    List<UserTag> findByPostAndIsActiveTrueAndIdLessThanOrderByIdDesc(@NonNull Post post, @NonNull Long beforeId, @NonNull Pageable pageable);
+    @Query("SELECT t FROM UserTag t JOIN FETCH t.taggedUser " +
+            "WHERE t.post = :post AND t.isActive = true AND t.id < :beforeId ORDER BY t.id DESC")
+    List<UserTag> findByPostAndIsActiveTrueAndIdLessThanOrderByIdDesc(@NonNull @Param("post") Post post,
+                                                                      @NonNull @Param("beforeId") Long beforeId,
+                                                                      @NonNull Pageable pageable);
 
-    /**
-     * Find active user tags by post without cursor (first page)
-     */
-    List<UserTag> findByPostAndIsActiveTrueOrderByIdDesc(@NonNull Post post, @NonNull Pageable pageable);
+    @Query("SELECT t FROM UserTag t JOIN FETCH t.taggedUser " +
+            "WHERE t.post = :post AND t.isActive = true ORDER BY t.id DESC")
+    List<UserTag> findByPostAndIsActiveTrueOrderByIdDesc(@NonNull @Param("post") Post post, @NonNull Pageable pageable);
 
     // ===== Additional Production Safety Methods =====
 
-    /**
-     * Batch update user tags for deactivation (safer than individual updates)
-     */
     @Query("SELECT ut FROM UserTag ut WHERE ut.post.id IN :postIds AND ut.isActive = true")
     List<UserTag> findActiveTagsByPostIds(@NonNull @Param("postIds") List<Long> postIds);
 
-    /**
-     * Find user tags that need cleanup based on business rules
-     */
     @Query("""
             SELECT ut FROM UserTag ut 
             WHERE ut.isActive = true 

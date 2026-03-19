@@ -32,18 +32,15 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
-    private final UserRepo userRepository;
+    private final UserRepo    userRepository;
 
     // ===== User Lookup Methods =====
 
     /**
      * Get the currently authenticated user's own profile.
      *
-     * @Transactional keeps the Hibernate session open through Jackson serialization,
-     * preventing LazyInitializationException on lazy collections (likes, posts, etc.).
-     *
-     * NOTE: User.getUsername() returns the EMAIL (Spring Security contract).
-     * The display username is serialized as "actualUsername" from getActualUsername().
+     * @Transactional(readOnly=true) keeps the Hibernate session open through Jackson
+     * serialization, preventing LazyInitializationException on lazy collections.
      */
     @GetMapping("/me")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -64,20 +61,15 @@ public class UserController {
         }
     }
 
-    /**
-     * Find user by username (display field)
-     * Accessible by all authenticated users
-     */
     @GetMapping("/username/{username}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<User>> findByUsername(
             @PathVariable @Size(min = 4, max = 100, message = "Username must be between 4 and 100 characters") String username) {
 
         try {
             User user = userService.findByUsername(username);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "User retrieved successfully", user));
+            return ResponseEntity.ok(ApiResponse.success("User retrieved successfully", user));
 
         } catch (UserNotFoundException e) {
             log.warn("User not found by username: {}", username);
@@ -94,20 +86,15 @@ public class UserController {
         }
     }
 
-    /**
-     * Find user by ID
-     * Accessible by all authenticated users
-     */
     @GetMapping("/{userId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<User>> findById(
             @PathVariable @Min(value = 1, message = "User ID must be positive") Long userId) {
 
         try {
             User user = userService.findById(userId);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "User retrieved successfully", user));
+            return ResponseEntity.ok(ApiResponse.success("User retrieved successfully", user));
 
         } catch (UserNotFoundException e) {
             log.warn("User not found by ID: {}", userId);
@@ -126,12 +113,9 @@ public class UserController {
 
     // ===== Department User Search Methods =====
 
-    /**
-     * Find department users by pincode
-     * Accessible by departments and admins only
-     */
     @GetMapping("/departments/by-pincode/{pincode}")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByPincode(
             @PathVariable @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format") String pincode,
             @RequestParam(required = false) Long beforeId,
@@ -139,14 +123,12 @@ public class UserController {
 
         try {
             PaginatedResponse<User> response = userService.findDepartmentUsersByPincode(pincode, beforeId, limit);
-
             return ResponseEntity.ok(ApiResponse.success(
                     "Department users by pincode retrieved successfully", response));
 
         } catch (ValidationException e) {
             log.warn("Validation error in findDepartmentUsersByPincode: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in findDepartmentUsersByPincode: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -158,12 +140,9 @@ public class UserController {
         }
     }
 
-    /**
-     * Find department users by state
-     * Accessible by departments and admins only
-     */
     @GetMapping("/departments/by-state/{state}")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByState(
             @PathVariable @Size(min = 2, max = 50, message = "State name must be between 2 and 50 characters") String state,
             @RequestParam(required = false) Long beforeId,
@@ -171,14 +150,12 @@ public class UserController {
 
         try {
             PaginatedResponse<User> response = userService.findDepartmentUsersByState(state, beforeId, limit);
-
             return ResponseEntity.ok(ApiResponse.success(
                     "Department users by state retrieved successfully", response));
 
         } catch (ValidationException e) {
             log.warn("Validation error in findDepartmentUsersByState: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in findDepartmentUsersByState: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -190,12 +167,9 @@ public class UserController {
         }
     }
 
-    /**
-     * Find department users by district
-     * Accessible by departments and admins only
-     */
     @GetMapping("/departments/by-district")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByDistrict(
             @RequestParam @Size(min = 2, max = 50, message = "State name must be between 2 and 50 characters") String state,
             @RequestParam @Size(min = 2, max = 50, message = "District name must be between 2 and 50 characters") String district,
@@ -204,14 +178,12 @@ public class UserController {
 
         try {
             PaginatedResponse<User> response = userService.findDepartmentUsersByDistrict(state, district, beforeId, limit);
-
             return ResponseEntity.ok(ApiResponse.success(
                     "Department users by district retrieved successfully", response));
 
         } catch (ValidationException e) {
             log.warn("Validation error in findDepartmentUsersByDistrict: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in findDepartmentUsersByDistrict: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -225,12 +197,9 @@ public class UserController {
 
     // ===== User Search and Tagging Methods =====
 
-    /**
-     * Search users for tagging functionality
-     * Accessible by all authenticated users
-     */
     @GetMapping("/search/tagging")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<UserTagSuggestionDto>>> searchUsersForTagging(
             @RequestParam @Size(min = 2, max = 50, message = "Query must be between 2 and 50 characters") String query,
             @RequestParam(required = false) Long beforeId,
@@ -238,14 +207,11 @@ public class UserController {
 
         try {
             PaginatedResponse<UserTagSuggestionDto> response = userService.searchUsersForTagging(query, beforeId, limit);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "Users for tagging retrieved successfully", response));
+            return ResponseEntity.ok(ApiResponse.success("Users for tagging retrieved successfully", response));
 
         } catch (ValidationException e) {
             log.warn("Validation error in searchUsersForTagging: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in searchUsersForTagging: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -259,17 +225,12 @@ public class UserController {
 
     // ===== Geographic Distribution Methods =====
 
-    /**
-     * Get user distribution by pincode (Analytics)
-     * Accessible by departments and admins only
-     */
     @GetMapping("/distribution/by-pincode")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Long>>> getUserDistributionByPincode() {
-
         try {
             Map<String, Long> distribution = userService.getUserDistributionByPincode();
-
             return ResponseEntity.ok(ApiResponse.success(
                     "User distribution by pincode retrieved successfully", distribution));
 
@@ -284,17 +245,12 @@ public class UserController {
         }
     }
 
-    /**
-     * Get user distribution by state (Analytics)
-     * Accessible by departments and admins only
-     */
     @GetMapping("/distribution/by-state")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Long>>> getUserDistributionByState() {
-
         try {
             Map<String, Long> distribution = userService.getUserDistributionByState();
-
             return ResponseEntity.ok(ApiResponse.success(
                     "User distribution by state retrieved successfully", distribution));
 
@@ -311,26 +267,20 @@ public class UserController {
 
     // ===== Permission Check Methods =====
 
-    /**
-     * Check if user can resolve posts in a specific pincode
-     * Accessible by departments and admins only
-     */
     @GetMapping("/permissions/resolve-posts/{pincode}")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Boolean>> canUserResolvePostsInPincode(
             @PathVariable @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format") String pincode) {
 
         try {
             User currentUser = getCurrentUser();
             boolean canResolve = userService.canUserResolvePostsInPincode(currentUser, pincode);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "Permission check completed successfully", canResolve));
+            return ResponseEntity.ok(ApiResponse.success("Permission check completed successfully", canResolve));
 
         } catch (ValidationException e) {
             log.warn("Validation error in canUserResolvePostsInPincode: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in canUserResolvePostsInPincode: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -344,14 +294,9 @@ public class UserController {
 
     // ===== User Update Methods =====
 
-    /**
-     * Update current user's profile
-     * Accessible by authenticated users (can only update their own profile)
-     */
     @PutMapping("/profile")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<User>> updateUserProfile(@Valid @RequestBody UserUpdateRequest updateRequest) {
-
         try {
             User currentUser = getCurrentUser();
 
@@ -363,14 +308,11 @@ public class UserController {
                     .build();
 
             User updatedUser = userService.updateUser(userToUpdate);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "User profile updated successfully", updatedUser));
+            return ResponseEntity.ok(ApiResponse.success("User profile updated successfully", updatedUser));
 
         } catch (ValidationException e) {
             log.warn("Validation error in updateUserProfile: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in updateUserProfile: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -382,10 +324,6 @@ public class UserController {
         }
     }
 
-    /**
-     * Admin method to update any user
-     * Accessible by admins only
-     */
     @PutMapping("/{userId}")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<User>> updateUser(
@@ -401,9 +339,7 @@ public class UserController {
                     .build();
 
             User updatedUser = userService.updateUser(userToUpdate);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "User updated successfully", updatedUser));
+            return ResponseEntity.ok(ApiResponse.success("User updated successfully", updatedUser));
 
         } catch (UserNotFoundException e) {
             log.warn("User not found for update: {}", userId);
@@ -411,8 +347,7 @@ public class UserController {
                     ApiResponse.error("User not found", e.getMessage()));
         } catch (ValidationException e) {
             log.warn("Validation error in updateUser: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in updateUser: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -426,26 +361,20 @@ public class UserController {
 
     // ===== User Listing Methods =====
 
-    /**
-     * Get all active users with pagination
-     * Accessible by admins only
-     */
     @GetMapping("/active")
     @PreAuthorize("hasAnyRole('ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getAllActiveUsers(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
 
         try {
             PaginatedResponse<User> response = userService.getAllActiveUsers(beforeId, limit);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "Active users retrieved successfully", response));
+            return ResponseEntity.ok(ApiResponse.success("Active users retrieved successfully", response));
 
         } catch (ValidationException e) {
             log.warn("Validation error in getAllActiveUsers: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in getAllActiveUsers: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -457,12 +386,9 @@ public class UserController {
         }
     }
 
-    /**
-     * Get users by role with pagination
-     * Accessible by admins only
-     */
     @GetMapping("/by-role/{roleName}")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getUsersByRole(
             @PathVariable @Size(min = 3, max = 20, message = "Role name must be between 3 and 20 characters") String roleName,
             @RequestParam(required = false) Long beforeId,
@@ -470,14 +396,11 @@ public class UserController {
 
         try {
             PaginatedResponse<User> response = userService.getUsersByRole(roleName, beforeId, limit);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "Users by role retrieved successfully", response));
+            return ResponseEntity.ok(ApiResponse.success("Users by role retrieved successfully", response));
 
         } catch (ValidationException e) {
             log.warn("Validation error in getUsersByRole: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in getUsersByRole: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -489,26 +412,20 @@ public class UserController {
         }
     }
 
-    /**
-     * Get recently created users with pagination
-     * Accessible by departments and admins only
-     */
     @GetMapping("/recent")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getRecentlyCreatedUsers(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
 
         try {
             PaginatedResponse<User> response = userService.getRecentlyCreatedUsers(beforeId, limit);
-
-            return ResponseEntity.ok(ApiResponse.success(
-                    "Recently created users retrieved successfully", response));
+            return ResponseEntity.ok(ApiResponse.success("Recently created users retrieved successfully", response));
 
         } catch (ValidationException e) {
             log.warn("Validation error in getRecentlyCreatedUsers: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    ApiResponse.error("Validation failed", e.getMessage()));
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
         } catch (ServiceException e) {
             log.error("Service error in getRecentlyCreatedUsers: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
@@ -523,9 +440,16 @@ public class UserController {
     // ===== Helper Methods =====
 
     /**
-     * Get current authenticated user using email (login credential)
-     * @return Current user from security context
-     * @throws ValidationException if user not found or not authenticated
+     * FIX: Changed from userRepository.findByEmail() to userRepository.findByEmailWithRole().
+     *
+     * User.role is now FetchType.LAZY. The original findByEmail() returned a user with
+     * an uninitialized role proxy — any subsequent call to user.isAdmin() or
+     * user.isDepartment() (inside security checks or service calls) would trigger a
+     * second SELECT to load the role.
+     *
+     * findByEmailWithRole() uses JOIN FETCH to load both User and Role in ONE query,
+     * so the controller has the fully-hydrated user ready for any permission check
+     * without an extra DB round-trip.
      */
     private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -534,13 +458,14 @@ public class UserController {
             throw new ValidationException("User not authenticated");
         }
 
-        String email = authentication.getName(); // Email is used as login credential
+        String email = authentication.getName();
         if (email == null || email.trim().isEmpty()) {
             throw new ValidationException("Invalid authentication - no email found");
         }
 
         try {
-            User user = userRepository.findByEmail(email)
+            // FIX: findByEmailWithRole() instead of findByEmail()
+            User user = userRepository.findByEmailWithRole(email)
                     .orElseThrow(() -> new UserNotFoundException("User not found with email: " + email));
 
             if (user.getIsActive() == null || !user.getIsActive()) {
@@ -568,11 +493,10 @@ public class UserController {
         @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format")
         private String pincode;
 
-        // Getters and setters
-        public String getEmail() { return email; }
+        public String getEmail()   { return email; }
         public void setEmail(String email) { this.email = email; }
 
-        public String getBio() { return bio; }
+        public String getBio()     { return bio; }
         public void setBio(String bio) { this.bio = bio; }
 
         public String getPincode() { return pincode; }
