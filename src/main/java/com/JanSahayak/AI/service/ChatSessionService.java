@@ -67,6 +67,22 @@ public class ChatSessionService {
     // userId → sessionId   (maintained for both ACTIVE and DISCONNECTED sessions)
     private final Map<Long, String> userSessionMap = new ConcurrentHashMap<>();
 
+    /**
+     * FIX MEMORY LEAK #1 — recentMessages cap.
+     * Without this cap the in-memory message list grows without bound for long-lived
+     * sessions.  We keep the last MAX_RECENT_MESSAGES messages only.
+     * Constant.CHAT_MAX_RECENT_MESSAGES should be set to ~200.
+     */
+    private static final int MAX_RECENT_MESSAGES =
+            Constant.CHAT_MAX_RECENT_MESSAGES > 0 ? Constant.CHAT_MAX_RECENT_MESSAGES : 200;
+
+    // FIX MEMORY LEAK #2 — per-session email lookup cache.
+    // getUserEmail() is called on every WebSocket send; hitting the DB every time
+    // creates GC pressure from short-lived User objects.  We cache email by userId
+    // for the lifetime of the session and evict when the session is removed.
+    // Bounded by the number of concurrent sessions * 2 users = negligible.
+    private final Map<Long, String> emailCache = new ConcurrentHashMap<>();
+
     // ── Session lifecycle ─────────────────────────────────────────────────────
 
     public ChatSession createSession(Long user1Id, Long user2Id) {
@@ -98,6 +114,10 @@ public class ChatSessionService {
         userSessionMap.put(user1Id, sessionId);
         userSessionMap.put(user2Id, sessionId);
 
+        // FIX MEMORY LEAK #2 — pre-populate email cache so WebSocket sends are DB-free
+        try { emailCache.put(user1Id, fetchEmail(user1Id)); } catch (Exception ignored) {}
+        try { emailCache.put(user2Id, fetchEmail(user2Id)); } catch (Exception ignored) {}
+
         log.info("Chat session {} created successfully", sessionId);
         return session;
     }
@@ -120,6 +140,14 @@ public class ChatSessionService {
         String senderAnonymousId = session.getUserAnonymousId(senderId);
         ChatMessage message = ChatMessage.userMessage(sessionId, senderAnonymousId, content);
         session.addMessage(message);
+
+        // FIX MEMORY LEAK #1 — trim message list to cap so it never grows unbounded
+        List<ChatMessage> msgs = session.getRecentMessages();
+        if (msgs != null && msgs.size() > MAX_RECENT_MESSAGES) {
+            // Remove oldest entries (index 0) until we are within the cap.
+            // subList + clear is O(n) but happens rarely and avoids copying.
+            msgs.subList(0, msgs.size() - MAX_RECENT_MESSAGES).clear();
+        }
 
         log.debug("Message added to session {} by user {}", sessionId, senderId);
         return message;
@@ -165,6 +193,9 @@ public class ChatSessionService {
         userSessionMap.remove(session.getUser1Id());
         userSessionMap.remove(session.getUser2Id());
         activeSessions.remove(sessionId);
+        // FIX MEMORY LEAK #2 — evict cached emails for users whose session ended
+        emailCache.remove(session.getUser1Id());
+        emailCache.remove(session.getUser2Id());
     }
 
     // ── Reconnect flow ────────────────────────────────────────────────────────
@@ -343,7 +374,20 @@ public class ChatSessionService {
                 toRemove.add(entry.getKey());
             }
         }
-        for (String sid : toRemove) activeSessions.remove(sid);
+        for (String sid : toRemove) {
+            // MEMORY LEAK FIX: original code only removed from activeSessions.
+            // userSessionMap and emailCache entries were never evicted here, so they
+            // accumulated indefinitely — 2 leaked entries per ended session, every
+            // 2-minute cleanup cycle.  Mirrors the cleanup already done correctly
+            // in endSession() and forceEndSessionForDisconnectedUser().
+            ChatSession s = activeSessions.remove(sid);
+            if (s != null) {
+                userSessionMap.remove(s.getUser1Id());
+                userSessionMap.remove(s.getUser2Id());
+                emailCache.remove(s.getUser1Id());
+                emailCache.remove(s.getUser2Id());
+            }
+        }
         if (!toRemove.isEmpty()) log.info("Removed {} ended sessions from memory", toRemove.size());
     }
 
@@ -378,8 +422,20 @@ public class ChatSessionService {
     /**
      * Returns the WebSocket principal name (= email) for a user.
      * convertAndSendToUser() routes to /user/{email}/queue/...
+     *
+     * FIX MEMORY LEAK #2 — served from emailCache when available to avoid
+     * repeated DB round-trips and short-lived User object allocation per send.
      */
     public String getUserEmail(Long userId) {
+        String cached = emailCache.get(userId);
+        if (cached != null) return cached;
+        String email = fetchEmail(userId);
+        emailCache.put(userId, email);
+        return email;
+    }
+
+    /** Raw DB lookup — only called on cache miss. */
+    private String fetchEmail(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userId));
         return user.getUsername(); // getUsername() returns EMAIL in this project
@@ -425,6 +481,9 @@ public class ChatSessionService {
             userSessionMap.remove(session.getUser1Id());
             userSessionMap.remove(session.getUser2Id());
             activeSessions.remove(sessionId);
+            // FIX MEMORY LEAK #2 — evict email cache entries
+            emailCache.remove(session.getUser1Id());
+            emailCache.remove(session.getUser2Id());
         }
     }
 

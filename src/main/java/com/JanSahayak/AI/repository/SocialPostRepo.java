@@ -424,12 +424,6 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     /**
      * Cold-area fallback: recent quality posts nationwide.
      * Used when the user's local pool is too small (< 50 candidates).
-     *
-     * NOTE: This query filters qualityScore >= 50 AND viralTier implicitly
-     * via the ordering. It is NOT suitable as a sparse-platform fallback
-     * because on a brand-new platform all posts have viralTier='LOCAL' and
-     * qualityScore may be 0, causing this query to return 0 results.
-     * Use findRecentActivePosts() for the sparse-platform case.
      */
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -445,23 +439,10 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * Cross-area sparse-platform fallback — NO geo filter, NO viral-tier filter,
      * NO qualityScore filter. Returns any ACTIVE post ordered by recency.
      *
-     * WHY THIS EXISTS (the root fix for cross-area empty feeds):
-     * fetchCandidates() runs a geo waterfall (local → district viral → state viral
-     * → national viral). On a brand-new platform with 2 users from different cities
-     * (e.g. Mumbai + Delhi), all steps return 0 because:
-     *   - Local posts:          0  (Mumbai user, no Mumbai posts from Delhi user)
-     *   - District viral posts: 0  (Delhi post not district-viral yet)
-     *   - State viral posts:    0  (same reason)
-     *   - National viral posts: 0  (viralTier = 'LOCAL' on new posts)
-     * The old Fallback 1 (findRecentPostsNational) ALSO returned 0 because it
-     * filters qualityScore >= 50 and on a new post qualityScore may be 0.
-     *
-     * This query has none of those filters. It fires whenever the geo pool
-     * is < 50, guaranteeing cross-area users always see each other's posts
-     * regardless of viral tier, quality score, or geo match.
-     *
-     * Index: idx_social_post_status (status) covers the WHERE clause.
-     * No new DB migration needed.
+     * WHY THIS EXISTS: fetchCandidates() runs a geo waterfall. On a brand-new
+     * platform with 2 users from different cities all geo waterfall steps return 0.
+     * This query has none of those filters, guaranteeing cross-area users always
+     * see each other's posts regardless of viral tier, quality score, or geo match.
      */
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -475,17 +456,9 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     /**
      * Sparse-platform safety net — returns ALL active posts ordered by recency.
      *
-     * Used as the last-resort fallback in HLIGFeedService (HOT / NEW / TOP tabs)
-     * and SocialPostService when geo-scoped or viral-filtered queries return fewer
-     * than 20 posts. This happens on brand-new platforms with 0–5 users before
-     * any virality scoring, geo-tagging, or qualityScore computation has run.
-     *
-     * Unlike findRecentPostsNational, this query has NO qualityScore filter,
-     * ensuring that even freshly created posts with qualityScore = 0 are surfaced.
-     *
-     * Performance note: at scale (millions of posts) the HLIG geo + viral queries
-     * always return 50+ candidates so this method is never called in production —
-     * it is purely a cold-start / sparse-data safety net.
+     * Last-resort fallback in HLIGFeedService sort=NEW and as a catch-all when
+     * every other fallback is exhausted. Unlike findRecentPostsNational, this query
+     * has NO qualityScore filter, so even brand-new posts with qualityScore=0 surface.
      */
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -497,8 +470,18 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     List<SocialPost> findAllActivePostsForFeed(Pageable pageable);
 
     /**
-     * HOT tab — trending posts within the user's geographic reach in the last 72 hours.
-     * Sorted by viralityScore (pre-computed on SocialPost entity).
+     * HOT tab — geo-scoped trending posts within the last 72 hours.
+     *
+     * Used by HLIGFeedService.fetchBrowsePool() for scope=LOCATION + sort=HOT,
+     * and by widenToState() when the pincode-level HOT pool is sparse.
+     *
+     * Geo filter: posts matching the user's pincode OR districtPrefix
+     *             OR state/national viral tier (null params are ignored).
+     * Time filter: createdAt >= :since  (caller passes now-72h)
+     * Sort: viralityScore DESC, createdAt DESC
+     *
+     * Index hint: idx_social_post_virality_created on (status, viralityScore, createdAt)
+     * covers the WHERE and ORDER BY clauses at scale.
      */
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -507,7 +490,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
               AND sp.createdAt >= :since
               AND sp.user.isActive = true
               AND (
-                  (:pincode IS NULL OR sp.pincode = :pincode)
+                  (:pincode IS NULL        OR sp.pincode        = :pincode)
                   OR (:districtPrefix IS NULL OR sp.districtPrefix = :districtPrefix)
                   OR sp.viralTier IN ('STATE_VIRAL', 'NATIONAL_VIRAL')
               )
@@ -522,6 +505,9 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
 
     /**
      * NEW tab — chronological feed for the user's state + national viral.
+     *
+     * Used by HLIGFeedService.fetchBrowsePool() for scope=LOCATION + sort=NEW,
+     * and by widenToState() when the state-level NEW pool is sparse.
      */
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -538,7 +524,14 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             @Param("statePrefix") String statePrefix, Pageable pageable);
 
     /**
-     * TOP tab — highest engagement posts for the user's state + national.
+     * TOP tab — highest engagement posts for the user's state + national, all-time.
+     *
+     * Used by HLIGFeedService.fetchBrowsePool() for scope=LOCATION + sort=TOP,
+     * and by widenToState() when the state-level TOP pool is sparse.
+     *
+     * No time window — TOP surfaces the best posts ever in the region.
+     * qualityScore >= 50 guards against brand-new zero-engagement posts
+     * from cluttering the all-time leaderboard.
      */
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -574,28 +567,73 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             @Param("userId") Long userId, Pageable pageable);
 
     // ==========================================================================
+    // HLIG v2 — PLATFORM-WIDE SORT FALLBACKS
+    // Used by HLIGFeedService.widenToPlatform() and absoluteFallback()
+    // when geo-scoped queries return fewer than CANDIDATE_SPARSE_FLOOR posts.
+    // ==========================================================================
+
+    /**
+     * HOT platform-wide fallback — viralityScore DESC within the given time window.
+     *
+     * Called by HLIGFeedService when:
+     *   - widenToPlatform() for sort=HOT (sparse area, no geo posts viral in 72h)
+     *   - absoluteFallback() for sort=HOT (last resort before returning empty feed)
+     *
+     * The :since parameter is supplied by the caller (typically now-72h).
+     * No geo filter — surfaces the most viral posts on the entire platform.
+     *
+     * Index hint: idx_social_post_virality_created on (status, viralityScore, createdAt)
+     */
+    @Query("""
+            SELECT sp FROM SocialPost sp
+            WHERE sp.status = 'ACTIVE'
+              AND sp.isFlagged = false
+              AND sp.createdAt >= :since
+              AND sp.user.isActive = true
+              AND sp.viralityScore > 0
+            ORDER BY sp.viralityScore DESC, sp.createdAt DESC
+            """)
+    List<SocialPost> findHotActivePostsForFeed(
+            @Param("since") Date since, Pageable pageable);
+
+    /**
+     * TOP platform-wide fallback — engagementScore DESC, all-time, no time window.
+     *
+     * Called by HLIGFeedService when:
+     *   - widenToPlatform() for sort=TOP (sparse area, no high-engagement geo posts)
+     *   - absoluteFallback() for sort=TOP (last resort before returning empty feed)
+     *
+     * qualityScore >= 50 guards against zero-engagement brand-new posts
+     * dominating the all-time leaderboard on a sparse platform.
+     *
+     * Index hint: idx_social_post_engagement on (status, engagementScore DESC)
+     */
+    @Query("""
+            SELECT sp FROM SocialPost sp
+            WHERE sp.status = 'ACTIVE'
+              AND sp.isFlagged = false
+              AND sp.qualityScore >= 50
+              AND sp.user.isActive = true
+            ORDER BY sp.engagementScore DESC, sp.createdAt DESC
+            """)
+    List<SocialPost> findTopActivePostsForFeed(Pageable pageable);
+
+    // ==========================================================================
     // HLIG v2 — OWN-POSTS INJECTION (used by HLIGFeedService.injectOwnPosts)
     // ==========================================================================
 
     /**
      * Returns the user's own most recent ACTIVE posts for own-post injection.
      *
-     * WHY THIS EXISTS:
-     * On a new/sparse platform a creator's post may not yet have a viralTier,
-     * qualityScore, or geo-tag that passes any of the normal geo waterfall queries
-     * (findLocalFeedPosts, findDistrictViralPosts, etc.).
-     * Without this query the creator would open the app and not see their own post
-     * anywhere in the feed — a critical first-impression failure.
+     * WHY THIS EXISTS: On a new/sparse platform a creator's post may not yet
+     * have a viralTier, qualityScore, or geo-tag that passes any of the normal
+     * geo waterfall queries. Without this the creator would not see their own
+     * post in the feed immediately after posting.
      *
-     * HLIGFeedService.injectOwnPosts() calls this and adds the results directly
-     * into the candidate map via putIfAbsent(), so they are deduplicated if they
-     * were already fetched by the geo waterfall.
-     *
-     * The result is capped to 3 posts (HLIG_OWN_POST_INJECT_LIMIT) so the feed
-     * is never dominated by the creator's own content.
-     *
-     * No qualityScore filter — a brand-new post with qualityScore = 0 must
+     * No qualityScore filter — a brand-new post with qualityScore=0 must
      * still be visible to its creator immediately after posting.
+     *
+     * Capped to 3 posts (HLIG_OWN_POST_INJECT_LIMIT) by the caller.
      */
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -606,5 +644,16 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             """)
     List<SocialPost> findRecentPostsByUser(
             @Param("userId") Long userId, Pageable pageable);
+
+
+    // Used by language-aware widening in HLIGFeedService + fetchCandidates
+    @Query("""
+  SELECT p FROM SocialPost p
+  WHERE p.status = 'ACTIVE'
+    AND p.language IN :languages
+  ORDER BY p.createdAt DESC
+""")
+    List<SocialPost> findActivePostsByLanguages(
+            @Param("languages") List<String> languages, Pageable pageable);
 
 }

@@ -61,7 +61,16 @@ public class PostService {
     private long maxVideoSize;
 
     // Cloudinary URL cleanup retry queue
-    private final Queue<String> fileCleanupQueue = new LinkedList<>();
+    // FIX 1 — THREAD SAFETY: CompletableFuture.exceptionally() callbacks write to this
+    // queue from ForkJoin worker threads, while processFileCleanupQueue() reads from it
+    // on the scheduler thread.  LinkedList is NOT thread-safe; concurrent offer()+poll()
+    // can corrupt the internal node links, causing infinite loops or lost entries.
+    // Replaced with ConcurrentLinkedQueue which is lock-free and thread-safe.
+    //
+    // FIX 2 — UNBOUNDED GROWTH: processFileCleanupQueue() was never @Scheduled, so the
+    // queue was filled by every failed async delete but NEVER drained, leaking one String
+    // entry per failure indefinitely.  The @Scheduled annotation is added below.
+    private final Queue<String> fileCleanupQueue = new java.util.concurrent.ConcurrentLinkedQueue<>();
 
     // =========================================================================
     // CREATE
@@ -564,7 +573,18 @@ public class PostService {
             post.setUpdatedAt(new Date());
             Post updatedPost = postRepository.save(post);
             if (oldFileName != null && !oldFileName.trim().isEmpty()) {
-                CompletableFuture.runAsync(() -> drivePostMedia.delete(oldFileName));
+                // FIX THREAD LEAK: runAsync with no timeout holds a ForkJoin thread
+                // indefinitely if Cloudinary hangs — risks pool exhaustion under load.
+                // orTimeout(10s) interrupts and falls back to the retry cleanup queue.
+                final String urlToDelete = oldFileName;
+                CompletableFuture
+                        .runAsync(() -> drivePostMedia.delete(urlToDelete))
+                        .orTimeout(10, TimeUnit.SECONDS)
+                        .exceptionally(ex -> {
+                            log.warn("[Cloudinary] Async delete timed out/failed url={}: {}", urlToDelete, ex.getMessage());
+                            fileCleanupQueue.offer(urlToDelete);
+                            return null;
+                        });
             }
             log.info("Media updated: postId={} newMedia={}", post.getId(), fileName != null ? fileName : "removed");
             return updatedPost;
@@ -591,8 +611,16 @@ public class PostService {
             }
             Post updatedPost = postRepository.save(post);
             if (oldFileName != null && !oldFileName.trim().isEmpty()) {
-                // CLOUDINARY: delete from Cloudinary asynchronously
-                CompletableFuture.runAsync(() -> drivePostMedia.delete(oldFileName));
+                // FIX THREAD LEAK: same timeout guard as updatePostMedia (see above)
+                final String urlToDelete = oldFileName;
+                CompletableFuture
+                        .runAsync(() -> drivePostMedia.delete(urlToDelete))
+                        .orTimeout(10, TimeUnit.SECONDS)
+                        .exceptionally(ex -> {
+                            log.warn("[Cloudinary] Async delete timed out/failed url={}: {}", urlToDelete, ex.getMessage());
+                            fileCleanupQueue.offer(urlToDelete);
+                            return null;
+                        });
             }
             log.info("Media removed from post: id={}", post.getId());
             return updatedPost;
@@ -1062,6 +1090,8 @@ public class PostService {
     // FILE CLEANUP QUEUE  (deletes from Cloudinary)
     // =========================================================================
 
+    // FIX 2 — drain the retry queue every 5 minutes (previously never called).
+    @org.springframework.scheduling.annotation.Scheduled(fixedRate = 300_000)
     public void processFileCleanupQueue() {
         int processedCount = 0;
         while (!fileCleanupQueue.isEmpty() && processedCount < 10) {

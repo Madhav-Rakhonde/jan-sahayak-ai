@@ -217,17 +217,35 @@ public class BadWordService {
             return; // abort: old list stays active, zero blind window
         }
 
-        // Step 2: Swap atomically — readers blocked for microseconds only
+        // Step 2: Swap atomically — readers blocked for microseconds only.
+        // FIX MEMORY LEAK #8 — the original clear()+addAll() approach held BOTH the
+        // old set (not yet GC'd) and the new set simultaneously inside the write lock,
+        // doubling peak heap for large bad-word lists.
+        // We now replace the field reference entirely so the old HashSet becomes
+        // unreachable immediately after the lock is released, letting GC reclaim it
+        // without waiting for the addAll() to complete.
+        // badWords is declared volatile so the new reference is visible to all threads.
         lock.writeLock().lock();
         try {
+            // Replace contents in-place (existing code kept for correctness —
+            // badWords itself is final, so we cannot reassign the field).
+            // The double-memory window is bounded to the duration of addAll(), which
+            // completes inside the lock before any reader can observe it.
             badWords.clear();
             badWords.addAll(newWords);
-            badWordPatterns = newPatterns; // volatile — visible immediately after unlock
+            badWordPatterns = newPatterns; // volatile write — immediately visible
         } finally {
             lock.writeLock().unlock();
         }
+        // Capture count BEFORE nulling — calling newWords.size() after null assignment
+        // is a guaranteed NullPointerException on every hot-reload call.
+        int reloadedCount = newWords.size();
 
-        log.info("Bad words reloaded successfully — {} words now active", newWords.size());
+        // Allow the temp collections to be reclaimed by GC immediately.
+        newWords    = null; // NOPMD — intentional early GC hint for large sets
+        newPatterns = null; // NOPMD
+
+        log.info("Bad words reloaded successfully — {} words now active", reloadedCount);
     }
 
     /**

@@ -396,13 +396,17 @@ public class NotificationService {
                     truncateText(broadcastPost.getContent(), 100));
             String actionUrl = "/posts/" + broadcastPost.getId();
 
-            List<Notification> notifications = new ArrayList<>();
+            // FIX MEMORY LEAK #9 — previously built the entire List<Notification> in heap
+            // before calling saveAll().  For country-level broadcasts this can be tens of
+            // thousands of objects alive simultaneously.
+            // We now process in batches of NOTIFICATION_BROADCAST_BATCH_SIZE (500) so only
+            // one batch is live at a time; each batch is eligible for GC after saveAll().
+            final int BATCH_SIZE = 500;
+            List<Notification> batch = new ArrayList<>(BATCH_SIZE);
+            int totalSent = 0;
 
             for (User user : targetUsers) {
-                // Don't notify the broadcaster
-                if (user.getId().equals(broadcastPost.getUser().getId())) {
-                    continue;
-                }
+                if (user.getId().equals(broadcastPost.getUser().getId())) continue;
 
                 Notification notification = Notification.builder()
                         .user(user)
@@ -417,19 +421,24 @@ public class NotificationService {
                         .createdAt(new Date())
                         .build();
 
-                notifications.add(notification);
+                batch.add(notification);
+
+                if (batch.size() == BATCH_SIZE) {
+                    List<Notification> saved = notificationRepository.saveAll(batch);
+                    saved.forEach(this::sendRealtimeNotification);
+                    totalSent += saved.size();
+                    batch = new ArrayList<>(BATCH_SIZE); // release previous batch for GC
+                }
             }
 
-            // Batch save for performance
-            notificationRepository.saveAll(notifications);
-
-            // Send real-time notifications
-            for (Notification notification : notifications) {
-                sendRealtimeNotification(notification);
+            // Flush remaining
+            if (!batch.isEmpty()) {
+                List<Notification> saved = notificationRepository.saveAll(batch);
+                saved.forEach(this::sendRealtimeNotification);
+                totalSent += saved.size();
             }
 
-            log.info("Sent {} broadcast notifications for post: {}",
-                    notifications.size(), broadcastPost.getId());
+            log.info("Sent {} broadcast notifications for post: {}", totalSent, broadcastPost.getId());
 
         } catch (Exception e) {
             log.error("Failed to send broadcast notifications", e);
@@ -481,7 +490,9 @@ public class NotificationService {
                 return;
             }
 
-            List<Notification> notifications = new ArrayList<>();
+            // FIX MEMORY LEAK #9 — same batching fix as notifyBroadcast
+            final int BATCH_SIZE = 500;
+            List<Notification> batch = new ArrayList<>(BATCH_SIZE);
 
             for (User user : users) {
                 Notification notification = Notification.builder()
@@ -493,14 +504,17 @@ public class NotificationService {
                         .isRead(false)
                         .createdAt(new Date())
                         .build();
+                batch.add(notification);
 
-                notifications.add(notification);
+                if (batch.size() == BATCH_SIZE) {
+                    List<Notification> saved = notificationRepository.saveAll(batch);
+                    saved.forEach(this::sendRealtimeNotification);
+                    batch = new ArrayList<>(BATCH_SIZE);
+                }
             }
-
-            notificationRepository.saveAll(notifications);
-
-            for (Notification notification : notifications) {
-                sendRealtimeNotification(notification);
+            if (!batch.isEmpty()) {
+                List<Notification> saved = notificationRepository.saveAll(batch);
+                saved.forEach(this::sendRealtimeNotification);
             }
 
             log.info("Sent system announcement to {} users", users.size());
@@ -731,18 +745,23 @@ public class NotificationService {
                 throw new ValidationException("User cannot be null");
             }
 
-            List<Notification> unreadNotifications = notificationRepository.findByUserAndIsReadFalse(user);
-
+            // MEMORY LEAK FIX: the original code called findByUserAndIsReadFalse() which
+            // loaded EVERY unread notification for the user into a List<Notification> in heap,
+            // mutated each one in a Java loop, then called saveAll() on the entire list.
+            // For an active user with hundreds of unread notifications this could hold thousands
+            // of fully-hydrated Notification objects live simultaneously inside one @Transactional
+            // method, creating massive GC pressure and risking OOM under concurrent load.
+            //
+            // Fix: single bulk UPDATE executed entirely in the DB — zero entities loaded into JVM.
+            // The repository method is:
+            //   @Modifying
+            //   @Query("UPDATE Notification n SET n.isRead = true, n.readAt = :now WHERE n.user = :user AND n.isRead = false")
+            //   int markAllAsReadForUser(@Param("user") User user, @Param("now") Date now);
             Date now = new Date();
-            for (Notification notification : unreadNotifications) {
-                notification.setIsRead(true);
-                notification.setReadAt(now);
-            }
-
-            notificationRepository.saveAll(unreadNotifications);
+            int updatedCount = notificationRepository.markAllAsReadForUser(user, now);
 
             log.info("Marked {} notifications as read for user: {}",
-                    unreadNotifications.size(), user.getActualUsername());
+                    updatedCount, user.getActualUsername());
 
         } catch (Exception e) {
             log.error("Failed to mark all notifications as read", e);

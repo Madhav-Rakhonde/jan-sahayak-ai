@@ -28,7 +28,7 @@ import java.util.regex.Pattern;
  * CHANGES v3:
  *  - Added CHAT_RECONNECT_GRACE_PERIOD_SECONDS for page-refresh reconnect window
  *
- * CHANGES v4 (this version):
+ * CHANGES v4:
  *  - RE-ADDED entire HLIG profile / signal-weight / phase / cache section that
  *    was accidentally dropped. Without these, InterestProfileService and
  *    HLIGScorer fail with "cannot find symbol" at compile time:
@@ -36,6 +36,13 @@ import java.util.regex.Pattern;
  *      HLIG_WARM_PHASE_THRESHOLD, HLIG_WARMING_PHASE_THRESHOLD,
  *      HLIG_PROFILE_CORE_THRESHOLD, HLIG_PROFILE_CASUAL_THRESHOLD,
  *      HLIG_PROFILE_LAMBDA, HLIG_W_LIKE … HLIG_W_POST_CREATED
+ *
+ * CHANGES v5 (this version):
+ *  - Added DEFAULT_PAGE_SIZE alias (= DEFAULT_FEED_LIMIT = 20)
+ *    Used by SocialPostService.getLocalPosts() page-size clamping logic.
+ *  - Added MAX_PAGE_SIZE alias (= FEED_MAX_SIZE = 50)
+ *    Used by SocialPostService.getLocalPosts() page-size clamping logic.
+ *  Both are pure aliases — no existing constant values are changed.
  */
 public final class Constant {
 
@@ -109,15 +116,30 @@ public final class Constant {
     // FEED — pagination defaults
     // =========================================================================
 
-    public static final int DEFAULT_FEED_LIMIT   = 20;
+    public static final int DEFAULT_FEED_LIMIT    = 20;
     public static final int MAX_FEED_LIMIT        = 100;
     public static final int DEFAULT_PAGE          = 0;
+
     /** Hard upper bound on page size accepted by FeedController (alias for clarity). */
     public static final int FEED_MAX_SIZE         = 50;
     /** Alias used by FeedController — identical value. */
     public static final int FEED_MAX_PAGE_SIZE    = 50;
     public static final int FEED_DEFAULT_PAGE_SIZE = 20;
     public static final int FEED_DEFAULT_PAGE      = 0;
+
+    /**
+     * Generic page-size default used by service-layer methods that accept a
+     * nullable {@code limit} parameter (e.g. SocialPostService.getLocalPosts).
+     * Value mirrors DEFAULT_FEED_LIMIT.
+     */
+    public static final int DEFAULT_PAGE_SIZE = DEFAULT_FEED_LIMIT;   // 20
+
+    /**
+     * Generic hard cap on page size for service-layer clamping logic
+     * (e.g. SocialPostService.getLocalPosts).
+     * Value mirrors FEED_MAX_SIZE.
+     */
+    public static final int MAX_PAGE_SIZE = FEED_MAX_SIZE;             // 50
 
     // =========================================================================
     // HLIG FEED SERVICE — candidate pool & diversity
@@ -182,17 +204,17 @@ public final class Constant {
     // Used by InterestProfileService to update per-user topic weights.
     // Positive weights increase topic affinity; negative weights decrease it.
 
-    public static final double HLIG_W_LIKE          =  3.0;
-    public static final double HLIG_W_COMMENT       =  4.0;
-    public static final double HLIG_W_SAVE          =  3.5;
-    public static final double HLIG_W_SHARE         =  3.0;
-    public static final double HLIG_W_VIEW          =  0.5;
-    public static final double HLIG_W_POST_CREATED  =  5.0;
-    public static final double HLIG_W_DISLIKE       = -5.0;
-    public static final double HLIG_W_UNLIKE        = -3.0;
-    public static final double HLIG_W_UNSAVE        = -3.5;
+    public static final double HLIG_W_LIKE           =  3.0;
+    public static final double HLIG_W_COMMENT        =  4.0;
+    public static final double HLIG_W_SAVE           =  3.5;
+    public static final double HLIG_W_SHARE          =  3.0;
+    public static final double HLIG_W_VIEW           =  0.5;
+    public static final double HLIG_W_POST_CREATED   =  5.0;
+    public static final double HLIG_W_DISLIKE        = -5.0;
+    public static final double HLIG_W_UNLIKE         = -3.0;
+    public static final double HLIG_W_UNSAVE         = -3.5;
     public static final double HLIG_W_NOT_INTERESTED = -8.0;
-    public static final double HLIG_W_SCROLL_PAST   = -0.3;
+    public static final double HLIG_W_SCROLL_PAST    = -0.3;
 
     // =========================================================================
     // HLIG INTEREST PROFILE — cache, top-N, neighbours
@@ -253,11 +275,11 @@ public final class Constant {
     // =========================================================================
     // Weights applied per extraction source inside TopicExtractor.extract().
 
-    public static final double TOPIC_HASHTAG_STRENGTH   = 1.0;
-    public static final double TOPIC_CATEGORY_STRENGTH  = 0.9;
-    public static final double TOPIC_COMM_TAG_STRENGTH  = 0.75;
-    public static final double TOPIC_POLL_STRENGTH      = 0.7;
-    public static final double TOPIC_CONTENT_STRENGTH   = 0.6;
+    public static final double TOPIC_HASHTAG_STRENGTH  = 1.0;
+    public static final double TOPIC_CATEGORY_STRENGTH = 0.9;
+    public static final double TOPIC_COMM_TAG_STRENGTH = 0.75;
+    public static final double TOPIC_POLL_STRENGTH     = 0.7;
+    public static final double TOPIC_CONTENT_STRENGTH  = 0.6;
 
     // =========================================================================
     // CHAT SESSION

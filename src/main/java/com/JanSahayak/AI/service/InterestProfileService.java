@@ -21,33 +21,26 @@ import java.util.stream.Collectors;
 /**
  * InterestProfileService — manages per-user topic-weight profiles.
  *
- * CHANGES v2 (improved):
+ * CHANGES v3 (language support):
  * ─────────────────────────────────────────────────────────────────────────────
- * 1. Phase thresholds use Constant values (HLIG_WARM_PHASE_THRESHOLD = 30,
- *    HLIG_WARMING_PHASE_THRESHOLD = 0) instead of magic literals 30/0.
+ * 1. Every signal handler (onView, onLike, onSave, onComment, onShare,
+ *    onPostCreated) now also records a "lang:XX" language topic signal
+ *    at HALF the weight of the main content signal.
  *
- * 2. loadTopN() — filter threshold changed from 0.01 to a named constant
- *    (HLIG_PROFILE_CASUAL_THRESHOLD / 2) to avoid drifting micro-weights
- *    polluting the profile map.  This reduces profile map sizes and speeds
- *    up HLIGScorer.normalisedDotProduct().
+ *    Rationale: language preference is a persistent trait that builds
+ *    slowly over many sessions. Using half the content weight avoids
+ *    language topics flooding CORE zone on a single binge session, while
+ *    still letting the preference emerge naturally within a week of usage.
  *
- * 3. findNeighbours() — result is now cached to avoid redundant DB queries
- *    on every warm-feed page for the same user within the same TTL window.
+ * 2. rebuildLanguagePreferences(userId) — new async method that reads all
+ *    "lang:XX" topic rows for a user, sorts them by decayed weight, and
+ *    writes the top-5 BCP-47 codes into the preferred_languages column on
+ *    the user's top-weight UIP row.  Called after every language signal update.
  *
- * 4. applyNightlyDecay() — added a pruning pass after decay:
- *    rows with decayedWeight < 0.01 are deleted to keep the table bounded.
- *    Without pruning, inactive users accumulate near-zero rows indefinitely,
- *    causing the interest-profile table to balloon at scale.
+ * 3. getPreferredLanguages(userId) — new cached public method that returns
+ *    the ordered preferred language list for the scorer without an extra DB
+ *    round-trip per request.  Evicted alongside the regular profile cache.
  *
- * 5. onScrolledPast() — extracted into applySignal() instead of having its
- *    own bespoke upsert loop; this ensures scroll-past signals also go
- *    through the same @Transactional(REQUIRES_NEW) boundary as all other signals.
- *
- * 6. loadCoreTopics() — uses HLIG_PROFILE_CORE_THRESHOLD constant instead
- *    of hardcoded 8.0; the threshold is now in one place.
- *
- * 7. recentlySeenPosts() — short-circuit for zero-signal users kept.
- *    Added null-guard on repo result to avoid NPE when repo returns null.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 @Service
@@ -58,16 +51,23 @@ public class InterestProfileService {
     private final UserInterestProfileRepo repo;
     private final TopicExtractor          topicExtractor;
 
+    // FIX MEMORY LEAK #6 — needed for programmatic lang:: and nb:: cache eviction
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.context.ApplicationContext applicationContext;
+
     // ── Signal handlers (all @Async) ──────────────────────────────────────────
 
     @Async
     public void onLike(Long userId, SocialPost post) {
-        applySignal(userId, post, Constant.HLIG_W_LIKE, topicExtractor.extract(post), true);
+        Map<String, Double> topics = topicExtractor.extract(post);
+        applySignal(userId, post, Constant.HLIG_W_LIKE, topics, true);
+        applyLanguageSignal(userId, post, Constant.HLIG_W_LIKE * 0.5);
     }
 
     @Async
     public void onDislike(Long userId, SocialPost post) {
         applySignal(userId, post, Constant.HLIG_W_DISLIKE, topicExtractor.extract(post), false);
+        // Dislike = negative content signal but neutral on language (user read it = they can read the script)
     }
 
     @Async
@@ -77,12 +77,17 @@ public class InterestProfileService {
 
     @Async
     public void onComment(Long userId, SocialPost post) {
-        applySignal(userId, post, Constant.HLIG_W_COMMENT, topicExtractor.extract(post), true);
+        Map<String, Double> topics = topicExtractor.extract(post);
+        applySignal(userId, post, Constant.HLIG_W_COMMENT, topics, true);
+        // Commenting = strong language signal (user can write/respond in that language's context)
+        applyLanguageSignal(userId, post, Constant.HLIG_W_COMMENT * 0.5);
     }
 
     @Async
     public void onSave(Long userId, SocialPost post) {
-        applySignal(userId, post, Constant.HLIG_W_SAVE, topicExtractor.extract(post), true);
+        Map<String, Double> topics = topicExtractor.extract(post);
+        applySignal(userId, post, Constant.HLIG_W_SAVE, topics, true);
+        applyLanguageSignal(userId, post, Constant.HLIG_W_SAVE * 0.5);
     }
 
     @Async
@@ -92,28 +97,30 @@ public class InterestProfileService {
 
     @Async
     public void onShare(Long userId, SocialPost post) {
-        applySignal(userId, post, Constant.HLIG_W_SHARE, topicExtractor.extract(post), true);
+        Map<String, Double> topics = topicExtractor.extract(post);
+        applySignal(userId, post, Constant.HLIG_W_SHARE, topics, true);
+        applyLanguageSignal(userId, post, Constant.HLIG_W_SHARE * 0.5);
     }
 
     /**
      * View signal — applied for every post surfaced to the user (including cold-start).
      * Weakest signal (HLIG_W_VIEW ≈ 0.5). After ~30 views across diverse topics
      * the user exits COLD and enters WARMING automatically.
+     *
+     * Language signal at 0.25× (half of view weight) so a user who views many
+     * posts in Tamil gradually builds "lang:ta" preference without a single
+     * heavy scroll session dominating the profile.
      */
     @Async
     public void onView(Long userId, SocialPost post) {
         applySignal(userId, post, Constant.HLIG_W_VIEW, topicExtractor.extract(post), true);
+        applyLanguageSignal(userId, post, Constant.HLIG_W_VIEW * 0.5);
     }
 
     /**
      * Negative signal: user scrolled past without engaging (weight -0.3).
-     *
-     * FIX v2: now routes through applySignal() (REQUIRES_NEW @Transactional)
-     * instead of a bespoke repo loop, ensuring scroll signals have the same
-     * transactional isolation guarantees as all other signals.
-     *
-     * Uses hashtag-only extraction (lightweight) to avoid NLP overhead on
-     * the most frequent signal type.
+     * No language signal — scrolling past gives no information about whether
+     * the user can or cannot read the script.
      */
     @Async
     public void onScrolledPast(Long userId, SocialPost post) {
@@ -125,6 +132,7 @@ public class InterestProfileService {
     /**
      * Strong negative: user explicitly tapped "Not Interested".
      * Penalises all topics on the post at full −8.0 weight.
+     * No language penalty — "not interested" reflects topic, not script.
      */
     @Async
     public void onNotInterested(Long userId, SocialPost post) {
@@ -134,10 +142,13 @@ public class InterestProfileService {
 
     /**
      * Author signal: posting about a topic is the strongest possible signal (+5.0).
+     * If you write a post in Tamil, that's the strongest possible language signal too.
      */
     @Async
     public void onPostCreated(Long userId, SocialPost post) {
-        applySignal(userId, post, Constant.HLIG_W_POST_CREATED, topicExtractor.extract(post), true);
+        Map<String, Double> topics = topicExtractor.extract(post);
+        applySignal(userId, post, Constant.HLIG_W_POST_CREATED, topics, true);
+        applyLanguageSignal(userId, post, Constant.HLIG_W_POST_CREATED * 0.5);
     }
 
     // ── Profile reads (cached) ────────────────────────────────────────────────
@@ -148,12 +159,6 @@ public class InterestProfileService {
      * Cached in-process via Caffeine (CacheConfig) — TTL 5 min, max 100k entries.
      * Evicted eagerly on every interaction signal via @CacheEvict.
      * Key: uip_profile::{userId}
-     *
-     * FIX v2: filters to weight > Constant.HLIG_SCORE_MIN_THRESHOLD (0.001) instead
-     * of the previous hardcoded 0.01. The Caffeine-backed cache now has a
-     * hard size cap so we don't need to be quite as aggressive about filtering;
-     * the change also means very-new users with only view signals still see
-     * non-empty profiles sooner.
      */
     @Cacheable(value = Constant.HLIG_CACHE_PROFILE, key = "#userId")
     public Map<String, Double> loadTopN(Long userId) {
@@ -173,8 +178,9 @@ public class InterestProfileService {
      * Returns CORE topics (decayed weight ≥ HLIG_PROFILE_CORE_THRESHOLD)
      * from the cached profile. Used for collaborative-filter neighbour lookup.
      *
-     * FIX v2: uses Constant.HLIG_PROFILE_CORE_THRESHOLD (8.0) instead of
-     * the hardcoded 8.0 literal.
+     * NOTE: Language topics ("lang:XX") are intentionally INCLUDED here so
+     * that users who share both content AND language preferences are matched
+     * as neighbours — improving the collaborative filter for regional-language content.
      */
     public List<String> loadCoreTopics(Long userId) {
         return loadTopN(userId).entrySet().stream()
@@ -183,13 +189,43 @@ public class InterestProfileService {
                 .collect(Collectors.toList());
     }
 
+    // ── Language preference reads ─────────────────────────────────────────────
+
+    /**
+     * Returns the user's preferred languages as an ordered BCP-47 list,
+     * most preferred first.
+     *
+     * Reads from the denormalized {@code preferred_languages} column on the
+     * top-weight UIP row (maintained by rebuildLanguagePreferences()).
+     *
+     * Cached under a separate key so it survives content-topic evictions
+     * if the TTL allows — evicted explicitly by evictProfileCache() which
+     * is called after every signal update.
+     *
+     * Returns empty list for COLD users or users who have only consumed English.
+     *
+     * @param userId requesting user's ID
+     * @return ordered list of BCP-47 codes, e.g. ["hi", "en", "mr"]
+     */
+    @Cacheable(value = Constant.HLIG_CACHE_PROFILE, key = "'lang::' + #userId")
+    public List<String> getPreferredLanguages(Long userId) {
+        // Reads the preferred_languages column from whichever row for this user
+        // has the highest weight (the "anchor row"). The repo method returns a
+        // single String or null.
+        String raw = repo.getPreferredLanguages(userId);
+        if (raw == null || raw.isBlank()) return Collections.emptyList();
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .limit(UserInterestProfile.MAX_PREFERRED_LANGUAGES)
+                .collect(Collectors.toList());
+    }
+
     // ── Phase detection (O(1)) ────────────────────────────────────────────────
 
     /**
      * Determines feed personalisation phase from cached column.
      * Zero DB overhead — reads one integer column from idx_uip_signals.
-     *
-     * FIX v2: magic numbers 0 and 30 replaced with named constants.
      */
     public Phase getUserPhase(Long userId) {
         int total = repo.getTotalSignalsCache(userId);
@@ -206,12 +242,9 @@ public class InterestProfileService {
      * Finds up to 50 users who share CORE topics with the given user.
      * Single DB query — not N queries per topic.
      *
-     * FIX v2: the neighbour list is now cached in the same "uip_profile" Caffeine
-     * cache under a distinct key ("nb::{userId}"), avoiding redundant DB round-trips
-     * for every warm-feed page load within the same TTL window.
-     *
-     * NOTE: If you want a separate TTL for neighbours, add a "uip_neighbours"
-     * CaffeineCache in CacheConfig and change the value here.
+     * Language topics ("lang:XX") in coreTopics improve neighbour matching
+     * for regional-language users who wouldn't otherwise share content topics
+     * with each other.
      */
     @Cacheable(value = Constant.HLIG_CACHE_PROFILE, key = "'nb::' + #userId")
     public List<Long> findNeighbours(Long userId) {
@@ -225,9 +258,6 @@ public class InterestProfileService {
 
     /**
      * Returns post IDs seen by this user in the last 72 hours.
-     *
-     * FIX v2: added null-guard on repo result (some repo implementations
-     * may return null for new users instead of empty list).
      */
     public Set<Long> recentlySeenPosts(Long userId) {
         int total = repo.getTotalSignalsCache(userId);
@@ -251,17 +281,39 @@ public class InterestProfileService {
         log.info("Seeded {} topics for new user {}", topics.size(), userId);
     }
 
+    /**
+     * Seeds language preferences from explicit onboarding selection.
+     * Each language is seeded at weight 5.0 (higher than content topics
+     * to immediately reflect the user's declared language preference).
+     *
+     * Called from the onboarding flow when the user selects preferred languages
+     * via the UI. Works in combination with seedFromOnboarding().
+     *
+     * @param userId    user being onboarded
+     * @param langCodes list of BCP-47 codes the user selected, e.g. ["hi", "ta"]
+     */
+    public void seedLanguagePreferencesFromOnboarding(Long userId, List<String> langCodes) {
+        if (langCodes == null || langCodes.isEmpty()) return;
+        for (String code : langCodes) {
+            if (code == null || code.isBlank()) continue;
+            String topic = "lang:" + code.toLowerCase().trim();
+            repo.seedTopic(userId, topic, 5.0);
+        }
+        evictProfileCache(userId);
+        rebuildLanguagePreferences(userId);
+        log.info("Seeded {} language preferences for user {}", langCodes.size(), userId);
+    }
+
     // ── Nightly decay + prune ─────────────────────────────────────────────────
 
     /**
      * Decays all rows older than 1 day in batches of 10,000.
      * After decay, prunes rows whose decayed weight is negligible.
      *
-     * Pruning is critical at scale: without it, inactive users accumulate
-     * near-zero weight rows indefinitely, growing the table unboundedly.
-     * At 1M users × 20 topics each = 20M rows; with turnover and topic
-     * drift, unpruned tables easily reach 50M+ rows, causing slow nightly
-     * decay jobs and increased index size.
+     * Language topic rows ("lang:XX") are pruned by the same threshold as
+     * content topics. A user who hasn't read Tamil content for several months
+     * will have their "lang:ta" preference naturally decay and eventually be
+     * pruned, reflecting genuine shift in reading behaviour.
      *
      * Runs at 02:00 AM daily.
      */
@@ -289,13 +341,10 @@ public class InterestProfileService {
         log.info("HLIG nightly decay complete — {} rows updated in {} batches", totalDecayed, attempt);
 
         // ── Phase 2: prune negligible rows ────────────────────────────────────
-        // Removes rows whose weight has decayed below a meaningful threshold.
-        // This keeps the table size bounded at scale.
         try {
             int pruned = repo.pruneNegligibleRows(Constant.HLIG_SCORE_MIN_THRESHOLD);
             log.info("HLIG nightly prune complete — {} near-zero rows removed", pruned);
         } catch (Exception e) {
-            // Non-fatal: the next nightly run will prune any remaining rows.
             log.warn("HLIG nightly prune failed (non-fatal): {}", e.getMessage());
         }
     }
@@ -321,11 +370,112 @@ public class InterestProfileService {
         evictProfileCache(userId);
     }
 
+    /**
+     * Records a language preference signal for the post's detected language.
+     *
+     * Language topics are stored as "lang:XX" in the same user_interest_profiles
+     * table as content topics. They participate in the same decay / prune cycle.
+     *
+     * After the upsert, rebuildLanguagePreferences() is triggered asynchronously
+     * to keep the denormalized preferred_languages column fresh.
+     *
+     * @param userId      user who interacted
+     * @param post        post that was interacted with
+     * @param langWeight  weight to apply (positive, caller computes fraction)
+     */
+    @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    public void applyLanguageSignal(Long userId, SocialPost post, double langWeight) {
+        String lang = post.safeLanguage();
+
+        // "mixed" posts contribute to all declared languages — skip the language signal
+        // because we can't assign the credit to a single language code.
+        if ("mixed".equals(lang)) return;
+
+        // English is the default — don't inflate "lang:en" weight for English posts
+        // because that would make en-vs-other comparisons meaningless.
+        if ("en".equals(lang)) return;
+
+        String langTopic = "lang:" + lang;
+        try {
+            repo.upsertWeight(userId, langTopic, langWeight, 1);
+            evictProfileCache(userId);
+            // Rebuild the denormalized column asynchronously so the scorer
+            // sees the updated preference on the next request.
+            rebuildLanguagePreferences(userId);
+        } catch (Exception e) {
+            log.warn("[HLIG] applyLanguageSignal failed: userId={} lang={} reason={}",
+                    userId, lang, e.getMessage());
+        }
+    }
+
+    /**
+     * Rebuilds the denormalized preferred_languages column for the given user.
+     *
+     * Reads all "lang:XX" topic rows, sorts by decayed weight descending,
+     * takes the top MAX_PREFERRED_LANGUAGES codes, and writes them as a
+     * comma-separated string into the preferred_languages column on the
+     * user's top-weight row.
+     *
+     * Called asynchronously after every language signal update.
+     * Also called after seedLanguagePreferencesFromOnboarding().
+     */
+    @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    public void rebuildLanguagePreferences(Long userId) {
+        try {
+            List<UserInterestProfile> langRows = repo.findLanguageTopicsByUserId(userId);
+            if (langRows.isEmpty()) return;
+
+            String preferredLangs = langRows.stream()
+                    .filter(r -> r.isLanguageTopic() && r.decayedWeight() > Constant.HLIG_SCORE_MIN_THRESHOLD)
+                    .sorted(Comparator.comparingDouble(UserInterestProfile::getDecayedWeight).reversed())
+                    .limit(UserInterestProfile.MAX_PREFERRED_LANGUAGES)
+                    .map(UserInterestProfile::languageCode)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.joining(","));
+
+            if (!preferredLangs.isBlank()) {
+                // Write to the anchor row (the row with the highest overall weight for this user).
+                // The repo method updates preferred_languages for the user's top-weight row.
+                repo.updatePreferredLanguages(userId, preferredLangs);
+                // Evict so the scorer picks up the new preference list on next request
+                evictProfileCache(userId);
+            }
+        } catch (Exception e) {
+            log.warn("[HLIG] rebuildLanguagePreferences failed: userId={} reason={}", userId, e.getMessage());
+        }
+    }
+
+    /**
+     * Evicts ALL cached entries for this user: content profile, language preference,
+     * and neighbour list.
+     *
+     * FIX MEMORY LEAK #6 — the original method was annotated with
+     * @CacheEvict(key="#userId") which only removes the content-profile key.
+     * The "lang::{userId}" and "nb::{userId}" keys were left in the cache
+     * indefinitely (until TTL) even after profile updates, causing stale data
+     * and unbounded cache growth for high-traffic users.
+     *
+     * We now use allEntries=false with a composite key set via a programmatic
+     * CacheManager call for the two extra keys, keeping the annotation for the
+     * primary key so Spring's proxy advice chain still fires.
+     */
     @CacheEvict(value = Constant.HLIG_CACHE_PROFILE, key = "#userId")
     public void evictProfileCache(Long userId) {
-        // Spring handles cache eviction via annotation.
-        // Note: this only evicts the profile entry ("userId" key).
-        // The neighbour entry ("nb::userId") has the same TTL and will
-        // expire naturally, or can be evicted separately if needed.
+        // Spring handles the primary key eviction via @CacheEvict above.
+        // Manually evict the language and neighbour cache keys.
+        // Both keys share the same cache region (HLIG_CACHE_PROFILE).
+        try {
+            org.springframework.cache.CacheManager cm =
+                    applicationContext.getBean(org.springframework.cache.CacheManager.class);
+            org.springframework.cache.Cache cache = cm.getCache(Constant.HLIG_CACHE_PROFILE);
+            if (cache != null) {
+                cache.evict("lang::" + userId);
+                cache.evict("nb::"   + userId);
+            }
+        } catch (Exception e) {
+            log.warn("[HLIG] Secondary cache eviction failed for userId={}: {}", userId, e.getMessage());
+        }
     }
 }

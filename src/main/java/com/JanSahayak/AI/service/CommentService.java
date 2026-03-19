@@ -6,6 +6,7 @@ import com.JanSahayak.AI.DTO.CommentUpdateDto;
 import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.exception.CommentNotFoundException;
+import com.JanSahayak.AI.exception.ResourceNotFoundException;
 import com.JanSahayak.AI.exception.ServiceException;
 import com.JanSahayak.AI.model.Comment;
 import com.JanSahayak.AI.model.Post;
@@ -626,6 +627,20 @@ public class CommentService {
             log.error("Unexpected error while deleting comment: {}", commentId, ex);
             throw new ServiceException("Failed to delete comment", ex);
         }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public CommentDto createCommentOnPostById(Long postId, CommentCreateDto dto, User user) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found: " + postId));
+        return createCommentOnPost(dto, user, post);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public CommentDto createCommentOnSocialPostById(Long socialPostId, CommentCreateDto dto, User user) {
+        SocialPost sp = socialPostRepository.findById(socialPostId)
+                .orElseThrow(() -> new ResourceNotFoundException("SocialPost not found: " + socialPostId));
+        return createCommentOnSocialPost(dto, user, sp);
     }
 
 }

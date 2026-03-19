@@ -5,6 +5,8 @@ import com.JanSahayak.AI.DTO.SocialPostCreateDto;
 import com.JanSahayak.AI.DTO.SocialPostDto;
 import com.JanSahayak.AI.DTO.SocialPostUpdateDto;
 import com.JanSahayak.AI.config.Constant;
+import com.JanSahayak.AI.enums.FeedScope;
+import com.JanSahayak.AI.enums.FeedSort;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.exception.PostNotFoundException;
 import com.JanSahayak.AI.exception.ServiceException;
@@ -41,25 +43,23 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SocialPostService {
 
-    // ── Core repositories ─────────────────────────────────────────────────────
+
     private final SocialPostRepo           socialPostRepository;
     private final UserRepo                 userRepository;
-    private final PollRepository           pollRepository;       // NEW: poll lookup
-    private final PollVoteRepository       pollVoteRepository;   // NEW: voted-option lookup
+    private final PollRepository           pollRepository;
+    private final PollVoteRepository       pollVoteRepository;
 
-    // ── Services ──────────────────────────────────────────────────────────────
+
     private final ContentValidationService contentValidationService;
     private final SocialPostMediaService   mediaService;
     private final PostInteractionService   postInteractionService;
     private final NotificationService      notificationService;
 
-    // @Lazy to break circular dependency: CommunityService → SocialPostRepo,
-    // SocialPostService → CommunityService
     @Lazy
     @Autowired
     private CommunityService communityService;
 
-    // @Lazy to break circular dependency with HLIG services
+
     @Lazy
     @Autowired
     private InterestProfileService interestProfileService;
@@ -98,8 +98,6 @@ public class SocialPostService {
             List<Long> mentionedUserIds = extractAndValidateMentions(
                     createDto.getContent(), createDto.getMentionedUserIds());
 
-            // CLOUDINARY: validated files are uploaded to Cloudinary via SocialPostMediaService.
-            // Returned URLs (https://res.cloudinary.com/...) are stored in socialPost.mediaUrls.
             List<String> uploadedMediaUrls = new ArrayList<>();
             if (mediaFiles != null && !mediaFiles.isEmpty()) {
                 uploadedMediaUrls = uploadMediaFilesWithValidation(mediaFiles, user.getId());
@@ -116,7 +114,6 @@ public class SocialPostService {
                 log.warn("[HLIG] onPostCreated failed: postId={} reason={}", savedPost.getId(), e.getMessage());
             }
 
-            // Wire community feed counters when post belongs to a community
             if (savedPost.getCommunityId() != null) {
                 try {
                     communityService.onPostPublished(savedPost, savedPost.getCommunityId());
@@ -349,7 +346,7 @@ public class SocialPostService {
     }
 
     // =========================================================================
-    // FEED / LISTING
+    // LEGACY FEED / LISTING (pre-HLIG, kept for SocialPostController)
     // =========================================================================
 
     @Transactional(readOnly = true)
@@ -368,10 +365,8 @@ public class SocialPostService {
 
             PaginatedResponse<SocialPostDto> response = PaginationUtils
                     .createSocialPostDtoResponse(postDtos, setup.getValidatedLimit());
-
             PaginationUtils.logPaginationResults("getHomeFeed", postDtos,
                     response.isHasMore(), response.getNextCursor());
-
             return response;
 
         } catch (DataAccessException e) {
@@ -398,10 +393,8 @@ public class SocialPostService {
 
             PaginatedResponse<SocialPostDto> response = PaginationUtils
                     .createSocialPostDtoResponse(postDtos, setup.getValidatedLimit());
-
             PaginationUtils.logPaginationResults("getTrendingPosts", postDtos,
                     response.isHasMore(), response.getNextCursor());
-
             return response;
 
         } catch (Exception e) {
@@ -410,37 +403,24 @@ public class SocialPostService {
         }
     }
 
-    @Transactional(readOnly = true)
+    /**
+     * Local posts feed — geographic pool sorted by engagement, scoped to the
+     * user's pincode / district / state waterfall.
+     *
+     * Called by SocialPostController GET /api/social-posts/feed/local.
+     * Delegates to getBrowseFeed(LOCATION, NEW) so it inherits the full
+     * geo waterfall, own-post injection, sparse widening, and never-empty guarantees.
+     *
+     * Uses LOCATION + NEW (chronological) as the default sort for local posts
+     * because locality is the primary filter — users browsing "local" care most
+     * about what is happening right now near them, not what is trending nationally.
+     */
+    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
     public PaginatedResponse<SocialPostDto> getLocalPosts(
             User user, Long beforeId, Integer limit) {
-        try {
-            PostUtility.validateUser(user);
-
-            if (!user.hasPincode()) {
-                log.warn("User {} has no pincode, returning empty local feed",
-                        user.getActualUsername());
-                return PaginationUtils.createEmptySocialPostDtoResponse(
-                        limit != null ? limit : Constant.DEFAULT_FEED_LIMIT);
-            }
-
-            PaginationUtils.PaginationSetup setup = PaginationUtils.setupSocialPostFeedPagination(
-                    "getLocalPosts", beforeId, limit);
-
-            List<SocialPost> posts = fetchLocalPosts(user.getDistrictPrefix(), setup);
-            List<SocialPostDto> postDtos = convertToDtoBatch(posts, user);
-
-            PaginatedResponse<SocialPostDto> response = PaginationUtils
-                    .createSocialPostDtoResponse(postDtos, setup.getValidatedLimit());
-
-            PaginationUtils.logPaginationResults("getLocalPosts", postDtos,
-                    response.isHasMore(), response.getNextCursor());
-
-            return response;
-
-        } catch (Exception e) {
-            log.error("Error getting local posts for user: {}", user.getActualUsername(), e);
-            throw new ServiceException("Failed to retrieve local posts", e);
-        }
+        int size = (limit != null && limit > 0 && limit <= Constant.MAX_PAGE_SIZE)
+                ? limit : Constant.DEFAULT_PAGE_SIZE;
+        return getBrowseFeed(user, FeedScope.LOCATION, FeedSort.NEW, beforeId, size);
     }
 
     @Transactional(readOnly = true)
@@ -465,10 +445,8 @@ public class SocialPostService {
 
             PaginatedResponse<SocialPostDto> response = PaginationUtils
                     .createSocialPostDtoResponse(postDtos, setup.getValidatedLimit());
-
             PaginationUtils.logPaginationResults("getUserPosts", postDtos,
                     response.isHasMore(), response.getNextCursor());
-
             return response;
 
         } catch (Exception e) {
@@ -497,10 +475,8 @@ public class SocialPostService {
 
             PaginatedResponse<SocialPostDto> response = PaginationUtils
                     .createSocialPostDtoResponse(postDtos, setup.getValidatedLimit());
-
             PaginationUtils.logPaginationResults("searchByHashtag", postDtos,
                     response.isHasMore(), response.getNextCursor());
-
             return response;
 
         } catch (Exception e) {
@@ -510,76 +486,99 @@ public class SocialPostService {
     }
 
     // =========================================================================
-    // HLIG v2 — PERSONALISED FEED (5 tabs)
+    // HLIG v2 — BROWSE FEED (3 tabs × 3 sort modes)
     // =========================================================================
+    //
+    // Every tab endpoint in FeedController calls one of the 5 convenience methods
+    // below. All 5 delegate to getBrowseFeed() which delegates to HLIGFeedService.
+    //
+    // Tab → scope + sort mapping:
+    //
+    //   /for-you   → FOR_YOU  + HOT   personalised pool, trending within interests
+    //   /hot       → LOCATION + HOT   geo pool, 72h window, viralityScore DESC
+    //   /new       → LOCATION + NEW   geo pool, createdAt DESC
+    //   /top       → LOCATION + TOP   geo pool, all-time engagementScore DESC
+    //   /following → FOLLOWING + HOT  community pool, trending sort
+    //
+    // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Core delegate for all 9 scope × sort combinations.
+     * Called by every HLIG tab method. Passes size+1 so buildPagedResponse()
+     * can detect hasMore without a separate COUNT query.
+     */
+    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    public PaginatedResponse<SocialPostDto> getBrowseFeed(
+            User user, FeedScope scope, FeedSort sort, Long lastPostId, int size) {
+        PostUtility.validateUser(user);
+        try {
+            List<SocialPost> posts = hligFeedService.getBrowseFeed(
+                    user, scope, sort, lastPostId, size + 1);
+
+            if (posts == null || posts.isEmpty()) {
+                log.debug("[HLIG] getBrowseFeed empty scope={} sort={} userId={} — homeFeed fallback",
+                        scope, sort, user.getId());
+                return getHomeFeed(user, lastPostId, size);
+            }
+
+            return buildPagedResponse(posts, user, size);
+
+        } catch (Exception e) {
+            log.error("[HLIG] getBrowseFeed failed scope={} sort={} user={} — trending fallback",
+                    scope, sort, user.getActualUsername(), e);
+            return getTrendingPostsFallback(user, lastPostId, size);
+        }
+    }
+
+    /**
+     * FOR YOU tab — HLIG personalised pool, hot sort.
+     * Cold users (no interactions) receive a geographic fallback inside HLIGFeedService.
+     */
     @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
     public PaginatedResponse<SocialPostDto> getPersonalisedFeed(
             User user, Long lastPostId, int size) {
-        PostUtility.validateUser(user);
-        try {
-            List<SocialPost> posts = hligFeedService.getPersonalisedFeed(
-                    user, lastPostId, size + 1);
-            if (posts == null || posts.isEmpty()) {
-                log.debug("[HLIG] FOR-YOU: empty for userId={}, fallback to homeFeed",
-                        user.getId());
-                return getHomeFeed(user, lastPostId, size);
-            }
-            return buildPagedResponse(posts, user, size);
-        } catch (Exception e) {
-            log.error("[HLIG] getPersonalisedFeed failed for user={}, falling back",
-                    user.getActualUsername(), e);
-            return getHomeFeed(user, lastPostId, size);
-        }
+        return getBrowseFeed(user, FeedScope.FOR_YOU, FeedSort.HOT, lastPostId, size);
     }
 
+    /**
+     * HOT tab — geographic pool (pincode→district→state waterfall), trending in 72 hours.
+     * viralityScore DESC within the 72h window; extends to 7-day on sparse areas.
+     */
     @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
-    public PaginatedResponse<SocialPostDto> getHotFeed(User user, Long lastPostId, int size) {
-        PostUtility.validateUser(user);
-        try {
-            List<SocialPost> posts = hligFeedService.getHotFeed(user, lastPostId, size + 1);
-            return buildPagedResponse(posts, user, size);
-        } catch (Exception e) {
-            log.error("[HLIG] getHotFeed failed for user={}", user.getActualUsername(), e);
-            return getTrendingPosts(user, lastPostId, size);
-        }
+    public PaginatedResponse<SocialPostDto> getHotFeed(
+            User user, Long lastPostId, int size) {
+        return getBrowseFeed(user, FeedScope.LOCATION, FeedSort.HOT, lastPostId, size);
     }
 
+    /**
+     * NEW tab — geographic pool, pure chronological (createdAt DESC).
+     * No time window; all active posts in the user's state + national.
+     */
     @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
-    public PaginatedResponse<SocialPostDto> getNewFeed(User user, Long lastPostId, int size) {
-        PostUtility.validateUser(user);
-        try {
-            List<SocialPost> posts = hligFeedService.getNewFeed(user, lastPostId, size + 1);
-            return buildPagedResponse(posts, user, size);
-        } catch (Exception e) {
-            log.error("[HLIG] getNewFeed failed for user={}", user.getActualUsername(), e);
-            return getLocalPosts(user, lastPostId, size);
-        }
+    public PaginatedResponse<SocialPostDto> getNewFeed(
+            User user, Long lastPostId, int size) {
+        return getBrowseFeed(user, FeedScope.LOCATION, FeedSort.NEW, lastPostId, size);
     }
 
+    /**
+     * TOP tab — geographic pool, all-time highest engagement.
+     * engagementScore DESC, no time window; surfaces the best posts ever in the region.
+     */
     @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
-    public PaginatedResponse<SocialPostDto> getTopFeed(User user, Long lastPostId, int size) {
-        PostUtility.validateUser(user);
-        try {
-            List<SocialPost> posts = hligFeedService.getTopFeed(user, lastPostId, size + 1);
-            return buildPagedResponse(posts, user, size);
-        } catch (Exception e) {
-            log.error("[HLIG] getTopFeed failed for user={}", user.getActualUsername(), e);
-            return getTrendingPosts(user, lastPostId, size);
-        }
+    public PaginatedResponse<SocialPostDto> getTopFeed(
+            User user, Long lastPostId, int size) {
+        return getBrowseFeed(user, FeedScope.LOCATION, FeedSort.TOP, lastPostId, size);
     }
 
+    /**
+     * FOLLOWING tab — posts from communities the user has joined, hot sort.
+     * Falls back to cold-feed candidates inside HLIGFeedService when the user
+     * has not joined any community yet.
+     */
     @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
     public PaginatedResponse<SocialPostDto> getFollowingFeed(
             User user, Long lastPostId, int size) {
-        PostUtility.validateUser(user);
-        try {
-            List<SocialPost> posts = hligFeedService.getFollowingFeed(user, lastPostId, size + 1);
-            return buildPagedResponse(posts, user, size);
-        } catch (Exception e) {
-            log.error("[HLIG] getFollowingFeed failed for user={}", user.getActualUsername(), e);
-            return PaginatedResponse.of(Collections.emptyList(), false, null, size);
-        }
+        return getBrowseFeed(user, FeedScope.FOLLOWING, FeedSort.HOT, lastPostId, size);
     }
 
     // =========================================================================
@@ -615,26 +614,11 @@ public class SocialPostService {
     // PRIVATE — DTO CONVERSION
     // =========================================================================
 
-    /**
-     * Central conversion method used by every feed and single-post fetch.
-     *
-     * Logic:
-     *  1. Resolve interaction flags (liked, saved, viewed).
-     *  2. Check whether this SocialPost has an attached Poll.
-     *  3. If poll exists  → variant = "poll", PollSummaryDto is populated.
-     *     If community    → variant = "community".
-     *     Otherwise       → variant = "social" (default).
-     *
-     * This single method replacing the old convertToDto() + getSocialPostById()
-     * patterns is what ensures poll posts are NEVER serialized as plain social posts.
-     */
     private SocialPostDto convertToDto(SocialPost post, User user) {
         if (post == null) return null;
         List<SocialPostDto> result = convertToDtoBatch(List.of(post), user);
         return result.isEmpty() ? null : result.get(0);
     }
-
-    // ── FIX: batch poll loading — 3 queries per page instead of N+1 ──────────
 
     private Map<Long, Poll> loadPollMap(List<SocialPost> posts) {
         if (posts == null || posts.isEmpty()) return Collections.emptyMap();
@@ -721,8 +705,8 @@ public class SocialPostService {
     }
 
     /**
-     * Shared cursor-page builder used by all 5 HLIG feed methods.
-     * Trims the probe element and computes hasMore / nextCursor.
+     * Shared cursor-page builder used by getBrowseFeed and all legacy feed methods.
+     * Caller passes size+1 posts; this method trims and computes hasMore + nextCursor.
      */
     private PaginatedResponse<SocialPostDto> buildPagedResponse(
             List<SocialPost> posts, User user, int size) {
@@ -753,7 +737,6 @@ public class SocialPostService {
                     statePrefix, districtPrefix, setup.toPageable());
         }
 
-        // Sparse-platform fallback: geo columns may be null on a brand-new install
         if (posts == null || posts.size() < Math.max(1, setup.getValidatedLimit() / 2)) {
             log.debug("[Feed] fetchRecommendedPosts: only {} — falling back to all active",
                     posts == null ? 0 : posts.size());
@@ -785,7 +768,6 @@ public class SocialPostService {
                     PostStatus.ACTIVE, setup.toPageable());
         }
 
-        // Sparse-platform fallback: viral scorer hasn't run yet on a new install
         if (posts == null || posts.size() < Math.max(1, setup.getValidatedLimit() / 2)) {
             log.debug("[Feed] fetchTrendingPosts: only {} viral — fallback to active",
                     posts == null ? 0 : posts.size());
@@ -806,16 +788,6 @@ public class SocialPostService {
         return posts != null ? posts : Collections.emptyList();
     }
 
-    private List<SocialPost> fetchLocalPosts(
-            String districtPrefix, PaginationUtils.PaginationSetup setup) {
-        return setup.hasCursor()
-                ? socialPostRepository.findByDistrictPrefixAndStatusAndIdLessThanOrderByCreatedAtDesc(
-                districtPrefix, PostStatus.ACTIVE,
-                setup.getSanitizedCursor(), setup.toPageable())
-                : socialPostRepository.findByDistrictPrefixAndStatusOrderByCreatedAtDesc(
-                districtPrefix, PostStatus.ACTIVE, setup.toPageable());
-    }
-
     private List<SocialPost> fetchUserPosts(Long userId, PaginationUtils.PaginationSetup setup) {
         return setup.hasCursor()
                 ? socialPostRepository.findByUserIdAndIdLessThanOrderByCreatedAtDesc(
@@ -832,6 +804,21 @@ public class SocialPostService {
                 setup.getSanitizedCursor(), setup.toPageable())
                 : socialPostRepository.findByHashtagContaining(
                 hashtag, PostStatus.ACTIVE, setup.toPageable());
+    }
+
+    /**
+     * Emergency last-resort when getBrowseFeed() itself throws.
+     * Degrades to trending (viral) posts so the tab is never a 500.
+     */
+    private PaginatedResponse<SocialPostDto> getTrendingPostsFallback(
+            User user, Long lastPostId, int size) {
+        try {
+            return getTrendingPosts(user, lastPostId, size);
+        } catch (Exception e) {
+            log.error("[HLIG] getTrendingPostsFallback also failed userId={}",
+                    user != null ? user.getId() : "null", e);
+            return PaginatedResponse.of(Collections.emptyList(), false, null, size);
+        }
     }
 
     // =========================================================================

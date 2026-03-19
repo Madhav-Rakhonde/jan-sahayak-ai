@@ -30,7 +30,10 @@ import java.util.stream.Collectors;
         @Index(name = "idx_social_post_last_engaged",    columnList = "last_engaged_at"),
         @Index(name = "idx_social_post_quality",         columnList = "quality_score, status"),
         // Community feed surfacing index — covers the single-table feed query
-        @Index(name = "idx_social_post_community_feed",  columnList = "community_id, community_feed_eligible, community_privacy, engagement_score")
+        @Index(name = "idx_social_post_community_feed",  columnList = "community_id, community_feed_eligible, community_privacy, engagement_score"),
+        // Language-aware feed index — used by language-filtered candidate queries
+        // DB migration: ALTER TABLE social_posts ADD INDEX idx_social_post_language (language, status, created_at);
+        @Index(name = "idx_social_post_language",        columnList = "language, status, created_at")
 })
 @Getter
 @Setter
@@ -59,6 +62,53 @@ public class SocialPost {
     @Column(name = "media_count", nullable = false)
     @Builder.Default
     private Integer mediaCount = 0;
+
+    // =========================================================================
+    // LANGUAGE
+    // =========================================================================
+
+    /**
+     * BCP-47 language code detected or declared for the post content.
+     *
+     * Stored as a 10-char column so it can hold codes like "zh-Hans" in future,
+     * but in practice all 22 Indian scheduled languages + English fit in ≤5 chars.
+     *
+     * Canonical values used in this platform:
+     *   "hi"  — Hindi       (Devanagari)
+     *   "mr"  — Marathi     (Devanagari)
+     *   "bn"  — Bengali
+     *   "te"  — Telugu
+     *   "ta"  — Tamil
+     *   "gu"  — Gujarati
+     *   "kn"  — Kannada
+     *   "ml"  — Malayalam
+     *   "pa"  — Punjabi     (Gurmukhi)
+     *   "or"  — Odia
+     *   "ur"  — Urdu        (Nastaliq / Arabic script)
+     *   "as"  — Assamese
+     *   "en"  — English     (default when no other script is detected)
+     *   "mixed" — post contains meaningful content in 2+ languages
+     *
+     * HOW IT IS SET:
+     *   PostLanguageDetector.detect(post.getContent()) is called inside
+     *   SocialPostService.buildSocialPost() before save — so the column is
+     *   always populated at creation time.  On update, the detector runs again
+     *   when content changes.
+     *
+     * FEED IMPACT:
+     *   HLIGScorer.languageBoost() returns:
+     *     2.0  — exact match with user's preferred language
+     *     1.3  — "mixed" post (accessible to everyone)
+     *     1.0  — English (lingua franca, no penalty)
+     *     0.5  — mismatch (still shown for diversity, but ranked lower)
+     *
+     * DB migration:
+     *   ALTER TABLE social_posts
+     *     ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'en';
+     */
+    @Column(name = "language", length = 10, nullable = false)
+    @Builder.Default
+    private String language = "en";
 
     // =========================================================================
     // STATUS & VISIBILITY
@@ -313,6 +363,34 @@ public class SocialPost {
     private static final int    STATE_VIRAL_THRESHOLD     = 200;
     private static final int    NATIONAL_VIRAL_THRESHOLD  = 1000;
     private static final double ENGAGEMENT_RATE_THRESHOLD = 10.0;
+
+    // =========================================================================
+    // LANGUAGE HELPERS
+    // =========================================================================
+
+    /**
+     * Returns the canonical language code for this post, defaulting to "en".
+     * Callers should prefer this over getLanguage() for null-safety.
+     */
+    public String safeLanguage() {
+        return (language != null && !language.isBlank()) ? language : "en";
+    }
+
+    /**
+     * True when the post is written in a language other than English.
+     * Used by HLIGScorer to decide whether the language multiplier matters.
+     */
+    public boolean isNonEnglish() {
+        return !"en".equals(safeLanguage());
+    }
+
+    /**
+     * True when the post contains content in multiple languages.
+     * "mixed" posts get a 1.3× language boost (universally accessible).
+     */
+    public boolean isMixedLanguage() {
+        return "mixed".equals(safeLanguage());
+    }
 
     // =========================================================================
     // LOCATION HELPERS
@@ -828,6 +906,7 @@ public class SocialPost {
         if (qualityScore    == null) qualityScore    = 100.0;
         if (viralTier       == null) viralTier       = "LOCAL";
         if (expansionLevel  == null) expansionLevel  = 0;
+        if (language        == null) language        = "en"; // safe default
 
         if (user != null && user.hasPincode() && pincode == null) {
             inheritLocationFromUser(user);
@@ -843,6 +922,7 @@ public class SocialPost {
     @PreUpdate
     private void preUpdate() {
         this.updatedAt = new Date();
+        if (language == null) language = "en";
         recalculateEngagementScore();
         applyFreshnessDecay();
         recalculateViralityScore();

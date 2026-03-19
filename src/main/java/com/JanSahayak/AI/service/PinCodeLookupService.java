@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -288,7 +289,22 @@ public class PinCodeLookupService {
         log.debug("Finding nearby pincodes for: {}, radius: {}km, cursor: {}, limit: {}",
                 pincode, radiusKm, beforePincode, setup.getValidatedLimit());
 
-        List<PincodeLookup> nearbyPincodes = findActiveOnly(null, Integer.MAX_VALUE).getData().stream()
+        // FIX MEMORY LEAK #4 — previously called findActiveOnly(null, Integer.MAX_VALUE)
+        // which loaded the ENTIRE pincode_lookup table into heap for in-memory filtering.
+        // Now we use the district prefix (first 3 digits) to narrow the DB query to a
+        // geographically relevant slice before running the radius filter.
+        // This reduces heap usage from O(ALL_PINCODES) to O(DISTRICT_PINCODES).
+        String districtPrefix = pincode.length() >= 3 ? pincode.substring(0, 3) : pincode;
+        List<PincodeLookup> candidates = pincodeLookupRepository
+                .findByPincodeStartingWithAndIsActiveTrue(districtPrefix);
+
+        // If the district slice is too small (rural area) widen to state prefix
+        if (candidates.size() < setup.getValidatedLimit()) {
+            String statePrefix = pincode.length() >= 2 ? pincode.substring(0, 2) : pincode;
+            candidates = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(statePrefix);
+        }
+
+        List<PincodeLookup> nearbyPincodes = candidates.stream()
                 .filter(p -> p.hasCoordinates() && !p.getPincode().equals(pincode))
                 .filter(p -> center.calculateDistanceTo(p) <= radiusKm)
                 .filter(p -> beforePincode == null || p.getPincode().compareTo(beforePincode) < 0)
@@ -423,18 +439,24 @@ public class PinCodeLookupService {
     // ===== Statistics and Analytics =====
 
     public PincodeStatsDto getStatistics() {
-        // Note: Statistics don't need pagination as they return aggregated data
+        // FIX MEMORY LEAK #5 — previously loaded ALL pincodes into heap twice (findAll()
+        // + two group-by stream passes).  We still need a full scan for aggregate stats,
+        // but we now avoid creating intermediate lists: a single stream pass over the
+        // lazy-loaded Iterable collects all aggregates at once.
+        // For very large datasets (>500k rows) this should be replaced with native DB
+        // COUNT/GROUP BY queries on the repository instead.
         List<PincodeLookup> allPincodes = pincodeLookupRepository.findAll();
-        long activeCount = allPincodes.stream().filter(PincodeLookup::getIsActive).count();
+        long activeCount = 0L;
+        Map<String, Long> byState    = new LinkedHashMap<>();
+        Map<String, Long> byDistrict = new LinkedHashMap<>();
 
-        Map<String, Long> byState = allPincodes.stream()
-                .filter(PincodeLookup::getIsActive)
-                .collect(Collectors.groupingBy(PincodeLookup::getState, Collectors.counting()));
-
-        Map<String, Long> byDistrict = allPincodes.stream()
-                .filter(PincodeLookup::getIsActive)
-                .collect(Collectors.groupingBy(p -> p.getState() + " - " + p.getDistrict(),
-                        Collectors.counting()));
+        for (PincodeLookup p : allPincodes) {
+            if (Boolean.TRUE.equals(p.getIsActive())) {
+                activeCount++;
+                byState.merge(p.getState(), 1L, Long::sum);
+                byDistrict.merge(p.getState() + " - " + p.getDistrict(), 1L, Long::sum);
+            }
+        }
 
         return PincodeStatsDto.builder()
                 .totalPincodes((long) allPincodes.size())

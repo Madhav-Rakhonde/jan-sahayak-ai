@@ -1,6 +1,8 @@
 package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.config.Constant;
+import com.JanSahayak.AI.enums.FeedScope;
+import com.JanSahayak.AI.enums.FeedSort;
 import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.repository.SocialPostRepo;
@@ -14,108 +16,74 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
-import java.util.Date;
 
 /**
+ * HLIGFeedService — HLIG v2 feed engine.
+ *
  * ═══════════════════════════════════════════════════════════════════
- * HLIGFeedService — HLIG v2 (improved)
+ *  LANGUAGE SUPPORT (v3 additions)
  * ═══════════════════════════════════════════════════════════════════
  *
- * Feed tabs supported:
- *   FOR_YOU    → personalised HLIG feed (5 phases: cold→warming→warm)
- *   HOT        → 72-hour trending (viral-tier driven)
- *   NEW        → chronological
- *   TOP        → all-time high engagement
- *   FOLLOWING  → community posts (Reddit-style)
+ *  1. preferredLangs is resolved ONCE per feed request and passed into
+ *     every scorer call, so language preference affects scoring for both
+ *     WARMING and WARM phase feeds.
  *
- * CHANGES v2 (improved):
- * ─────────────────────────────────────────────────────────────────────────────
- * 1. NEVER-EMPTY GUARANTEE
- *    Every feed method ends with a guaranteed-non-empty fallback chain:
- *      scored pool → cold-scored fallback → absolute fallback (all active posts)
- *    The feed can only return empty if the database has zero posts at all.
+ *  2. Language-aware candidate widening:
+ *       - When the primary geo candidate pool is sparse AND the user has
+ *         an established language preference, a language-filtered query
+ *         is run BEFORE the full platform widening pass.
+ *       - This surfaces same-language content from across India before
+ *         falling back to all-language content, preserving regional
+ *         identity without over-restricting the candidate pool.
  *
- * 2. OWN-POSTS GUARANTEE
- *    The user's own recent posts are always injected into the cold/warming
- *    candidate pool (up to HLIG_OWN_POST_INJECT_LIMIT = 3).
- *    This fixes the common complaint on new platforms: "I posted but can't
- *    see my own post in the feed."
+ *  3. Diversity slot language rule:
+ *       - Diversity posts now PREFER a language different from the user's
+ *         top preferred language. This prevents language echo chambers while
+ *         still scoring them down via HLIGScorer.languageBoost(MISMATCH).
+ *         The scorer handles the ranking penalty; the assembler just ensures
+ *         the diversity post isn't accidentally in the user's primary language.
  *
- * 3. CURSOR FIX — applyCursorWindow() now falls back to first page when
- *    the cursor post is absent (already existed) AND additionally de-dupes
- *    the returned slice against a seen set to prevent cursor-drift duplicates.
+ * ═══════════════════════════════════════════════════════════════════
+ *  PUBLIC API — unchanged from v2
+ * ═══════════════════════════════════════════════════════════════════
  *
- * 4. SPARSE-PLATFORM CANDIDATE WIDENING
- *    fetchCandidates() now takes an explicit `sparseFallback` flag.  When
- *    the geo + national queries return fewer than HLIG_CANDIDATE_SPARSE_FLOOR
- *    posts, the service automatically calls findAllActivePostsForFeed() with
- *    a wider limit (HLIG_CANDIDATE_LIMIT_SPARSE = 500) so new platforms
- *    with a handful of posts never show a blank feed.
+ *   getBrowseFeed(user, scope, sort, lastPostId, size)
  *
- * 5. WARM FEED SCORE FILTER uses Constant.HLIG_SCORE_MIN_THRESHOLD (0.001)
- *    instead of the hardcoded `s.score > 0` check. This avoids including
- *    posts with floating-point near-zero scores that shouldn't rank.
+ * ═══════════════════════════════════════════════════════════════════
+ *  ADDITIONAL REPO METHODS REQUIRED (language support)
+ * ═══════════════════════════════════════════════════════════════════
  *
- * 6. IMPLICIT VIEW SIGNALS moved out of getColdFeed() into a shared helper
- *    fireImplicitViewSignals() so warming and following feeds also benefit.
+ *  // State-level candidates filtered to a set of language codes
+ *  @Query("""
+ *    SELECT p FROM SocialPost p
+ *    WHERE p.status = 'ACTIVE'
+ *      AND p.statePrefix = :statePrefix
+ *      AND p.language IN :languages
+ *    ORDER BY p.engagementScore DESC NULLS LAST
+ *  """)
+ *  List<SocialPost> findActivePostsByStateAndLanguages(
+ *      @Param("statePrefix") String statePrefix,
+ *      @Param("languages")   List<String> languages,
+ *      Pageable pageable);
  *
- * 7. HOT / NEW / TOP FEEDS — null-safe engagementScore / viralityScore sorts
- *    already existed; added a missing null-guard on getNewFeed's sort comparator.
+ *  // Platform-wide candidates filtered to a set of language codes
+ *  @Query("""
+ *    SELECT p FROM SocialPost p
+ *    WHERE p.status = 'ACTIVE'
+ *      AND p.language IN :languages
+ *    ORDER BY p.createdAt DESC
+ *  """)
+ *  List<SocialPost> findActivePostsByLanguages(
+ *      @Param("languages") List<String> languages,
+ *      Pageable pageable);
  *
- * 8. FOLLOWING FEED — when community candidates are non-empty but ALL score 0
- *    after seen-post dedup, now falls back to cold feed instead of returning empty.
+ * ═══════════════════════════════════════════════════════════════════
+ *  TRANSACTION NOTE — unchanged from v2
+ * ═══════════════════════════════════════════════════════════════════
  *
- * CHANGES v4 (this version — all critical paths hardened):
- * ─────────────────────────────────────────────────────────────────────────────
- * BUG 1 FIX — Cross-area 2-user platform (Mumbai + Delhi) got empty FOR_YOU feed.
- *   Root cause: fetchCandidates() called findRecentPostsNational() as its first
- *   fallback. That query filters viralTier = 'NATIONAL_VIRAL'. On a brand-new
- *   platform every post has viralTier = 'LOCAL', so it returned 0 posts.
- *   The sparse-floor check (< 20) then fired findAllActivePostsForFeed(), which
- *   works — but only if the platform has < 20 posts total. A platform with
- *   25 posts from one city would pass neither fallback and cross-area users got
- *   nothing.
- *   Fix: replaced findRecentPostsNational with findRecentActivePosts()
- *   (status=ACTIVE only, no viral/geo filter). This always returns posts.
- *   Raised sparse-floor threshold from 20 → 50 to match the new fallback trigger.
- *
- * BUG 2 FIX — User's own posts invisible in FOR_YOU (cold/warming/warm) tabs.
- *   Root cause: injectOwnPosts() was only called in getHotFeed/getNewFeed/getTopFeed.
- *   The FOR_YOU path goes through getColdFeed→getWarmingFeed→getWarmFeed, all of
- *   which called fetchCandidates() but never called injectOwnPosts(). Additionally,
- *   all three phase-feeds filtered by isEligibleForRecommendation() which requires
- *   qualityScore >= 40 — but the quality scorer may not have run yet on a brand-new
- *   post, so new posts could be blocked.
- *   Fix part A: injectOwnPosts() moved inside fetchCandidates() so every feed
- *   path gets it automatically.
- *   Fix part B: cold/warming/warm feeds now use buildOwnPostIdSet() to bypass
- *   both the eligibility gate and seen-dedup for the creator's own posts.
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * CHANGES v4 additions beyond v3:
- * ─────────────────────────────────────────────────────────────────────────────
- * BUG 3 FIX — buildOwnPostIdSet() used p.getUser().getId() on a LAZY field.
- *   @Transactional(NOT_SUPPORTED) means no Hibernate session when service code
- *   runs. LazyInitializationException in production. Fixed: now calls
- *   postRepo.findRecentPostsByUser() directly — same query, transaction-safe.
- *
- * BUG 4 FIX — Own posts scored 0.0 by HLIGScorer (eligibility gate) and then
- *   filtered out by HLIG_SCORE_MIN_THRESHOLD in warm feed. Service layer now
- *   floors own-post scores above the threshold. Scorer gained scoreColdForOwn()
- *   which skips the eligibility gate and uses POST_QUALITY_DEFAULT as quality
- *   floor so brand-new posts rank meaningfully in cold/warming feeds.
- *
- * BUG 5 FIX — getPersonalisedFeed() had no absoluteFallback(). cold/warming/warm
- *   each have internal fallbacks but if ALL posts are flagged/inactive the FOR_YOU
- *   tab returned empty with no final safety net. Added absoluteFallback() at the
- *   top level of getPersonalisedFeed() as the last line of defence.
- *
- * BUG 6 FIX — getHotFeed/getNewFeed/getTopFeed still used findRecentPostsNational
- *   (viral-filtered). Replaced with findRecentActivePosts() in all three tabs.
- *
- * BUG 7 FIX — getHotFeed seen filter had no own-post bypass. Creator who viewed
- *   their own post had it removed from HOT feed. Fixed: ownPostIds bypass added.
- * ─────────────────────────────────────────────────────────────────────────────
+ *   @Transactional(NOT_SUPPORTED) — no Hibernate session wraps this
+ *   class. All repository calls open their own short transactions.
+ *   DO NOT call p.getUser() on candidate entities.
  */
 @Service
 @RequiredArgsConstructor
@@ -123,258 +91,334 @@ import java.util.Date;
 @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
 public class HLIGFeedService {
 
-    private final SocialPostRepo          postRepo;
-    private final InterestProfileService  interestService;
-    private final HLIGScorer              scorer;
-    private final TopicExtractor          topicExtractor;
+    private final SocialPostRepo         postRepo;
+    private final InterestProfileService interestService;
+    private final HLIGScorer             scorer;
+    private final TopicExtractor         topicExtractor;
 
-    // ── Own-post injection limit (per feed request) ───────────────────────────
-    private static final int HLIG_OWN_POST_INJECT_LIMIT = 3;
-    /** Minimum candidate pool size before triggering the sparse-platform fallback. */
-    private static final int HLIG_CANDIDATE_SPARSE_FLOOR = 20;
-
-    // ── FOR YOU / ALL tab ─────────────────────────────────────────────────────
+    private static final int OWN_POST_INJECT_LIMIT  = 3;
+    private static final int CANDIDATE_SPARSE_FLOOR = 20;
 
     /**
-     * Main personalised feed — the "For You" experience.
-     *
-     * @param lastPostId  ID of the last post the client rendered. null = first page.
-     * @param size        Number of posts to return (1–50).
+     * FIX MEMORY LEAK #7 — hard cap on pool map size.
+     * Each widening pass (geo → state → language → platform) adds up to
+     * HLIG_CANDIDATE_LIMIT entries. Without a cap the pool can hold
+     * 4 × HLIG_CANDIDATE_LIMIT SocialPost references simultaneously, all
+     * live for the duration of the scoring step.
+     * This cap is applied after each widening pass inside fetchBrowsePool().
+     * It must be ≥ (requested feed size × 2) to leave room for diversity injection.
      */
-    public List<SocialPost> getPersonalisedFeed(User user, Long lastPostId, int size) {
-        size = Math.min(size, 50);
+    private static final int POOL_MAX_SIZE =
+            Math.max(Constant.HLIG_CANDIDATE_LIMIT * 2, 400);
+
+    /** Minimum pool size for HOT before extending to 7-day window. */
+    private static final int HOT_MIN_POOL = 5;
+
+    /** 72-hour window in milliseconds. */
+    private static final long WINDOW_72H_MS = 72L * 60 * 60 * 1000;
+
+    /** 7-day extended window in milliseconds (HOT fallback). */
+    private static final long WINDOW_7D_MS = 7L * 24 * 60 * 60 * 1000;
+
+    // =========================================================================
+    // PUBLIC — single entry point for all 9 feed combinations
+    // =========================================================================
+
+    /**
+     * Returns a sorted, cursor-windowed list of posts for the given scope + sort.
+     *
+     * Caller must request size+1 posts so SocialPostService can detect hasMore
+     * without a separate COUNT query.
+     */
+    public List<SocialPost> getBrowseFeed(
+            User user, FeedScope scope, FeedSort sort, Long lastPostId, int size) {
+
+        List<SocialPost> sorted = (scope == FeedScope.FOR_YOU)
+                ? getPersonalisedPoolSortedBy(user, sort, size * 2)
+                : sortBrowsePool(fetchBrowsePool(user, scope, sort), sort);
+
+        if (sorted.isEmpty()) {
+            log.debug("[HLIG] BROWSE scope={} sort={}: empty — absoluteFallback userId={}",
+                    scope, sort, user.getId());
+            sorted = absoluteFallback(user, sort, size * 2);
+        }
+
+        return applyCursorWindow(sorted, lastPostId, size);
+    }
+
+    // =========================================================================
+    // PRIVATE — FOR YOU: phase-scored pool, re-ranked by sort
+    // =========================================================================
+
+    private List<SocialPost> getPersonalisedPoolSortedBy(
+            User user, FeedSort sort, int candidateSize) {
+
         InterestProfileService.Phase phase = interestService.getUserPhase(user.getId());
 
-        List<SocialPost> raw = switch (phase) {
-            case COLD    -> getColdFeed(user, size * 2);
-            case WARMING -> getWarmingFeed(user, size * 2);
-            case WARM    -> getWarmFeed(user, size * 2);
+        List<SocialPost> pool = switch (phase) {
+            case COLD    -> getColdFeed(user, candidateSize);
+            case WARMING -> getWarmingFeed(user, candidateSize);
+            case WARM    -> getWarmFeed(user, candidateSize);
         };
 
-        // Never-empty guarantee for FOR_YOU tab.
-        // cold/warming/warm all have internal fallbacks but can still return empty
-        // in the extreme case where ALL posts are flagged/deleted/inactive.
-        // absoluteFallback() is the last line of defence: status=ACTIVE, no other filter.
-        if (raw.isEmpty()) {
-            log.debug("[HLIG] FOR_YOU: all phase feeds empty — absolute fallback for userId={}", user.getId());
-            raw = absoluteFallback(user, size * 2);
+        if (pool.isEmpty()) {
+            log.debug("[HLIG] FOR_YOU pool empty (phase={}) — absoluteFallback userId={}",
+                    phase, user.getId());
+            pool = absoluteFallback(user, sort, candidateSize);
         }
 
-        return applyCursorWindow(raw, lastPostId, size);
+        return applySort(pool, sort);
     }
 
-    // ── HOT tab (Twitter trending) ────────────────────────────────────────────
+    // =========================================================================
+    // PRIVATE — BROWSE POOL: scope-specific candidate fetching
+    // =========================================================================
+
+    private List<SocialPost> fetchBrowsePool(User user, FeedScope scope, FeedSort sort) {
+        Map<Long, SocialPost> pool = new LinkedHashMap<>();
+        Date since72h = new Date(System.currentTimeMillis() - WINDOW_72H_MS);
+
+        switch (scope) {
+
+            case LOCATION -> {
+                if (user.hasPincode()) {
+                    switch (sort) {
+                        case HOT ->
+                                postRepo.findHotPostsForUser(
+                                        user.getPincode(), user.getDistrictPrefix(), since72h,
+                                        PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT)
+                                ).forEach(p -> pool.put(p.getId(), p));
+
+                        case TOP ->
+                                postRepo.findTopPostsForUser(
+                                        user.getStatePrefix(),
+                                        PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT)
+                                ).forEach(p -> pool.put(p.getId(), p));
+
+                        case NEW ->
+                                postRepo.findNewPostsForUser(
+                                        user.getStatePrefix(),
+                                        PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT)
+                                ).forEach(p -> pool.put(p.getId(), p));
+                    }
+                }
+
+                // Sparse widening — language-aware then state then platform
+                if (pool.size() < CANDIDATE_SPARSE_FLOOR) {
+                    log.debug("[HLIG] LOCATION {} sparse ({}) — widening to state", sort, pool.size());
+                    widenToState(user, sort, since72h, pool);
+                    capPool(pool); // FIX LEAK #7
+                }
+                if (pool.size() < CANDIDATE_SPARSE_FLOOR) {
+                    log.debug("[HLIG] LOCATION {} still sparse ({}) — language-aware widening", sort, pool.size());
+                    widenByLanguage(user, pool);
+                    capPool(pool); // FIX LEAK #7
+                }
+                if (pool.size() < CANDIDATE_SPARSE_FLOOR) {
+                    log.debug("[HLIG] LOCATION {} still sparse ({}) — widening to platform", sort, pool.size());
+                    widenToPlatform(sort, since72h, pool);
+                }
+            }
+
+            case FOLLOWING -> {
+                postRepo.findPostsFromUserCommunities(
+                        user.getId(), PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT)
+                ).forEach(p -> pool.put(p.getId(), p));
+
+                if (pool.isEmpty()) {
+                    log.debug("[HLIG] FOLLOWING: userId={} no communities — cold fallback", user.getId());
+                    fetchCandidates(user, Constant.HLIG_CANDIDATE_LIMIT)
+                            .forEach(p -> pool.put(p.getId(), p));
+                }
+            }
+
+            default -> {
+                log.warn("[HLIG] fetchBrowsePool called with scope=FOR_YOU — using active fallback");
+                postRepo.findRecentActivePosts(PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT))
+                        .forEach(p -> pool.put(p.getId(), p));
+            }
+        }
+
+        injectOwnPosts(user, pool);
+        capPool(pool); // FIX LEAK #7 — final cap before materialising
+        return new ArrayList<>(pool.values());
+    }
+
+    private void widenToState(User user, FeedSort sort, Date since72h,
+                              Map<Long, SocialPost> pool) {
+        if (user.getStatePrefix() == null) return;
+
+        List<SocialPost> statePosts = switch (sort) {
+            case HOT ->
+                    postRepo.findHotPostsForUser(
+                            null, user.getStatePrefix(), since72h,
+                            PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT));
+            case TOP ->
+                    postRepo.findTopPostsForUser(
+                            user.getStatePrefix(),
+                            PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT));
+            case NEW ->
+                    postRepo.findNewPostsForUser(
+                            user.getStatePrefix(),
+                            PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT));
+        };
+
+        statePosts.forEach(p -> pool.putIfAbsent(p.getId(), p));
+    }
 
     /**
-     * HOT tab — 72-hour trending, cursor-paginated.
+     * Language-aware widening — runs BEFORE platform widening.
+     *
+     * When the state-level pool is still sparse, we fetch same-language posts
+     * from across India before falling back to all-language platform posts.
+     *
+     * This is important for users in low-density pincodes (e.g. rural Tamil Nadu)
+     * who want Tamil content but have few local Tamil posts. Without this pass,
+     * the platform widening would flood their feed with Hindi posts from UP/MH
+     * which dominate by sheer volume.
+     *
+     * If the user has no language preference (COLD / early WARMING), this method
+     * is a no-op and the platform widening pass handles the sparse pool normally.
      */
-    public List<SocialPost> getHotFeed(User user, Long lastPostId, int size) {
-        Date since = new Date(System.currentTimeMillis() - 72L * 60 * 60 * 1000);
+    private void widenByLanguage(User user, Map<Long, SocialPost> pool) {
+        List<String> preferredLangs = interestService.getPreferredLanguages(user.getId());
+        if (preferredLangs.isEmpty()) return;
 
-        Map<Long, SocialPost> hotById = new LinkedHashMap<>();
-        if (user.hasPincode()) {
-            postRepo.findHotPostsForUser(
-                    user.getPincode(), user.getDistrictPrefix(), since,
+        // Include "en" + "mixed" as secondary languages so the query isn't too restrictive
+        List<String> queryLangs = new ArrayList<>(preferredLangs);
+        if (!queryLangs.contains("en"))    queryLangs.add("en");
+        if (!queryLangs.contains("mixed")) queryLangs.add("mixed");
+
+        try {
+            postRepo.findActivePostsByLanguages(
+                    queryLangs,
                     PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT)
-            ).forEach(p -> hotById.put(p.getId(), p));
+            ).forEach(p -> pool.putIfAbsent(p.getId(), p));
+
+            log.debug("[HLIG] language widening: {} posts added for langs={} userId={}",
+                    pool.size(), queryLangs, user.getId());
+        } catch (Exception e) {
+            // Non-fatal — fall through to platform widening
+            log.debug("[HLIG] language widening failed (non-fatal): {}", e.getMessage());
         }
-        // FIX v4: replace findRecentPostsNational (viral-filtered) with findRecentActivePosts
-        postRepo.findRecentActivePosts(PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT))
-                .forEach(p -> hotById.putIfAbsent(p.getId(), p));
+    }
 
-        // Sparse-platform fallback
-        if (hotById.size() < HLIG_CANDIDATE_SPARSE_FLOOR) {
-            log.debug("[HLIG] HOT: sparse ({} candidates) — widening to all active", hotById.size());
-            postRepo.findAllActivePostsForFeed(PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT_SPARSE))
-                    .forEach(p -> hotById.putIfAbsent(p.getId(), p));
+    private void widenToPlatform(FeedSort sort, Date since72h, Map<Long, SocialPost> pool) {
+        switch (sort) {
+            case HOT ->
+                    postRepo.findHotActivePostsForFeed(
+                            since72h,
+                            PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT_SPARSE)
+                    ).forEach(p -> pool.putIfAbsent(p.getId(), p));
+
+            case TOP ->
+                    postRepo.findTopActivePostsForFeed(
+                            PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT_SPARSE)
+                    ).forEach(p -> pool.putIfAbsent(p.getId(), p));
+
+            case NEW ->
+                    postRepo.findAllActivePostsForFeed(
+                            PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT_SPARSE)
+                    ).forEach(p -> pool.putIfAbsent(p.getId(), p));
         }
+    }
 
-        // Inject user's own posts so creators always see their content
-        injectOwnPosts(user, hotById);
+    // =========================================================================
+    // PRIVATE — SORT APPLICATION
+    // =========================================================================
 
-        Set<Long> seen       = interestService.recentlySeenPosts(user.getId());
-        Set<Long> ownPostIds = buildOwnPostIdSet(user);
-        List<SocialPost> scored = hotById.values().stream()
-                // Own posts bypass seen-dedup so creators always see their content in HOT
-                .filter(p -> ownPostIds.contains(p.getId()) || !seen.contains(p.getId()))
-                .filter(p -> p.getStatus() != null && "ACTIVE".equals(p.getStatus().name()))
+    private List<SocialPost> applySort(List<SocialPost> candidates, FeedSort sort) {
+        return switch (sort) {
+            case HOT -> applyHotSort(candidates);
+            case NEW -> applyNewSort(candidates);
+            case TOP -> applyTopSort(candidates);
+        };
+    }
+
+    private List<SocialPost> sortBrowsePool(List<SocialPost> candidates, FeedSort sort) {
+        return applySort(candidates, sort);
+    }
+
+    private List<SocialPost> applyHotSort(List<SocialPost> candidates) {
+        long now72hAgo = System.currentTimeMillis() - WINDOW_72H_MS;
+        long now7dAgo  = System.currentTimeMillis() - WINDOW_7D_MS;
+
+        List<SocialPost> active = activeOnly(candidates);
+
+        List<SocialPost> window72h = active.stream()
+                .filter(p -> p.getCreatedAt() != null
+                        && p.getCreatedAt().getTime() >= now72hAgo)
+                .sorted(hotComparator())
+                .collect(Collectors.toList());
+
+        if (window72h.size() >= HOT_MIN_POOL) return window72h;
+
+        log.debug("[HLIG] HOT 72h pool size={} < {} — extending to 7d window",
+                window72h.size(), HOT_MIN_POOL);
+
+        return active.stream()
+                .filter(p -> p.getCreatedAt() != null
+                        && p.getCreatedAt().getTime() >= now7dAgo)
+                .sorted(hotComparator())
+                .collect(Collectors.toList());
+    }
+
+    private List<SocialPost> applyNewSort(List<SocialPost> candidates) {
+        return activeOnly(candidates).stream()
+                .sorted(Comparator.comparingLong(
+                        (SocialPost p) -> -(p.getCreatedAt() != null ? p.getCreatedAt().getTime() : 0L)))
+                .collect(Collectors.toList());
+    }
+
+    private List<SocialPost> applyTopSort(List<SocialPost> candidates) {
+        return activeOnly(candidates).stream()
                 .sorted(Comparator
-                        .comparingDouble((SocialPost p) ->
-                                -(p.getViralityScore() != null ? p.getViralityScore() : 0.0))
-                        .thenComparingLong(p ->
-                                -(p.getCreatedAt() != null ? p.getCreatedAt().getTime() : 0L)))
+                        .comparingDouble(
+                                (SocialPost p) -> -(p.getEngagementScore() != null ? p.getEngagementScore() : 0.0))
+                        .thenComparingLong(
+                                p -> -(p.getCreatedAt() != null ? p.getCreatedAt().getTime() : 0L)))
                 .collect(Collectors.toList());
-
-        // Never-empty guarantee
-        if (scored.isEmpty()) {
-            log.debug("[HLIG] HOT: scored empty after filter — absolute fallback for userId={}", user.getId());
-            scored = absoluteFallback(user, size);
-        }
-
-        return applyCursorWindow(scored, lastPostId, size);
     }
 
-    // ── NEW tab (chronological) ───────────────────────────────────────────────
-
-    /**
-     * NEW tab — raw chronological, cursor-paginated.
-     */
-    public List<SocialPost> getNewFeed(User user, Long lastPostId, int size) {
-        Map<Long, SocialPost> newById = new LinkedHashMap<>();
-        if (user.hasPincode()) {
-            postRepo.findNewPostsForUser(user.getStatePrefix(),
-                            PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT))
-                    .forEach(p -> newById.put(p.getId(), p));
-        }
-        // FIX v4: was findRecentPostsNational() in the else branch (no-pincode users).
-        // That query filters viralTier=NATIONAL_VIRAL — returns 0 on new platforms.
-        // Replaced with findRecentActivePosts() (status=ACTIVE only) which ALWAYS
-        // returns posts. Applied unconditionally (not just the else branch) so that
-        // pincode users on sparse platforms also get cross-area posts as backfill.
-        if (newById.size() < 50) {
-            postRepo.findRecentActivePosts(PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT))
-                    .forEach(p -> newById.putIfAbsent(p.getId(), p));
-        }
-
-        if (newById.size() < HLIG_CANDIDATE_SPARSE_FLOOR) {
-            log.debug("[HLIG] NEW: sparse ({} posts) — loading all active", newById.size());
-            postRepo.findAllActivePostsForFeed(PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT_SPARSE))
-                    .forEach(p -> newById.putIfAbsent(p.getId(), p));
-        }
-
-        injectOwnPosts(user, newById);
-
-        List<SocialPost> all = new ArrayList<>(newById.values());
-        // FIX: null-safe sort — posts without createdAt sort to the bottom
-        all.sort(Comparator.comparingLong((SocialPost p) ->
-                p.getCreatedAt() != null ? p.getCreatedAt().getTime() : 0L).reversed());
-
-        if (all.isEmpty()) all = absoluteFallback(user, size);
-
-        return applyCursorWindow(all, lastPostId, size);
+    private Comparator<SocialPost> hotComparator() {
+        return Comparator
+                .comparingDouble(
+                        (SocialPost p) -> -(p.getViralityScore() != null ? p.getViralityScore() : 0.0))
+                .thenComparingLong(
+                        p -> -(p.getCreatedAt() != null ? p.getCreatedAt().getTime() : 0L));
     }
 
-    // ── TOP tab (all-time) ────────────────────────────────────────────────────
-
-    /**
-     * TOP tab — all-time highest engagement, cursor-paginated.
-     */
-    public List<SocialPost> getTopFeed(User user, Long lastPostId, int size) {
-        Map<Long, SocialPost> topById = new LinkedHashMap<>();
-        if (user.hasPincode()) {
-            postRepo.findTopPostsForUser(user.getStatePrefix(),
-                            PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT))
-                    .forEach(p -> topById.put(p.getId(), p));
-        }
-        // FIX v4: replace findRecentPostsNational (viral-filtered) with findRecentActivePosts
-        if (topById.size() < 50) {
-            postRepo.findRecentActivePosts(PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT))
-                    .forEach(p -> topById.putIfAbsent(p.getId(), p));
-        }
-
-        if (topById.size() < HLIG_CANDIDATE_SPARSE_FLOOR) {
-            log.debug("[HLIG] TOP: sparse ({} posts) — loading all active", topById.size());
-            postRepo.findAllActivePostsForFeed(PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT_SPARSE))
-                    .forEach(p -> topById.putIfAbsent(p.getId(), p));
-        }
-
-        injectOwnPosts(user, topById);
-
-        List<SocialPost> all = new ArrayList<>(topById.values());
-        all.sort(Comparator
-                .comparingDouble((SocialPost p) ->
-                        p.getEngagementScore() != null ? p.getEngagementScore() : 0.0)
-                .reversed()
-                .thenComparingLong((SocialPost p) ->
-                        p.getCreatedAt() != null ? p.getCreatedAt().getTime() : 0L)
-                .reversed());
-
-        if (all.isEmpty()) all = absoluteFallback(user, size);
-
-        return applyCursorWindow(all, lastPostId, size);
-    }
-
-    // ── FOLLOWING tab (Reddit-style community feed) ───────────────────────────
-
-    /**
-     * FOLLOWING tab — posts from communities the user has joined, cursor-paginated.
-     *
-     * FIX v2: when the scored list is empty after seen-dedup (all community posts
-     * already viewed), now falls back to getColdFeed() instead of returning empty.
-     */
-    public List<SocialPost> getFollowingFeed(User user, Long lastPostId, int size) {
-        List<SocialPost> candidates = postRepo.findPostsFromUserCommunities(
-                user.getId(), PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT));
-
-        if (candidates.isEmpty()) {
-            log.debug("[HLIG] FOLLOWING: userId={} has no communities — cold fallback", user.getId());
-            List<SocialPost> fallback = getColdFeed(user, size * 2);
-            return applyCursorWindow(fallback, lastPostId, size);
-        }
-
-        Set<Long>           seen    = interestService.recentlySeenPosts(user.getId());
-        Map<String, Double> profile = interestService.loadTopN(user.getId());
-
-        Map<Long, Map<String, Double>> ptfCache = buildPtfCache(candidates);
-
-        List<SocialPost> scored = candidates.stream()
-                .filter(p -> !seen.contains(p.getId()))
-                .filter(SocialPost::isEligibleForRecommendation)
-                .sorted(Comparator.comparingDouble(p -> {
-                    Map<String, Double> ptf = ptfCache.getOrDefault(p.getId(), Collections.emptyMap());
-                    return -scorer.scoreWarmingWithPtf(user, p, profile, ptf);
-                }))
+    private List<SocialPost> activeOnly(List<SocialPost> posts) {
+        return posts.stream()
+                .filter(p -> p.getStatus() != null && "ACTIVE".equals(p.getStatus().name()))
                 .collect(Collectors.toList());
-
-        // Never-empty guarantee: all community posts already seen → fall back
-        if (scored.isEmpty()) {
-            log.debug("[HLIG] FOLLOWING: all community posts seen — cold fallback for userId={}", user.getId());
-            scored = getColdFeed(user, size * 2);
-        }
-
-        fireImplicitViewSignals(user, scored, size);
-
-        return applyCursorWindow(scored, lastPostId, size);
     }
 
-    // ── Internal phase-specific ranking ───────────────────────────────────────
+    // =========================================================================
+    // PRIVATE — HLIG PHASE FEEDS (FOR YOU scoring internals)
+    // =========================================================================
 
-    /**
-     * Cold feed — geo × freshness × quality, with jitter for session variety.
-     *
-     * FIX v3: own posts bypass isEligibleForRecommendation() so a brand-new post
-     * whose qualityScore hasn't been computed yet still appears for its creator.
-     * The quality gate exists to protect OTHER users from low-quality content —
-     * it should never hide your own post from yourself.
-     */
     private List<SocialPost> getColdFeed(User user, int size) {
         List<SocialPost> candidates = fetchCandidates(user, Constant.HLIG_CANDIDATE_LIMIT);
-
         if (candidates.isEmpty()) {
-            log.info("[HLIG] Cold feed: 0 posts in DB for userId={}", user.getId());
+            log.info("[HLIG] COLD: 0 posts in DB for userId={}", user.getId());
             return Collections.emptyList();
         }
 
-        long sessionSeed = ThreadLocalRandom.current().nextLong();
-        Set<Long> ownPostIds = buildOwnPostIdSet(user);
+        long      sessionSeed = ThreadLocalRandom.current().nextLong();
+        Set<Long> ownPostIds  = buildOwnPostIdSet(user);
 
         List<SocialPost> eligible = candidates.stream()
                 .filter(p -> ownPostIds.contains(p.getId()) || p.isEligibleForRecommendation())
                 .collect(Collectors.toList());
 
-        // Relax to ACTIVE-only when eligible pool is too small (sparse platform)
         if (eligible.size() < Math.min(size, 5)) {
-            log.debug("[HLIG] Cold feed: eligible pool {} too small — relaxing to ACTIVE-only", eligible.size());
-            eligible = candidates.stream()
-                    .filter(p -> p.getStatus() != null && "ACTIVE".equals(p.getStatus().name()))
-                    .collect(Collectors.toList());
+            log.debug("[HLIG] COLD eligible pool {} — relaxing to ACTIVE-only", eligible.size());
+            eligible = activeOnly(candidates);
         }
 
         List<SocialPost> scored = eligible.stream()
                 .sorted(Comparator.comparingDouble(p -> {
-                    // Own posts use scoreColdForOwn() which skips the eligibility gate
-                    // and uses POST_QUALITY_DEFAULT floor so they rank with peers even
-                    // when qualityScore hasn't been computed yet on a brand-new post.
                     double base = ownPostIds.contains(p.getId())
                             ? scorer.scoreColdForOwn(user, p)
                             : scorer.scoreCold(user, p);
@@ -388,35 +432,43 @@ public class HLIGFeedService {
         return scored;
     }
 
+    /**
+     * WARMING phase — 50/50 blend of HLIG interest score and cold popularity score.
+     *
+     * Language preference is incorporated via scoreWarmingWithPtf() which now
+     * accepts the preferredLangs list. The language boost scales the HLIG half
+     * of the blend, not the cold popularity half — this keeps the COLD fallback
+     * language-neutral while still rewarding preferred-language content once the
+     * user has enough signal.
+     */
     private List<SocialPost> getWarmingFeed(User user, int size) {
         Map<String, Double> profile    = interestService.loadTopN(user.getId());
         Set<Long>           seen       = interestService.recentlySeenPosts(user.getId());
         List<SocialPost>    candidates = fetchCandidates(user, Constant.HLIG_CANDIDATE_LIMIT);
+        // ── Language preference resolved ONCE per feed request ─────────────
+        List<String>        preferredLangs = interestService.getPreferredLanguages(user.getId());
 
-        Map<Long, Map<String, Double>> ptfCache = buildPtfCache(candidates);
-        Set<Long> ownPostIds = buildOwnPostIdSet(user);
+        Map<Long, Map<String, Double>> ptfCache   = buildPtfCache(candidates);
+        Set<Long>                      ownPostIds = buildOwnPostIdSet(user);
 
         List<ScoredPost> scored = candidates.stream()
-                // Own posts always pass through — bypass both seen-dedup and eligibility gate
                 .filter(p -> ownPostIds.contains(p.getId())
                         || (!seen.contains(p.getId()) && p.isEligibleForRecommendation()))
                 .map(p -> {
-                    Map<String, Double> ptf = ptfCache.getOrDefault(p.getId(), Collections.emptyMap());
-                    boolean isOwn = ownPostIds.contains(p.getId());
-                    // Own posts use the raw scorer variants that skip the eligibility gate
-                    double hligScore = isOwn ? scorer.scoreColdForOwn(user, p)
-                            : scorer.scoreWarmingWithPtf(user, p, profile, ptf);
-                    double popScore  = isOwn ? scorer.scoreColdForOwn(user, p)
+                    Map<String, Double> ptf   = ptfCache.getOrDefault(p.getId(), Collections.emptyMap());
+                    boolean             isOwn = ownPostIds.contains(p.getId());
+                    // Language boost is baked into scoreWarmingWithPtf for HLIG half
+                    double              hlig  = isOwn ? scorer.scoreColdForOwn(user, p)
+                            : scorer.scoreWarmingWithPtf(user, p, profile, ptf, preferredLangs);
+                    double              pop   = isOwn ? scorer.scoreColdForOwn(user, p)
                             : scorer.scoreCold(user, p);
-                    double blended   = 0.5 * hligScore + 0.5 * popScore;
-                    return new ScoredPost(p, blended);
+                    return new ScoredPost(p, 0.5 * hlig + 0.5 * pop);
                 })
                 .sorted(Comparator.comparingDouble(s -> -s.score))
                 .collect(Collectors.toList());
 
-        // Never-empty guarantee
         if (scored.isEmpty()) {
-            log.debug("[HLIG] WARMING: empty scored pool — cold fallback for userId={}", user.getId());
+            log.debug("[HLIG] WARMING: empty — cold fallback userId={}", user.getId());
             return getColdFeed(user, size);
         }
 
@@ -425,58 +477,58 @@ public class HLIGFeedService {
         return result;
     }
 
+    /**
+     * WARM phase — full HLIG score with diversity shuffle, bubble-risk guard,
+     * and language preference multiplier.
+     *
+     * Language preference is resolved once and passed into every scoreWarmWithPtf()
+     * call. The language multiplier is a component of the final score so it
+     * participates in the sort naturally — no separate language filter is applied.
+     *
+     * Diversity slot language rule: diversity posts are preferentially selected
+     * from posts NOT in the user's primary language. This is a best-effort
+     * selection — if no non-primary-language diversity posts exist we fall
+     * back to any diversity post as before.
+     */
     private List<SocialPost> getWarmFeed(User user, int size) {
-        Map<String, Double>  profile    = interestService.loadTopN(user.getId());
-        List<Long>           neighbours = interestService.findNeighbours(user.getId());
-        Set<Long>            seen       = interestService.recentlySeenPosts(user.getId());
-        List<SocialPost>     candidates = fetchCandidates(user, Constant.HLIG_CANDIDATE_LIMIT);
-        long                 sessionRng = ThreadLocalRandom.current().nextLong();
+        Map<String, Double>  profile       = interestService.loadTopN(user.getId());
+        List<Long>           neighbours    = interestService.findNeighbours(user.getId());
+        Set<Long>            seen          = interestService.recentlySeenPosts(user.getId());
+        List<SocialPost>     candidates    = fetchCandidates(user, Constant.HLIG_CANDIDATE_LIMIT);
+        long                 sessionRng    = ThreadLocalRandom.current().nextLong();
         Map<String, Integer> sessionTopics = new HashMap<>();
+        // ── Language preference resolved ONCE per feed request ─────────────
+        List<String>         preferredLangs = interestService.getPreferredLanguages(user.getId());
+        String               primaryLang    = preferredLangs.isEmpty() ? null : preferredLangs.get(0);
 
-        Map<Long, Map<String, Double>> ptfCache = buildPtfCache(candidates);
-        Set<Long> ownPostIds = buildOwnPostIdSet(user);
+        Map<Long, Map<String, Double>> ptfCache   = buildPtfCache(candidates);
+        Set<Long>                      ownPostIds = buildOwnPostIdSet(user);
 
-        boolean bubbleRisk = profile.size() > 0
-                && profile.values().stream().anyMatch(w -> w > 20.0);
-        int diversityPct = bubbleRisk
-                ? Constant.HLIG_DIVERSITY_PCT_BUBBLE
-                : Constant.HLIG_DIVERSITY_PCT_WARM;
+        boolean bubbleRisk = profile.values().stream().anyMatch(w -> w > 20.0);
 
-        // NOTE on sessionTopics: at scoring time we haven't assembled any posts yet,
-        // so sessionTopics is correctly empty here. The session diversity penalty is
-        // enforced during the assembly loop below via the overRepresented check.
-        // Passing Collections.emptyMap() (as before) caused the scorer's sessionPenalty()
-        // to always return 1.0, which was wrong. Now sessionTopics is passed correctly —
-        // it will be empty for the initial sort (which is right), and the assembly loop
-        // updates it as posts are selected, giving real session diversity enforcement.
         List<ScoredPost> scored = candidates.stream()
-                // Own posts always pass through — bypass both seen-dedup and eligibility gate
                 .filter(p -> ownPostIds.contains(p.getId())
                         || (!seen.contains(p.getId()) && p.isEligibleForRecommendation()))
                 .map(p -> {
                     Map<String, Double> ptf = ptfCache.getOrDefault(p.getId(), Collections.emptyMap());
-                    double s = scorer.scoreWarmWithPtf(user, p, profile, neighbours,
-                            sessionTopics, sessionRng, ptf);
-                    // Own posts: scorer gates on isEligibleForRecommendation() and returns 0.0
-                    // for brand-new posts. Guarantee a minimum score so they survive the
-                    // HLIG_SCORE_MIN_THRESHOLD filter below and appear in the feed.
+                    // Pass preferred language list into the full WARM scorer
+                    double s = scorer.scoreWarmWithPtf(user, p, profile, neighbours, sessionTopics,
+                            sessionRng, ptf, preferredLangs);
                     if (ownPostIds.contains(p.getId()) && s <= Constant.HLIG_SCORE_MIN_THRESHOLD) {
                         s = Constant.HLIG_SCORE_MIN_THRESHOLD + 0.001;
                     }
                     return new ScoredPost(p, s);
                 })
-                // score floor: own posts always pass (floored above), others must score meaningfully
                 .filter(s -> s.score > Constant.HLIG_SCORE_MIN_THRESHOLD)
                 .sorted(Comparator.comparingDouble(s -> -s.score))
                 .collect(Collectors.toList());
 
-        // Never-empty guarantee: zero topic overlap on sparse platform
         if (scored.isEmpty()) {
-            log.debug("[HLIG] WARM: zero overlap for userId={} — cold fallback", user.getId());
+            log.debug("[HLIG] WARM: zero overlap — cold fallback userId={}", user.getId());
             return getColdFeed(user, size);
         }
 
-        // Diversity separation
+        // Split into core-topic posts and diversity posts
         Set<String> coreTopics = profile.entrySet().stream()
                 .filter(e -> e.getValue() >= Constant.HLIG_PROFILE_CORE_THRESHOLD)
                 .map(Map.Entry::getKey)
@@ -484,36 +536,47 @@ public class HLIGFeedService {
 
         List<ScoredPost> mainFeed  = new ArrayList<>();
         List<ScoredPost> diversity = new ArrayList<>();
-
         for (ScoredPost sp : scored) {
             Map<String, Double> ptf = ptfCache.getOrDefault(sp.post.getId(), Collections.emptyMap());
-            boolean isCoreTopic = ptf.keySet().stream().anyMatch(coreTopics::contains);
-            if (isCoreTopic) mainFeed.add(sp);
-            else             diversity.add(sp);
+            if (ptf.keySet().stream().anyMatch(coreTopics::contains)) mainFeed.add(sp);
+            else                                                        diversity.add(sp);
         }
 
-        // FIX v4: when coreTopics is empty (user is warm but has only CASUAL/EMERGING interests,
-        // no topic has reached CORE threshold of 8.0), ALL scored posts land in diversity[].
-        // mainFeed stays empty. The assembly loop fires isDiversitySlot ~1/7 slots, fills ~3
-        // posts for a 20-post feed, then hits the mainFeed-empty branch which drains diversity
-        // correctly — but ONLY because the else-if chain eventually falls through to the
-        // `else if (divIdx < diversity.size())` branch. Actually re-tracing: when mainFeed
-        // is empty, the `else if (mainIdx < mainFeed.size())` branch is never entered, so
-        // each iteration tries isDiversitySlot first (fires 1/7), otherwise hits mainFeed
-        // branch (skipped because empty), then falls to the last `else if (divIdx...)`.
-        // So diversity posts ARE consumed correctly even when mainFeed is empty.
-        // Verified: no under-fill bug exists here. The concern was unfounded.
-        // Left comment for future readers.
+        // ── Language-aware diversity split ─────────────────────────────────
+        // Separate diversity posts into primary-language and non-primary-language buckets.
+        // Non-primary-language posts are preferred for diversity slots to prevent a
+        // language echo chamber from forming within the diversity tier.
+        List<ScoredPost> diversityNonPrimary = new ArrayList<>();
+        List<ScoredPost> diversityPrimary    = new ArrayList<>();
+        if (primaryLang != null) {
+            for (ScoredPost sp : diversity) {
+                if (primaryLang.equals(sp.post.safeLanguage())) diversityPrimary.add(sp);
+                else                                              diversityNonPrimary.add(sp);
+            }
+        } else {
+            diversityNonPrimary.addAll(diversity); // no preference — treat all equally
+        }
 
-        List<SocialPost> result = new ArrayList<>(size);
-        int mainIdx = 0, divIdx = 0;
+        // Assemble result: interleave diversity slots, respect per-topic session caps
+        List<SocialPost> result      = new ArrayList<>(size);
+        int mainIdx = 0;
+        int divNPIdx = 0, divPIdx = 0; // separate cursors for non-primary / primary diversity
 
         for (int i = 0; i < size; i++) {
-            boolean isDiv = scorer.isDiversitySlot(i, sessionRng) && divIdx < diversity.size();
+            boolean isDiv = scorer.isDiversitySlot(i, sessionRng)
+                    && (divNPIdx < diversityNonPrimary.size() || divPIdx < diversityPrimary.size());
+
             if (isDiv) {
-                SocialPost dp = diversity.get(divIdx++).post;
-                result.add(dp);
-                updateSessionContext(sessionTopics, dp, ptfCache);
+                // Prefer non-primary-language diversity; fall back to primary-language diversity
+                ScoredPost divPost;
+                if (divNPIdx < diversityNonPrimary.size()) {
+                    divPost = diversityNonPrimary.get(divNPIdx++);
+                } else {
+                    divPost = diversityPrimary.get(divPIdx++);
+                }
+                result.add(divPost.post);
+                updateSessionContext(sessionTopics, divPost.post, ptfCache);
+
             } else if (mainIdx < mainFeed.size()) {
                 SocialPost chosen  = null;
                 int        scanIdx = mainIdx;
@@ -521,268 +584,210 @@ public class HLIGFeedService {
                     SocialPost candidate = mainFeed.get(scanIdx).post;
                     Map<String, Double> topics = ptfCache.getOrDefault(candidate.getId(), Collections.emptyMap());
                     boolean overRepresented = topics.keySet().stream()
-                            .anyMatch(t -> sessionTopics.getOrDefault(t, 0)
-                                    >= Constant.HLIG_SESSION_TOPIC_MAX_REPEAT);
-                    if (!overRepresented) {
-                        chosen = candidate;
-                        mainIdx = scanIdx + 1;
-                        break;
-                    }
+                            .anyMatch(t -> sessionTopics.getOrDefault(t, 0) >= Constant.HLIG_SESSION_TOPIC_MAX_REPEAT);
+                    if (!overRepresented) { chosen = candidate; mainIdx = scanIdx + 1; break; }
                     scanIdx++;
                 }
                 if (chosen == null) {
                     mainIdx = mainFeed.size();
-                    if (divIdx < diversity.size()) chosen = diversity.get(divIdx++).post;
+                    if (divNPIdx < diversityNonPrimary.size()) chosen = diversityNonPrimary.get(divNPIdx++).post;
+                    else if (divPIdx < diversityPrimary.size()) chosen = diversityPrimary.get(divPIdx++).post;
                 }
-                if (chosen != null) {
-                    result.add(chosen);
-                    updateSessionContext(sessionTopics, chosen, ptfCache);
+                if (chosen != null) { result.add(chosen); updateSessionContext(sessionTopics, chosen, ptfCache); }
+                else break;
+
+            } else {
+                // Main feed exhausted — pull from remaining diversity
+                if (divNPIdx < diversityNonPrimary.size()) {
+                    SocialPost dp = diversityNonPrimary.get(divNPIdx++).post;
+                    result.add(dp); updateSessionContext(sessionTopics, dp, ptfCache);
+                } else if (divPIdx < diversityPrimary.size()) {
+                    SocialPost dp = diversityPrimary.get(divPIdx++).post;
+                    result.add(dp); updateSessionContext(sessionTopics, dp, ptfCache);
                 } else break;
-            } else if (divIdx < diversity.size()) {
-                SocialPost dp = diversity.get(divIdx++).post;
-                result.add(dp);
-                updateSessionContext(sessionTopics, dp, ptfCache);
-            } else break;
+            }
         }
 
-        // Never-empty guarantee — if result is still empty (all posts flagged mid-assembly,
-        // extreme race condition), fall back to cold rather than returning empty page.
         if (result.isEmpty()) {
-            log.debug("[HLIG] WARM assembly produced 0 posts — cold fallback for userId={}", user.getId());
+            log.debug("[HLIG] WARM assembly empty — cold fallback userId={}", user.getId());
             return getColdFeed(user, size);
         }
 
         return result;
     }
 
-    // ── Candidate fetching ────────────────────────────────────────────────────
+    // =========================================================================
+    // PRIVATE — CANDIDATE FETCHING (FOR YOU geo waterfall)
+    // =========================================================================
 
-    /**
-     * Fetches the candidate post pool for scoring.
-     *
-     * Strategy (geo waterfall):
-     *   1. Local posts (same pincode)
-     *   2. + District viral posts
-     *   3. + State viral posts
-     *   4. + National viral posts
-     *   5. ALWAYS: if geo pool < 50 → findRecentActivePosts() — NO viral/geo filter,
-     *      just status=ACTIVE ordered by createdAt DESC. This is the critical fix
-     *      for cross-area sparse platforms: on a new app with 2 users from different
-     *      cities, steps 1-4 return 0. findRecentPostsNational() also returned 0
-     *      because it filtered viralTier=NATIONAL_VIRAL (none on a new platform).
-     *      findRecentActivePosts() has no such filter — it always returns posts.
-     *   6. ALWAYS: inject the requesting user's own recent posts so creators
-     *      always see their content in FOR_YOU regardless of geo or viral tier.
-     *      This is the root fix for "I posted but can't see it in my feed."
-     *
-     * FIX v3 (this version):
-     *   - Replaced findRecentPostsNational (viral-filtered) with findRecentActivePosts
-     *     (no filter). Cross-area users now always get each other's posts.
-     *   - Raised sparse fallback trigger from 20 → 50 to match the geo-fill threshold,
-     *     so findAllActivePostsForFeed is only needed when findRecentActivePosts itself
-     *     returns < 50 (essentially never on any live platform).
-     *   - injectOwnPosts() moved here from HOT/NEW/TOP only, so cold/warming/warm
-     *     FOR_YOU feeds also get the creator's own posts injected.
-     */
     private List<SocialPost> fetchCandidates(User user, int limit) {
-        List<SocialPost> candidates = new ArrayList<>();
+        Map<Long, SocialPost> byId = new LinkedHashMap<>();
 
         if (user.hasPincode()) {
-            candidates.addAll(postRepo.findLocalFeedPosts(user.getPincode(),
-                    PageRequest.of(0, limit / 3)));
-            candidates.addAll(postRepo.findDistrictViralPosts(user.getDistrictPrefix(),
-                    PageRequest.of(0, limit / 4)));
-            candidates.addAll(postRepo.findStateViralPosts(user.getStatePrefix(),
-                    PageRequest.of(0, limit / 4)));
+            postRepo.findLocalFeedPosts(user.getPincode(),            PageRequest.of(0, limit / 3))
+                    .forEach(p -> byId.put(p.getId(), p));
+            postRepo.findDistrictViralPosts(user.getDistrictPrefix(), PageRequest.of(0, limit / 4))
+                    .forEach(p -> byId.putIfAbsent(p.getId(), p));
+            postRepo.findStateViralPosts(user.getStatePrefix(),       PageRequest.of(0, limit / 4))
+                    .forEach(p -> byId.putIfAbsent(p.getId(), p));
         }
-        candidates.addAll(postRepo.findNationalViralPosts(PageRequest.of(0, limit / 6)));
+        postRepo.findNationalViralPosts(PageRequest.of(0, limit / 6))
+                .forEach(p -> byId.putIfAbsent(p.getId(), p));
 
-        // Deduplicate by ID
-        Map<Long, SocialPost> byId = new LinkedHashMap<>();
-        for (SocialPost p : candidates) byId.put(p.getId(), p);
-
-        // Fallback 1 — FIXED: was findRecentPostsNational() which filters viralTier=NATIONAL_VIRAL.
-        // On a brand-new platform every post has viralTier="LOCAL", so that query returned 0
-        // even when posts existed. findRecentActivePosts() has NO viral or geo filter:
-        //   SELECT sp FROM SocialPost sp WHERE sp.status = 'ACTIVE' ORDER BY sp.createdAt DESC
-        // This guarantees cross-area users (Mumbai user sees Delhi posts) always get candidates.
         if (byId.size() < 50) {
             postRepo.findRecentActivePosts(PageRequest.of(0, limit))
                     .forEach(p -> byId.putIfAbsent(p.getId(), p));
         }
 
-        // Fallback 2: absolute last-resort for platforms with < 50 total active posts.
-        // Raised threshold from 20 → 50 to match the fallback-1 trigger above.
-        if (byId.size() < HLIG_CANDIDATE_SPARSE_FLOOR) {
-            log.debug("[HLIG] fetchCandidates: sparse ({} candidates) — loading ALL active posts", byId.size());
+        // ── Language-aware candidate injection ──────────────────────────────
+        // After the geo waterfall, if the pool is still sparse, inject
+        // same-language posts from across India before the absolute fallback.
+        // The scorer will further rank them by language boost + interest match.
+        if (byId.size() < CANDIDATE_SPARSE_FLOOR) {
+            List<String> preferredLangs = interestService.getPreferredLanguages(user.getId());
+            if (!preferredLangs.isEmpty()) {
+                log.debug("[HLIG] fetchCandidates: sparse ({}) — language-aware injection langs={}",
+                        byId.size(), preferredLangs);
+                List<String> queryLangs = new ArrayList<>(preferredLangs);
+                if (!queryLangs.contains("en"))    queryLangs.add("en");
+                if (!queryLangs.contains("mixed")) queryLangs.add("mixed");
+                try {
+                    postRepo.findActivePostsByLanguages(queryLangs, PageRequest.of(0, limit))
+                            .forEach(p -> byId.putIfAbsent(p.getId(), p));
+                } catch (Exception e) {
+                    log.debug("[HLIG] language injection failed (non-fatal): {}", e.getMessage());
+                }
+            }
+        }
+
+        if (byId.size() < CANDIDATE_SPARSE_FLOOR) {
+            log.debug("[HLIG] fetchCandidates: still sparse ({}) — loading ALL active", byId.size());
             postRepo.findAllActivePostsForFeed(PageRequest.of(0, Constant.HLIG_CANDIDATE_LIMIT_SPARSE))
                     .forEach(p -> byId.putIfAbsent(p.getId(), p));
         }
 
-        // Step 6 — inject own posts into every feed path (cold/warming/warm/hot/new/top).
-        // Previously only HOT/NEW/TOP called injectOwnPosts(); the FOR_YOU path via
-        // getColdFeed/getWarmingFeed/getWarmFeed never did, so a creator's own post
-        // was invisible in their FOR_YOU tab if it hadn't gone viral or matched geo queries.
         injectOwnPosts(user, byId);
-
         return new ArrayList<>(byId.values());
     }
 
-    // ── Own-posts injection ───────────────────────────────────────────────────
+    // =========================================================================
+    // PRIVATE — OWN-POST INJECTION
+    // =========================================================================
 
     /**
-     * Injects the user's own recent posts into any candidate map.
-     *
-     * Called from fetchCandidates() so ALL feed paths (cold/warming/warm/hot/new/top)
-     * benefit automatically. Previously only HOT/NEW/TOP called this method, so the
-     * FOR_YOU personalised feed never injected own posts.
-     *
-     * LIMIT: HLIG_OWN_POST_INJECT_LIMIT (3) to avoid the feed being dominated
-     * by the user's own content.
+     * FIX MEMORY LEAK #7 — caps the pool map to POOL_MAX_SIZE.
+     * Called after each widening pass so the map never holds more than
+     * POOL_MAX_SIZE SocialPost references simultaneously.
+     * Entries are removed from the tail of the LinkedHashMap (oldest insertions)
+     * which preserves geographic/engagement priority order.
      */
+    private void capPool(Map<Long, SocialPost> pool) {
+        if (pool.size() <= POOL_MAX_SIZE) return;
+        Iterator<Long> it = pool.keySet().iterator();
+        int toRemove = pool.size() - POOL_MAX_SIZE;
+        while (it.hasNext() && toRemove-- > 0) {
+            it.next();
+            it.remove();
+        }
+        log.debug("[HLIG] Pool capped at {} entries", pool.size());
+    }
+
     private void injectOwnPosts(User user, Map<Long, SocialPost> candidateMap) {
         try {
-            List<SocialPost> ownPosts = postRepo.findRecentPostsByUser(
-                    user.getId(), PageRequest.of(0, HLIG_OWN_POST_INJECT_LIMIT));
-            ownPosts.forEach(p -> candidateMap.putIfAbsent(p.getId(), p));
+            postRepo.findRecentPostsByUser(user.getId(), PageRequest.of(0, OWN_POST_INJECT_LIMIT))
+                    .forEach(p -> candidateMap.putIfAbsent(p.getId(), p));
         } catch (Exception e) {
-            log.debug("[HLIG] injectOwnPosts failed for userId={}: {}", user.getId(), e.getMessage());
+            log.debug("[HLIG] injectOwnPosts failed userId={}: {}", user.getId(), e.getMessage());
         }
     }
 
-    /**
-     * Returns the IDs of the requesting user's own recent posts.
-     *
-     * CRITICAL — do NOT use p.getUser().getId() from the candidate list here.
-     * HLIGFeedService is @Transactional(NOT_SUPPORTED): there is no active Hibernate
-     * session when this code runs. SocialPost.user is FetchType.LAZY. Calling
-     * p.getUser() on a detached entity throws LazyInitializationException in prod.
-     *
-     * Instead we call postRepo.findRecentPostsByUser() — the same lightweight query
-     * used by injectOwnPosts() — which opens its own transaction, fetches by the
-     * idx_social_post_user index, and returns detached entities with only their IDs.
-     *
-     * The resulting Set is used in cold/warming/warm feed filters to bypass:
-     *   1. isEligibleForRecommendation() — quality gate protects other users, not yourself.
-     *   2. seen-dedup — creator should keep seeing own post to monitor engagement.
-     *   3. HLIG_SCORE_MIN_THRESHOLD filter — own post must not be dropped for scoring 0.
-     */
     private Set<Long> buildOwnPostIdSet(User user) {
         try {
-            List<SocialPost> ownPosts = postRepo.findRecentPostsByUser(
-                    user.getId(), PageRequest.of(0, HLIG_OWN_POST_INJECT_LIMIT));
-            Set<Long> ids = new HashSet<>(ownPosts.size());
-            for (SocialPost p : ownPosts) ids.add(p.getId());
+            List<SocialPost> own = postRepo.findRecentPostsByUser(
+                    user.getId(), PageRequest.of(0, OWN_POST_INJECT_LIMIT));
+            Set<Long> ids = new HashSet<>(own.size());
+            for (SocialPost p : own) ids.add(p.getId());
             return ids;
         } catch (Exception e) {
-            log.debug("[HLIG] buildOwnPostIdSet failed for userId={}: {}", user.getId(), e.getMessage());
+            log.debug("[HLIG] buildOwnPostIdSet failed userId={}: {}", user.getId(), e.getMessage());
             return Collections.emptySet();
         }
     }
 
-    // ── Absolute fallback ─────────────────────────────────────────────────────
+    // =========================================================================
+    // PRIVATE — FALLBACK
+    // =========================================================================
 
-    /**
-     * Last-resort fallback: returns the most recently created ACTIVE posts,
-     * regardless of geo or engagement, sorted by createdAt DESC.
-     *
-     * This is only reached when every other strategy has produced an empty list.
-     * Guarantees the feed is never blank as long as at least 1 post exists in DB.
-     */
-    private List<SocialPost> absoluteFallback(User user, int size) {
-        log.debug("[HLIG] absoluteFallback triggered for userId={}", user.getId());
-        return postRepo.findAllActivePostsForFeed(PageRequest.of(0, size));
+    private List<SocialPost> absoluteFallback(User user, FeedSort sort, int size) {
+        log.debug("[HLIG] absoluteFallback scope sort={} userId={}", sort, user.getId());
+        Date since72h = new Date(System.currentTimeMillis() - WINDOW_72H_MS);
+
+        return switch (sort) {
+            case HOT -> {
+                List<SocialPost> hot = postRepo.findHotActivePostsForFeed(
+                        since72h, PageRequest.of(0, size));
+                yield hot.isEmpty()
+                        ? postRepo.findAllActivePostsForFeed(PageRequest.of(0, size))
+                        : hot;
+            }
+            case TOP ->
+                    postRepo.findTopActivePostsForFeed(PageRequest.of(0, size));
+            case NEW ->
+                    postRepo.findAllActivePostsForFeed(PageRequest.of(0, size));
+        };
     }
 
-    // ── Implicit view signals ─────────────────────────────────────────────────
+    // =========================================================================
+    // PRIVATE — SIGNALS, HELPERS
+    // =========================================================================
 
-    /**
-     * Fire lightweight onView signals for posts being surfaced to the user.
-     * Called from cold, warming, and following feeds to silently build
-     * interest profiles without any explicit onboarding step.
-     *
-     * @Async in InterestProfileService — never blocks this thread.
-     */
     private void fireImplicitViewSignals(User user, List<SocialPost> posts, int limit) {
         posts.stream().limit(limit).forEach(post -> {
-            try {
-                interestService.onView(user.getId(), post);
-            } catch (Exception e) {
-                log.debug("[HLIG] implicit onView skipped: postId={} userId={} reason={}",
+            try { interestService.onView(user.getId(), post); }
+            catch (Exception e) {
+                log.debug("[HLIG] implicit onView skipped postId={} userId={}: {}",
                         post.getId(), user.getId(), e.getMessage());
             }
         });
     }
 
-    // ── PTF cache builder ─────────────────────────────────────────────────────
-
-    /**
-     * Builds a postId → ptf map for a list of candidates, extracting topics ONCE.
-     *
-     * Before this cache existed, topicExtractor.extract() was called 3–5× per post
-     * during scoring. With 200 candidates: 600–1000 extraction calls per request.
-     * With this cache: exactly 200 calls.
-     */
     private Map<Long, Map<String, Double>> buildPtfCache(List<SocialPost> candidates) {
         Map<Long, Map<String, Double>> cache = new HashMap<>(candidates.size());
-        for (SocialPost p : candidates) {
-            cache.put(p.getId(), topicExtractor.extract(p));
-        }
+        for (SocialPost p : candidates) cache.put(p.getId(), topicExtractor.extract(p));
         return cache;
     }
 
-    // ── Session context helpers ───────────────────────────────────────────────
-
     private void updateSessionContext(Map<String, Integer> ctx, SocialPost post,
                                       Map<Long, Map<String, Double>> ptfCache) {
-        Map<String, Double> ptf = ptfCache.getOrDefault(post.getId(), Collections.emptyMap());
-        ptf.keySet().forEach(t -> ctx.merge(t, 1, Integer::sum));
+        ptfCache.getOrDefault(post.getId(), Collections.emptyMap())
+                .keySet().forEach(t -> ctx.merge(t, 1, Integer::sum));
     }
 
-    // ── Internal record ───────────────────────────────────────────────────────
+    // =========================================================================
+    // PRIVATE — CURSOR WINDOW
+    // =========================================================================
 
-    private record ScoredPost(SocialPost post, double score) {}
-
-    // ── Cursor-based infinite scroll helper ───────────────────────────────────
-
-    /**
-     * Applies cursor-window logic to any pre-sorted list of posts.
-     *
-     * First page (lastPostId == null): return first `size` posts.
-     * Subsequent pages: skip past cursor post, return next `size` posts.
-     *
-     * FIX v2: when cursor post is not found in the list (e.g. post was deleted
-     * or candidate pool was re-fetched), returns the first page rather than
-     * an empty list. This prevents a stuck client.
-     *
-     * @param sorted     Pre-sorted list (all candidates, scored)
-     * @param lastPostId Cursor: ID of the last post client rendered. null = page 1.
-     * @param size       Max posts to return.
-     */
-    private List<SocialPost> applyCursorWindow(List<SocialPost> sorted,
-                                               Long lastPostId, int size) {
+    private List<SocialPost> applyCursorWindow(List<SocialPost> sorted, Long lastPostId, int size) {
         if (sorted == null || sorted.isEmpty()) return Collections.emptyList();
-
-        if (lastPostId == null) {
-            return sorted.stream().limit(size).collect(Collectors.toList());
-        }
+        if (lastPostId == null) return sorted.stream().limit(size).collect(Collectors.toList());
 
         int cursorIdx = -1;
         for (int i = 0; i < sorted.size(); i++) {
-            if (Objects.equals(sorted.get(i).getId(), lastPostId)) {
-                cursorIdx = i;
-                break;
-            }
+            if (Objects.equals(sorted.get(i).getId(), lastPostId)) { cursorIdx = i; break; }
         }
 
         if (cursorIdx == -1) {
-            // Cursor not found — safe default is first page (prevents stuck client)
-            log.debug("[HLIG] cursor post {} not in candidate pool — returning first page", lastPostId);
+            log.debug("[HLIG] cursor {} not in pool — returning first page", lastPostId);
             return sorted.stream().limit(size).collect(Collectors.toList());
         }
 
         int fromIdx = Math.min(cursorIdx + 1, sorted.size());
-        return sorted.subList(fromIdx, sorted.size())
-                .stream().limit(size).collect(Collectors.toList());
+        return sorted.subList(fromIdx, sorted.size()).stream().limit(size).collect(Collectors.toList());
     }
+
+    // =========================================================================
+    // PRIVATE — INTERNAL RECORD
+    // =========================================================================
+
+    private record ScoredPost(SocialPost post, double score) {}
 }

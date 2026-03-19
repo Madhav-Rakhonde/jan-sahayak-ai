@@ -227,4 +227,23 @@ public interface UserInterestProfileRepo
             @Param("topic")  String topic,
             @Param("weight") double weight
     );
+
+
+    // Reads the denormalized preferred_languages column from the top-weight row
+    @Query("""
+  SELECT u.preferredLanguages FROM UserInterestProfile u
+  WHERE u.userId = :userId
+  ORDER BY u.weight DESC
+  LIMIT 1
+""")
+    String getPreferredLanguages(@Param("userId") Long userId);
+
+    // Finds all "lang:XX" topic rows for language preference rebuilding
+    @Query("SELECT u FROM UserInterestProfile u WHERE u.userId = :userId AND u.topic LIKE 'lang:%'")
+    List<UserInterestProfile> findLanguageTopicsByUserId(@Param("userId") Long userId);
+
+    // Updates the denormalized preferred_languages on the top-weight row
+    @Modifying
+    @Query("UPDATE UserInterestProfile u SET u.preferredLanguages = :langs WHERE u.userId = :userId AND u.weight = (SELECT MAX(u2.weight) FROM UserInterestProfile u2 WHERE u2.userId = :userId)")
+    void updatePreferredLanguages(@Param("userId") Long userId, @Param("langs") String langs);
 }

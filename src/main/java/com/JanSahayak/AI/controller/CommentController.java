@@ -40,7 +40,8 @@ import org.springframework.web.bind.annotation.*;
  * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
  * ║ READ — replies        ║ GET      ║ /{commentId}/replies                  ║
  * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
- * ║ READ — counts         ║ GET      ║ /social-posts/{postId}/count          ║
+ * ║ READ — counts         ║ GET      ║ /post/{postId}/count                  ║
+ * ║                       ║ GET      ║ /social-posts/{postId}/count          ║
  * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
  * ║ READ — current user   ║ GET      ║ /my                                   ║
  * ╠═══════════════════════╬══════════╬═══════════════════════════════════════╣
@@ -68,6 +69,22 @@ public class CommentController {
      *
      * POST /api/comments/post/{postId}
      *
+     * FIX (500 on comment — detached entity):
+     * The original code did:
+     *   Post post = postService.findById(postId);          // entity loaded here
+     *   commentService.createCommentOnPost(dto, user, post); // entity is DETACHED by now
+     *
+     * The controller runs outside any @Transactional boundary. Once findById()
+     * returns, its implicit transaction closes and the Post becomes detached.
+     * When Hibernate later tries to INSERT the Comment referencing that detached
+     * Post, the post_id FK resolves to null, which fires Comment.prePersist()'s
+     * XOR guard ("both null" branch) → IllegalStateException → 500.
+     *
+     * Fix: pass only postId to commentService.createCommentOnPostById().
+     * The service loads the Post INSIDE its own @Transactional so it stays
+     * managed for the full operation. Identical pattern to PostInteractionService
+     * lines 936-943.
+     *
      * Side-effects handled by CommentService:
      *   • assertPostAcceptsInteractions() — rejects RESOLVED / DELETED / FLAGGED posts
      *   • checkAndPromoteIssuePost()      — geographic promotion after comment
@@ -82,8 +99,9 @@ public class CommentController {
 
         try {
             log.info("[Comment] CREATE on post={} user={}", postId, currentUser.getActualUsername());
-            Post post = postService.findById(postId);
-            CommentDto created = commentService.createCommentOnPost(commentDto, currentUser, post);
+            // FIX: was → Post post = postService.findById(postId); (detached entity → 500)
+            //      now → service loads Post inside its own @Transactional boundary
+            CommentDto created = commentService.createCommentOnPostById(postId, commentDto, currentUser);
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Comment created successfully", created));
 
@@ -99,6 +117,13 @@ public class CommentController {
      *
      * POST /api/comments/social-posts/{postId}
      *
+     * FIX (500 on comment — detached entity):
+     * Same root cause as above but for SocialPost. The original code called
+     * socialPostService.findById(postId) in the controller, producing a detached
+     * entity → social_post_id FK null on INSERT → XOR guard → 500.
+     *
+     * Fix: pass only postId to commentService.createCommentOnSocialPostById().
+     *
      * Side-effects handled by CommentService:
      *   • allowsComments status guard + per-post allowComments toggle guard
      *   • notifySocialPostCommented() — push notification (swallowed on failure)
@@ -112,8 +137,9 @@ public class CommentController {
 
         try {
             log.info("[Comment] CREATE on socialPost={} user={}", postId, currentUser.getActualUsername());
-            SocialPost sp = socialPostService.findById(postId);
-            CommentDto created = commentService.createCommentOnSocialPost(commentDto, currentUser, sp);
+            // FIX: was → SocialPost sp = socialPostService.findById(postId); (detached → 500)
+            //      now → service loads SocialPost inside its own @Transactional boundary
+            CommentDto created = commentService.createCommentOnSocialPostById(postId, commentDto, currentUser);
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Comment created successfully", created));
 

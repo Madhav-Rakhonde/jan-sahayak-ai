@@ -321,33 +321,34 @@ public class UserService implements UserDetailsService {
 
     public Map<String, Long> getUserDistributionByState() {
         try {
+            // FIX MEMORY PRESSURE: previously called findByPincodeIsNotNullAndIsActive
+            // TrueAndPincodeMatches() which loaded ALL active users with pincodes into
+            // heap for an in-memory groupBy. On large user bases this is O(ALL_USERS)
+            // heap allocation.
+            // Fix: use getUserDistributionByPincode() which is already a DB-aggregate
+            // query (GROUP BY pincode, COUNT). We then roll those up to state level
+            // in memory — the pincode-count map is far smaller than the user list.
+            Map<String, Long> byPincode = getUserDistributionByPincode(); // DB aggregate
+
             Map<String, Long> result = new LinkedHashMap<>();
+            Map<String, Long> prefixCounts = new LinkedHashMap<>();
 
-            List<User> usersWithPincodes = userRepository.findByPincodeIsNotNullAndIsActiveTrueAndPincodeMatches("\\d{6}");
-
-            List<User> validIndianUsers = usersWithPincodes.stream()
-                    .filter(user -> user.hasPincode() && Constant.isValidIndianPincode(user.getPincode()))
-                    .collect(Collectors.toList());
-
-            Map<String, Long> prefixCounts = validIndianUsers.stream()
-                    .collect(Collectors.groupingBy(
-                            user -> user.getStatePrefix(),
-                            Collectors.counting()
-                    ));
+            for (Map.Entry<String, Long> entry : byPincode.entrySet()) {
+                String pincode = entry.getKey();
+                if (!Constant.isValidIndianPincode(pincode)) continue;
+                String prefix = pincode.substring(0, 2); // state prefix = first 2 digits
+                prefixCounts.merge(prefix, entry.getValue(), Long::sum);
+            }
 
             for (Map.Entry<String, Long> entry : prefixCounts.entrySet()) {
                 String statePrefix = entry.getKey();
-                Long count = entry.getValue();
-
-                if (Constant.isValidIndianStatePrefix(statePrefix)) {
-                    List<com.JanSahayak.AI.model.PincodeLookup> samplePincodes =
-                            pincodeLookupService.findByStatePrefix(statePrefix);
-
-                    String stateName = samplePincodes.isEmpty() ?
-                            "State-" + statePrefix : samplePincodes.get(0).getState();
-
-                    result.put(stateName, count);
-                }
+                if (!Constant.isValidIndianStatePrefix(statePrefix)) continue;
+                List<com.JanSahayak.AI.model.PincodeLookup> samplePincodes =
+                        pincodeLookupService.findByStatePrefix(statePrefix);
+                String stateName = samplePincodes.isEmpty()
+                        ? "State-" + statePrefix
+                        : samplePincodes.get(0).getState();
+                result.put(stateName, entry.getValue());
             }
 
             return result;

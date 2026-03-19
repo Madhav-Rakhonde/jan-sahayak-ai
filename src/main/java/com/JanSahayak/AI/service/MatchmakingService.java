@@ -73,10 +73,19 @@ public class MatchmakingService {
 
             if (partner != null) {
                 log.info("Match found: user {} paired with user {}", userId, partner.getUserId());
-                ChatSession session = chatSessionService.createSession(userId, partner.getUserId());
-                removeFromSearch(userId);
-                removeFromSearch(partner.getUserId());
-                return session.getSessionId();
+                // MEMORY LEAK FIX: wrap createSession() in try/finally so BOTH users are
+                // always removed from searchingUsers even when createSession() throws
+                // (e.g. race condition where one user is already in a session).
+                // Without this, a RuntimeException leaves both entries in the map
+                // permanently — isUserSearching() returns true forever, blocking
+                // both users from ever matching again until a server restart.
+                try {
+                    ChatSession session = chatSessionService.createSession(userId, partner.getUserId());
+                    return session.getSessionId();
+                } finally {
+                    removeFromSearch(userId);
+                    removeFromSearch(partner.getUserId());
+                }
             } else {
                 addToQueue(userId);
                 log.info("User {} added to queue — waiting for partner", userId);
@@ -155,6 +164,14 @@ public class MatchmakingService {
     }
 
     private void addToQueue(Long userId) {
+        // FIX MEMORY LEAK #3 — guard against duplicate queue entries.
+        // Without this guard a race condition between two concurrent findMatch()
+        // calls for the same userId could add two QueueEntry objects, causing the
+        // queue to grow without the second entry ever being removed.
+        if (searchingUsers.containsKey(userId)) {
+            log.debug("addToQueue: userId={} already in searchingUsers — skipping duplicate add", userId);
+            return;
+        }
         QueueEntry entry = new QueueEntry(userId);
         waitingQueue.offer(entry);
         searchingUsers.put(userId, entry);

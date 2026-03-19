@@ -1,11 +1,12 @@
 package com.JanSahayak.AI.controller;
 
 import com.JanSahayak.AI.config.Constant;
-
 import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.SocialPostDto;
-import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.DTO.PostResponse;
+import com.JanSahayak.AI.DTO.SocialPostDto;
+import com.JanSahayak.AI.enums.FeedScope;
+import com.JanSahayak.AI.enums.FeedSort;
+import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.service.PostService;
 import com.JanSahayak.AI.service.SocialPostService;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,60 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-
+/**
+ * FeedController
+ *
+ * ════════════════════════════════════════════════════════════
+ *  UI LAYOUT
+ * ════════════════════════════════════════════════════════════
+ *
+ *   Tab row:   [ For You ]  [ Location ]  [ Following ]
+ *   Sort row:  [ Hot ]  [ New ]  [ Top ]
+ *
+ *   "For You" replaces the old raw "All" tab.
+ *   The sort row applies to every tab.
+ *
+ * ════════════════════════════════════════════════════════════
+ *  ENDPOINT MAP
+ * ════════════════════════════════════════════════════════════
+ *
+ *  FOR YOU   →  GET /api/v1/feed/for-you?sort=HOT|NEW|TOP   (default HOT)
+ *               HLIG builds a personalised candidate pool (interest-scored,
+ *               geo-weighted, seen-deduped) then re-ranks it by the sort metric.
+ *               Cold-start users fall back to geo-based candidates automatically.
+ *
+ *  LOCATION  →  GET /api/v1/feed/location?sort=HOT|NEW|TOP  (default HOT)
+ *               User's pincode → district → state waterfall, sorted.
+ *
+ *  FOLLOWING →  GET /api/v1/feed/following?sort=HOT|NEW|TOP (default HOT)
+ *               Posts from communities the user has joined, sorted.
+ *               Falls back to cold feed when user has no communities yet.
+ *
+ * ════════════════════════════════════════════════════════════
+ *  SORT VALUES
+ * ════════════════════════════════════════════════════════════
+ *
+ *   HOT  →  viralityScore DESC, 72-hour window
+ *   NEW  →  createdAt DESC (pure chronological)
+ *   TOP  →  engagementScore DESC, all-time
+ *
+ * ════════════════════════════════════════════════════════════
+ *  INFINITE SCROLL CONTRACT (same for all three tabs)
+ * ════════════════════════════════════════════════════════════
+ *
+ *   First page:  GET /api/v1/feed/for-you?sort=HOT&size=20
+ *   Next pages:  GET /api/v1/feed/for-you?sort=HOT&lastPostId={nextCursor}&size=20
+ *
+ *   Response shape:
+ *   {
+ *     "content":    [...],    // List<SocialPostDto>
+ *     "hasMore":    true,
+ *     "nextCursor": 12345,    // pass as ?lastPostId= on the next call
+ *     "size":       20
+ *   }
+ *
+ *   Stop fetching when hasMore = false.
+ */
 @RestController
 @RequestMapping("/api/v1/feed")
 @RequiredArgsConstructor
@@ -24,278 +78,188 @@ import java.util.Map;
 public class FeedController {
 
     private final SocialPostService socialPostService;
-    private final PostService          postService;
+    private final PostService       postService;
 
     // =========================================================================
-    // DEFAULT LIMITS
+    // TAB 1 — FOR YOU  (HLIG personalised pool, re-ranked by sort)
     // =========================================================================
-
-    // =========================================================================
-    // HLIG v2 — 5-TAB PERSONALISED FEED (cursor-based infinite scroll)
-    // =========================================================================
-    //
-    // ALL 5 TABS USE THE SAME INFINITE SCROLL CONTRACT:
-    //
-    //   First page:   GET /api/v1/feed/for-you?size=20
-    //   Next pages:   GET /api/v1/feed/for-you?lastPostId=<nextCursor>&size=20
-    //
-    // The `nextCursor` comes from the PaginatedResponse the server returns:
-    //   {
-    //     "content":    [...],        // list of posts
-    //     "hasMore":    true,         // false = end of feed reached
-    //     "nextCursor": 12345,        // pass as ?lastPostId= in next request
-    //     "size":       20
-    //   }
-    //
-    // When hasMore = false, stop fetching. No more calls needed.
-    //
-    // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * FOR YOU — fully personalised HLIG v2 feed, infinite scroll.
+     * FOR YOU tab.
      *
-     * Cold-start users (no interaction history) receive a geographic fallback.
-     * Warm users receive a ML-scored, diversity-shuffled, seen-deduped feed.
+     * Step 1: HLIG phase scorer (cold / warming / warm) builds a candidate pool
+     *         matched to the user's interest profile.
+     * Step 2: That pool is re-ranked by the chosen sort metric.
      *
-     * First page:  GET /api/v1/feed/for-you?size=20
-     * Next pages:  GET /api/v1/feed/for-you?lastPostId={cursor}&size=20
+     *   ?sort=HOT  →  trending posts from topics you care about
+     *   ?sort=NEW  →  latest posts from topics you care about
+     *   ?sort=TOP  →  all-time best posts from topics you care about
+     *
+     * GET /api/v1/feed/for-you?sort=HOT&lastPostId={cursor}&size=20
      */
     @GetMapping("/for-you")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getForYouFeed(
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long lastPostId,
-            @RequestParam(defaultValue = "20") int size) {
+            @AuthenticationPrincipal            User     user,
+            @RequestParam(defaultValue = "HOT") FeedSort sort,
+            @RequestParam(required = false)     Long     lastPostId,
+            @RequestParam(defaultValue = "20")  int      size) {
 
         size = clampSize(size);
-        log.debug("[Feed] FOR YOU: userId={} lastPostId={} size={}", userId(user), lastPostId, size);
-
-        PaginatedResponse<SocialPostDto> response = socialPostService.getPersonalisedFeed(user, lastPostId, size);
-        return ResponseEntity.ok(response);
+        log.debug("[Feed] FOR-YOU sort={}: userId={} lastPostId={} size={}",
+                sort, userId(user), lastPostId, size);
+        return ResponseEntity.ok(
+                socialPostService.getBrowseFeed(user, FeedScope.FOR_YOU, sort, lastPostId, size));
     }
 
+    // =========================================================================
+    // TAB 2 — LOCATION  (user's area, sorted)
+    // =========================================================================
+
     /**
-     * HOT — trending posts from the user's local + national in the last 72 hours.
-     * Sorted by virality score. Cursor-paginated infinite scroll.
+     * LOCATION tab.
      *
-     * First page:  GET /api/v1/feed/hot?size=20
-     * Next pages:  GET /api/v1/feed/hot?lastPostId={cursor}&size=20
+     * Fetches posts from the user's pincode → district → state (waterfall).
+     * Automatically widens to platform-wide when the local area is sparse.
+     *
+     * GET /api/v1/feed/location?sort=NEW&lastPostId={cursor}&size=20
      */
-    @GetMapping("/hot")
-    public ResponseEntity<PaginatedResponse<SocialPostDto>> getHotFeed(
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long lastPostId,
-            @RequestParam(defaultValue = "20") int size) {
+    @GetMapping("/location")
+    public ResponseEntity<PaginatedResponse<SocialPostDto>> getLocationFeed(
+            @AuthenticationPrincipal            User     user,
+            @RequestParam(defaultValue = "HOT") FeedSort sort,
+            @RequestParam(required = false)     Long     lastPostId,
+            @RequestParam(defaultValue = "20")  int      size) {
 
         size = clampSize(size);
-        log.debug("[Feed] HOT: userId={} lastPostId={} size={}", userId(user), lastPostId, size);
-
-        PaginatedResponse<SocialPostDto> response = socialPostService.getHotFeed(user, lastPostId, size);
-        return ResponseEntity.ok(response);
+        log.debug("[Feed] LOCATION sort={}: userId={} lastPostId={} size={}",
+                sort, userId(user), lastPostId, size);
+        return ResponseEntity.ok(
+                socialPostService.getBrowseFeed(user, FeedScope.LOCATION, sort, lastPostId, size));
     }
 
-    /**
-     * NEW — chronological feed for the user's state + national viral.
-     * Equivalent to Reddit's "New" sort. Cursor-paginated infinite scroll.
-     *
-     * First page:  GET /api/v1/feed/new?size=20
-     * Next pages:  GET /api/v1/feed/new?lastPostId={cursor}&size=20
-     */
-    @GetMapping("/new")
-    public ResponseEntity<PaginatedResponse<SocialPostDto>> getNewFeed(
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long lastPostId,
-            @RequestParam(defaultValue = "20") int size) {
-
-        size = clampSize(size);
-        log.debug("[Feed] NEW: userId={} lastPostId={} size={}", userId(user), lastPostId, size);
-
-        PaginatedResponse<SocialPostDto> response = socialPostService.getNewFeed(user, lastPostId, size);
-        return ResponseEntity.ok(response);
-    }
+    // =========================================================================
+    // TAB 3 — FOLLOWING  (joined communities, sorted)
+    // =========================================================================
 
     /**
-     * TOP — all-time highest engagement posts in the user's state + national.
-     * Equivalent to Reddit's "Top" sort. Cursor-paginated infinite scroll.
+     * FOLLOWING tab.
      *
-     * First page:  GET /api/v1/feed/top?size=20
-     * Next pages:  GET /api/v1/feed/top?lastPostId={cursor}&size=20
-     */
-    @GetMapping("/top")
-    public ResponseEntity<PaginatedResponse<SocialPostDto>> getTopFeed(
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long lastPostId,
-            @RequestParam(defaultValue = "20") int size) {
-
-        size = clampSize(size);
-        log.debug("[Feed] TOP: userId={} lastPostId={} size={}", userId(user), lastPostId, size);
-
-        PaginatedResponse<SocialPostDto> response = socialPostService.getTopFeed(user, lastPostId, size);
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * FOLLOWING — posts from communities the user has explicitly joined.
-     * Equivalent to Reddit's home feed. Cursor-paginated infinite scroll.
+     * Posts from communities the user has explicitly joined.
+     * Falls back to cold-feed candidates for users with no communities yet.
      *
-     * First page:  GET /api/v1/feed/following?size=20
-     * Next pages:  GET /api/v1/feed/following?lastPostId={cursor}&size=20
+     * GET /api/v1/feed/following?sort=TOP&lastPostId={cursor}&size=20
      */
     @GetMapping("/following")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getFollowingFeed(
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long lastPostId,
-            @RequestParam(defaultValue = "20") int size) {
+            @AuthenticationPrincipal            User     user,
+            @RequestParam(defaultValue = "HOT") FeedSort sort,
+            @RequestParam(required = false)     Long     lastPostId,
+            @RequestParam(defaultValue = "20")  int      size) {
 
         size = clampSize(size);
-        log.debug("[Feed] FOLLOWING: userId={} lastPostId={} size={}", userId(user), lastPostId, size);
-
-        PaginatedResponse<SocialPostDto> response = socialPostService.getFollowingFeed(user, lastPostId, size);
-        return ResponseEntity.ok(response);
+        log.debug("[Feed] FOLLOWING sort={}: userId={} lastPostId={} size={}",
+                sort, userId(user), lastPostId, size);
+        return ResponseEntity.ok(
+                socialPostService.getBrowseFeed(user, FeedScope.FOLLOWING, sort, lastPostId, size));
     }
 
     // =========================================================================
-    // LEGACY FEED ENDPOINTS (pre-HLIG, kept for backward compatibility)
+    // SUPPORTING FEED ENDPOINTS  (not main tabs)
     // =========================================================================
-
-    /**
-     * Home feed — pre-HLIG geographic recommendation.
-     * Still used as the fallback inside SocialPostService.getPersonalisedFeed()
-     * for cold-start users. Kept as a standalone endpoint for older app versions.
-     *
-     * GET /api/v1/feed/home?beforeId=&limit=20
-     *
-     * @deprecated Use /for-you for personalised feed.
-     */
-    @GetMapping("/home")
-    public ResponseEntity<PaginatedResponse<SocialPostDto>> getHomeFeed(
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long    beforeId,
-            @RequestParam(defaultValue = "20") int  limit) {
-
-        limit = clampSize(limit);
-        log.debug("[Feed] HOME (legacy): userId={} beforeId={} limit={}", userId(user), beforeId, limit);
-
-        PaginatedResponse<SocialPostDto> response = socialPostService.getHomeFeed(user, beforeId, limit);
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * Local posts — geo waterfall: pincode → district → state → national.
-     *
-     * Powered by PostService (BroadcastScope-based issue posts), NOT SocialPostService.
-     * Automatically widens scope when the user's pincode / district has too few posts,
-     * so this tab always has content even on a sparse platform.
-     *
-     * Response type: PaginatedResponse<PostResponse>  (Post DTOs, not SocialPostDto)
-     *
-     * GET /api/v1/feed/local?beforeId=&limit=20
-     */
-    @GetMapping("/local")
-    public ResponseEntity<PaginatedResponse<PostResponse>> getLocalFeed(
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long   beforeId,
-            @RequestParam(defaultValue = "20") int limit) {
-
-        limit = clampSize(limit);
-        log.debug("[Feed] LOCAL: userId={} beforeId={} limit={}", userId(user), beforeId, limit);
-
-        PaginatedResponse<PostResponse> response = postService.getLocalFeed(user, beforeId, limit);
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * Trending posts — viral posts sorted by viralityScore.
-     *
-     * GET /api/v1/feed/trending?beforeId=&limit=20
-     */
-    @GetMapping("/trending")
-    public ResponseEntity<PaginatedResponse<SocialPostDto>> getTrendingFeed(
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long    beforeId,
-            @RequestParam(defaultValue = "20") int  limit) {
-
-        limit = clampSize(limit);
-        log.debug("[Feed] TRENDING: userId={} beforeId={} limit={}", userId(user), beforeId, limit);
-
-        PaginatedResponse<SocialPostDto> response = socialPostService.getTrendingPosts(user, beforeId, limit);
-        return ResponseEntity.ok(response);
-    }
 
     /**
      * User profile posts.
      *
-     * GET /api/v1/feed/user/{userId}?beforeId=&limit=20
+     * GET /api/v1/feed/user/{userId}?beforeId={cursor}&limit=20
      */
     @GetMapping("/user/{userId}")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getUserFeed(
-            @PathVariable Long userId,
-            @AuthenticationPrincipal User currentUser,
-            @RequestParam(required = false) Long    beforeId,
-            @RequestParam(defaultValue = "20") int  limit) {
+            @PathVariable                   Long userId,
+            @AuthenticationPrincipal        User currentUser,
+            @RequestParam(required = false)  Long beforeId,
+            @RequestParam(defaultValue = "20") int limit) {
 
         limit = clampSize(limit);
-        PaginatedResponse<SocialPostDto> response = socialPostService.getUserPosts(userId, currentUser, beforeId, limit);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(
+                socialPostService.getUserPosts(userId, currentUser, beforeId, limit));
     }
 
     /**
      * Hashtag feed.
      *
-     * GET /api/v1/feed/hashtag/{hashtag}?beforeId=&limit=20
+     * GET /api/v1/feed/hashtag/{hashtag}?beforeId={cursor}&limit=20
      */
     @GetMapping("/hashtag/{hashtag}")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getHashtagFeed(
-            @PathVariable String hashtag,
-            @AuthenticationPrincipal User user,
-            @RequestParam(required = false) Long    beforeId,
+            @PathVariable                   String hashtag,
+            @AuthenticationPrincipal        User   user,
+            @RequestParam(required = false)  Long   beforeId,
             @RequestParam(defaultValue = "20") int  limit) {
 
         limit = clampSize(limit);
-        PaginatedResponse<SocialPostDto> response = socialPostService.searchByHashtag(hashtag, user, beforeId, limit);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(
+                socialPostService.searchByHashtag(hashtag, user, beforeId, limit));
+    }
+
+    /**
+     * Local issue posts — geo waterfall: pincode → district → state → national.
+     *
+     * Backed by PostService (BroadcastScope issue posts, not social posts).
+     * Returns PostResponse, not SocialPostDto.
+     *
+     * GET /api/v1/feed/local?beforeId={cursor}&limit=20
+     */
+    @GetMapping("/local")
+    public ResponseEntity<PaginatedResponse<PostResponse>> getLocalFeed(
+            @AuthenticationPrincipal        User user,
+            @RequestParam(required = false)  Long beforeId,
+            @RequestParam(defaultValue = "20") int limit) {
+
+        limit = clampSize(limit);
+        log.debug("[Feed] LOCAL: userId={} beforeId={} limit={}", userId(user), beforeId, limit);
+        return ResponseEntity.ok(postService.getLocalFeed(user, beforeId, limit));
     }
 
     // =========================================================================
-    // HLIG v2 — NEGATIVE SIGNAL ENDPOINTS
-    // These are fire-and-forget; they always return 204 No Content.
+    // HLIG NEGATIVE SIGNAL ENDPOINTS  (fire-and-forget)
     // =========================================================================
 
     /**
-     * Record that the user scrolled past a post without engaging.
-     * Fires a weak negative interest signal to the HLIG system.
+     * User scrolled past a post without engaging.
+     * Fires a weak negative interest signal. Always returns 204.
      *
      * POST /api/v1/feed/signal/scroll-past
      * Body: { "postId": 123 }
      */
     @PostMapping("/signal/scroll-past")
     public ResponseEntity<Void> recordScrolledPast(
-            @AuthenticationPrincipal User user,
-            @RequestBody Map<String, Long> body) {
+            @AuthenticationPrincipal User              user,
+            @RequestBody             Map<String, Long> body) {
 
         Long postId = body.get("postId");
         if (postId != null) {
             socialPostService.recordScrolledPast(postId, user);
-            log.debug("[HLIG] scroll-past signal: postId={} userId={}", postId, userId(user));
+            log.debug("[HLIG] scroll-past: postId={} userId={}", postId, userId(user));
         }
         return ResponseEntity.noContent().build();
     }
 
     /**
-     * Record that the user explicitly tapped "Not Interested" on a post.
-     * Fires a strong negative interest signal — suppresses this topic in future scoring.
+     * User tapped "Not Interested".
+     * Fires a strong negative signal — suppresses this topic in future For You scoring.
      *
      * POST /api/v1/feed/signal/not-interested
      * Body: { "postId": 123 }
      */
     @PostMapping("/signal/not-interested")
     public ResponseEntity<Map<String, Object>> recordNotInterested(
-            @AuthenticationPrincipal User user,
-            @RequestBody Map<String, Long> body) {
+            @AuthenticationPrincipal User              user,
+            @RequestBody             Map<String, Long> body) {
 
         Long postId = body.get("postId");
         if (postId != null) {
             socialPostService.recordNotInterested(postId, user);
-            log.info("[HLIG] not-interested signal: postId={} userId={}", postId, userId(user));
+            log.info("[HLIG] not-interested: postId={} userId={}", postId, userId(user));
         }
         return ResponseEntity.ok(Map.of(
                 "success", true,
@@ -307,13 +271,13 @@ public class FeedController {
     // PRIVATE HELPERS
     // =========================================================================
 
-    /** Clamps page size between 1 and Constant.FEED_MAX_PAGE_SIZE. */
+    /** Clamps page size to [1, FEED_MAX_PAGE_SIZE]. */
     private int clampSize(int size) {
         return Math.max(1, Math.min(size, Constant.FEED_MAX_PAGE_SIZE));
     }
 
-    /** Safe userId extraction for logging (avoids NPE). */
+    /** Safe userId extraction for logging — guards against unauthenticated calls. */
     private String userId(User user) {
-        return user != null && user.getId() != null ? user.getId().toString() : "anon";
+        return (user != null && user.getId() != null) ? user.getId().toString() : "anon";
     }
 }
