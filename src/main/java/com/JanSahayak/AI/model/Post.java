@@ -217,6 +217,97 @@ public class Post {
         this.updatedAt         = new Date();
     }
 
+    // ── PostUtility compatibility helpers ─────────────────────────────────────
+    // PostUtility calls these three methods on Post instances.
+    // They are derived from existing fields — no new DB columns required.
+
+    /**
+     * FIX: PostUtility.isPostVisibleToUser(), isPostGeographicallyRelevantToUser(),
+     * and filterPostsForIndianUser() all call post.isVisibleToUser(user).
+     *
+     * For a broadcast post, visibility depends on whether the user's pincode falls
+     * within the post's targeted geographic scope.
+     * For a non-broadcast post, it is visible to everyone (geographic relevance
+     * is checked separately by PostUtility using hasPincodeLocation / getPostPincode).
+     */
+    public boolean isVisibleToUser(User user) {
+        if (user == null) return false;
+
+        // Admins see everything
+        if (user.isAdmin()) return true;
+
+        // Post must be in a displayable status
+        if (status == null || !status.isVisible()) return false;
+
+        // Non-broadcast posts are visible to all authenticated users
+        if (!isBroadcastPost()) return true;
+
+        // Country-wide broadcast: visible to everyone in India
+        if (BroadcastScope.COUNTRY.equals(broadcastScope)) return true;
+
+        // State-level: user's pincode must start with one of the target state prefixes
+        if (BroadcastScope.STATE.equals(broadcastScope)) {
+            if (targetStates == null || targetStates.isBlank()) return false;
+            if (!user.hasPincode()) return false;
+            String userState = user.getPincode().length() >= 2
+                    ? user.getPincode().substring(0, 2) : null;
+            if (userState == null) return false;
+            for (String prefix : targetStates.split(",")) {
+                if (userState.equals(prefix.trim())) return true;
+            }
+            return false;
+        }
+
+        // District-level: user's pincode must start with one of the target district prefixes
+        if (BroadcastScope.DISTRICT.equals(broadcastScope)) {
+            if (targetDistricts == null || targetDistricts.isBlank()) return false;
+            if (!user.hasPincode()) return false;
+            String userDistrict = user.getPincode().length() >= 3
+                    ? user.getPincode().substring(0, 3) : null;
+            if (userDistrict == null) return false;
+            for (String prefix : targetDistricts.split(",")) {
+                if (userDistrict.equals(prefix.trim())) return true;
+            }
+            return false;
+        }
+
+        // Area-level: user's pincode must be in the target pincodes list
+        if (BroadcastScope.AREA.equals(broadcastScope)) {
+            if (targetPincodes == null || targetPincodes.isBlank()) return false;
+            if (!user.hasPincode()) return false;
+            for (String pc : targetPincodes.split(",")) {
+                if (user.getPincode().equals(pc.trim())) return true;
+            }
+            return false;
+        }
+
+        return false;
+    }
+
+    /**
+     * FIX: PostUtility calls post.hasPincodeLocation() to decide whether
+     * geographic proximity checks are meaningful for a regular (non-broadcast) post.
+     *
+     * A post "has a pincode location" when its author has a valid 6-digit pincode,
+     * which is the only location field on a regular Post (broadcast posts use
+     * targetPincodes / targetDistricts / targetStates instead).
+     */
+    public boolean hasPincodeLocation() {
+        return user != null && user.hasPincode();
+    }
+
+    /**
+     * FIX: PostUtility calls post.getPostPincode() to get the pincode that
+     * represents the geographic origin of a regular (non-broadcast) post,
+     * then passes it to user.isInSameState() / user.isInSameDistrict().
+     *
+     * The post's location is the author's pincode — regular Posts do not have
+     * their own pincode column; the author's pincode is the geographic anchor.
+     */
+    public String getPostPincode() {
+        return (user != null) ? user.getPincode() : null;
+    }
+
     @PrePersist
     private void prePersist() {
         if (createdAt == null) createdAt = new Date();

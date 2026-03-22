@@ -1571,9 +1571,12 @@ public class PostService {
 
     private double computeIssueRecommendationScore(
             Post post, String userPincode, String districtPrefix, String statePrefix) {
-        int    likes    = post.getLikeCount()    != null ? post.getLikeCount()    : 0;
-        int    comments = post.getCommentCount() != null ? post.getCommentCount() : 0;
-        int    views    = post.getViewCount()    != null ? post.getViewCount()    : 0;
+        // FIX: Post.likeCount / commentCount / viewCount are primitive int — comparing to
+        // null is a compile error ("bad operand types for binary operator '!='").
+        // Primitives are always initialised (default 0), so the null-safe ternary is wrong.
+        int    likes    = post.getLikeCount();
+        int    comments = post.getCommentCount();
+        int    views    = post.getViewCount();
         double engagement = (likes    * Constant.POST_WEIGHT_LIKE)
                 + (comments * Constant.POST_WEIGHT_COMMENT)
                 + (views    * Constant.POST_WEIGHT_VIEW);
@@ -1619,9 +1622,10 @@ public class PostService {
     }
 
     private double computeIssueScore(Post post, String userPincode, String districtPrefix, String statePrefix) {
-        int    likes    = post.getLikeCount()    != null ? post.getLikeCount()    : 0;
-        int    comments = post.getCommentCount() != null ? post.getCommentCount() : 0;
-        int    views    = post.getViewCount()    != null ? post.getViewCount()    : 0;
+        // FIX: same primitive int issue as computeIssueRecommendationScore above.
+        int    likes    = post.getLikeCount();
+        int    comments = post.getCommentCount();
+        int    views    = post.getViewCount();
         double engagement = (likes * Constant.POST_WEIGHT_LIKE) + (comments * Constant.POST_WEIGHT_COMMENT) + (views * Constant.POST_WEIGHT_VIEW);
         long ageHours = post.getCreatedAt() != null
                 ? TimeUnit.MILLISECONDS.toHours(System.currentTimeMillis() - post.getCreatedAt().getTime()) : 0L;
@@ -1664,8 +1668,9 @@ public class PostService {
             if (current == null) return;
 
             long   ageHours = getAgeInHours(post);
-            int    likes    = post.getLikeCount()    != null ? post.getLikeCount()    : 0;
-            int    comments = post.getCommentCount() != null ? post.getCommentCount() : 0;
+            // FIX: primitive int — null check is illegal, use directly.
+            int    likes    = post.getLikeCount();
+            int    comments = post.getCommentCount();
             double velocity = ageHours > 0 ? (double)(likes + comments) / ageHours : (likes + comments);
 
             switch (current) {

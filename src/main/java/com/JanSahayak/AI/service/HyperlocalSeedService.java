@@ -230,6 +230,14 @@ public class HyperlocalSeedService {
         String district = location.getDistrict();    // e.g. "Mumbai Suburban"
         String state    = location.getState();       // e.g. "Maharashtra"
 
+        // FIX: areaName can be null if the pincode_lookup row has no area_name value.
+        // Fall back through city → district → pincode so we always have a non-null name.
+        if (areaName == null || areaName.isBlank()) {
+            if (city != null && !city.isBlank())         areaName = city;
+            else if (district != null && !district.isBlank()) areaName = district;
+            else                                              areaName = "Pincode " + pincode;
+        }
+
         // Ward name = area_name (what we display on the community badge)
         String wardName = areaName;
 
@@ -246,7 +254,12 @@ public class HyperlocalSeedService {
 
         // Description uses PincodeLookup.getDisplayLocation() helper from your entity:
         // e.g. "Andheri East (400069), Mumbai Suburban, Maharashtra"
+        // FIX: getDisplayLocation() may return null — fall back to areaName so
+        // String.format never receives a null argument (which would print "null").
         String displayLocation = location.getDisplayLocation();
+        if (displayLocation == null || displayLocation.isBlank()) {
+            displayLocation = areaName + " (" + pincode + ")";
+        }
         String description = String.format(
                 "Hyperlocal community for residents of %s. " +
                         "Connect with your neighbours, share local updates, and discuss issues in your area.",

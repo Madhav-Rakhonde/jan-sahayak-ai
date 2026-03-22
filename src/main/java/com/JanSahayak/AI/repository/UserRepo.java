@@ -35,105 +35,19 @@ public interface UserRepo extends JpaRepository<User, Long> {
 
     /**
      * JOIN FETCH version of findByUsername for cases where the role is
-     * needed immediately (e.g., admin permission checks).
+     * needed immediately (e.g., admin permission checks in the same request).
      */
     @Query("SELECT u FROM User u JOIN FETCH u.role WHERE u.username = :username")
     Optional<User> findByUsernameWithRole(@Param("username") String username);
 
     /**
-     * FIX — CommunityInviteService.sendInvite() calls findByActualUsername().
+     * FIX — CommunityInviteService calls findByActualUsername().
      * In User.java, getActualUsername() returns the `username` column — there is
-     * no separate DB column.  This query searches by u.username under the name
+     * no separate DB column. This query searches by u.username under the name
      * the service expects, so the service needs no changes.
      */
     @Query("SELECT u FROM User u WHERE u.username = :username AND u.isActive = true")
     Optional<User> findByActualUsername(@Param("username") String username);
-
-    // =========================================================================
-    // ACTIVE USER LISTING — cursor-paginated (getAllActiveUsers / getUsersByRole)
-    //
-    // FIX: UserService.getAllActiveUsers() and getUsersByRole() call these four
-    // methods which were missing from the repo entirely.
-    // =========================================================================
-
-    /**
-     * Active users with id < cursor, newest-first.
-     * Used by getAllActiveUsers() when a pagination cursor is present.
-     */
-    @Query("SELECT u FROM User u WHERE u.isActive = true AND u.id < :beforeId ORDER BY u.id DESC")
-    List<User> findByIsActiveTrueAndIdLessThanOrderByIdDesc(
-            @Param("beforeId") Long beforeId,
-            Pageable pageable);
-
-    /**
-     * All active users, newest-first.
-     * Used by getAllActiveUsers() for the first page (no cursor).
-     */
-    @Query("SELECT u FROM User u WHERE u.isActive = true ORDER BY u.id DESC")
-    List<User> findByIsActiveTrueOrderByIdDesc(Pageable pageable);
-
-    /**
-     * Active users with a specific role and id < cursor, newest-first.
-     * Used by getUsersByRole() when a pagination cursor is present.
-     */
-    @Query("SELECT u FROM User u JOIN u.role r " +
-            "WHERE r.name = :roleName AND u.isActive = true AND u.id < :beforeId " +
-            "ORDER BY u.id DESC")
-    List<User> findByRoleNameAndIdLessThanOrderByIdDesc(
-            @Param("roleName") String roleName,
-            @Param("beforeId") Long beforeId,
-            Pageable pageable);
-
-    /**
-     * All active users with a specific role, newest-first.
-     * Used by getUsersByRole() for the first page (no cursor).
-     */
-    @Query("SELECT u FROM User u JOIN u.role r " +
-            "WHERE r.name = :roleName AND u.isActive = true " +
-            "ORDER BY u.id DESC")
-    List<User> findByRoleNameOrderByIdDesc(
-            @Param("roleName") String roleName,
-            Pageable pageable);
-
-    // =========================================================================
-    // RECENTLY CREATED USERS — cursor-paginated (getRecentlyCreatedUsers)
-    //
-    // FIX: Return type changed from Page<User> to List<User>.
-    // UserService assigns the result directly to List<User> — returning Page<User>
-    // causes "incompatible types" compile error.  All other similar methods in
-    // this repo already return List<User>; these two are consistent with that.
-    // =========================================================================
-
-    /**
-     * Active users created after {@code createdAt} with id < cursor, newest-first.
-     * Used by getRecentlyCreatedUsers() when a pagination cursor is present.
-     *
-     * @param createdAt  only users created after this timestamp
-     * @param cursor     only users with id < cursor (pagination anchor)
-     * @param pageable   page size (limit + 1 for has-next detection)
-     */
-    @Query("SELECT u FROM User u WHERE u.isActive = true " +
-            "AND u.createdAt > :createdAt " +
-            "AND u.id < :cursor " +
-            "ORDER BY u.createdAt DESC")
-    List<User> findByIsActiveTrueAndCreatedAtAfterAndIdLessThanOrderByCreatedAtDesc(
-            @Param("createdAt") Timestamp createdAt,
-            @Param("cursor") Long cursor,
-            Pageable pageable);
-
-    /**
-     * Active users created after {@code createdAt}, newest-first.
-     * Used by getRecentlyCreatedUsers() for the first page (no cursor).
-     *
-     * @param createdAt  only users created after this timestamp
-     * @param pageable   page size (limit + 1 for has-next detection)
-     */
-    @Query("SELECT u FROM User u WHERE u.isActive = true " +
-            "AND u.createdAt > :createdAt " +
-            "ORDER BY u.createdAt DESC")
-    List<User> findByIsActiveTrueAndCreatedAtAfterOrderByCreatedAtDesc(
-            @Param("createdAt") Timestamp createdAt,
-            Pageable pageable);
 
     // =========================================================================
     // PINCODE — EXACT & PREFIX
@@ -203,19 +117,62 @@ public interface UserRepo extends JpaRepository<User, Long> {
             Pageable pageable);
 
     // =========================================================================
-    // USER SEARCH / TAGGING (searchUsersForTagging)
-    //
-    // FIX: UserService.searchUsersForTagging() calls searchUsersForTagging() and
-    // searchUsersForTaggingWithCursor() which were missing from the repo.
-    // These match against username (the display handle) case-insensitively and
-    // are limited to active users only.
+    // ACTIVE USER LISTING — cursor-paginated
+    // FIX: UserService.getAllActiveUsers() and getUsersByRole() called these four
+    // methods which were missing from the repo entirely.
     // =========================================================================
 
-    /**
-     * Search active users whose username contains {@code query} (case-insensitive),
-     * ordered by username ascending.
-     * Used by searchUsersForTagging() for the first page (no cursor).
-     */
+    @Query("SELECT u FROM User u WHERE u.isActive = true AND u.id < :beforeId ORDER BY u.id DESC")
+    List<User> findByIsActiveTrueAndIdLessThanOrderByIdDesc(
+            @Param("beforeId") Long beforeId,
+            Pageable pageable);
+
+    @Query("SELECT u FROM User u WHERE u.isActive = true ORDER BY u.id DESC")
+    List<User> findByIsActiveTrueOrderByIdDesc(Pageable pageable);
+
+    @Query("SELECT u FROM User u JOIN u.role r " +
+            "WHERE r.name = :roleName AND u.isActive = true AND u.id < :beforeId " +
+            "ORDER BY u.id DESC")
+    List<User> findByRoleNameAndIdLessThanOrderByIdDesc(
+            @Param("roleName") String roleName,
+            @Param("beforeId") Long beforeId,
+            Pageable pageable);
+
+    @Query("SELECT u FROM User u JOIN u.role r " +
+            "WHERE r.name = :roleName AND u.isActive = true " +
+            "ORDER BY u.id DESC")
+    List<User> findByRoleNameOrderByIdDesc(
+            @Param("roleName") String roleName,
+            Pageable pageable);
+
+    // =========================================================================
+    // RECENTLY CREATED USERS — cursor-paginated
+    // FIX: Return type List<User> (was Page<User> — caused incompatible types
+    // compile error since UserService assigns result directly to List<User>).
+    // =========================================================================
+
+    @Query("SELECT u FROM User u WHERE u.isActive = true " +
+            "AND u.createdAt > :createdAt " +
+            "AND u.id < :cursor " +
+            "ORDER BY u.createdAt DESC")
+    List<User> findByIsActiveTrueAndCreatedAtAfterAndIdLessThanOrderByCreatedAtDesc(
+            @Param("createdAt") Timestamp createdAt,
+            @Param("cursor") Long cursor,
+            Pageable pageable);
+
+    @Query("SELECT u FROM User u WHERE u.isActive = true " +
+            "AND u.createdAt > :createdAt " +
+            "ORDER BY u.createdAt DESC")
+    List<User> findByIsActiveTrueAndCreatedAtAfterOrderByCreatedAtDesc(
+            @Param("createdAt") Timestamp createdAt,
+            Pageable pageable);
+
+    // =========================================================================
+    // USER SEARCH / TAGGING
+    // FIX: UserService.searchUsersForTagging() called these two methods which
+    // were missing from the repo entirely.
+    // =========================================================================
+
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
             "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
             "ORDER BY u.username ASC")
@@ -223,11 +180,6 @@ public interface UserRepo extends JpaRepository<User, Long> {
             @Param("query") String query,
             Pageable pageable);
 
-    /**
-     * Cursor-paginated version of searchUsersForTagging.
-     * Returns only users with id < {@code beforeId}.
-     * Used by searchUsersForTagging() when a pagination cursor is present.
-     */
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
             "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
             "AND u.id < :beforeId " +
@@ -241,17 +193,13 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // BATCH / IN-CLAUSE LOOKUPS
     // =========================================================================
 
-    /**
-     * Batch lookup by usernames — used by UserTaggingService.processUserTags()
-     * to resolve @mentions in a single query instead of one per username.
-     */
     @Query("SELECT u FROM User u WHERE u.username IN :usernames AND u.isActive = true")
     List<User> findByUsernameInAndIsActiveTrue(@Param("usernames") List<String> usernames);
 
     List<User> findByUsernameIn(List<String> usernames);
 
     // =========================================================================
-    // SEARCH / SUGGESTION (searchByUsername — existing)
+    // SEARCH / SUGGESTION
     // =========================================================================
 
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
@@ -268,23 +216,11 @@ public interface UserRepo extends JpaRepository<User, Long> {
             Pageable pageable);
 
     // =========================================================================
-    // ROLE + SEARCH WITH CURSOR (searchUsersByRoleAndQuery)
-    //
-    // FIX: Return type changed from Page<User> to List<User>.
-    // UserService assigns the result to List<User> — Page<User> caused a
-    // "incompatible types" compile error.
+    // ROLE + SEARCH WITH CURSOR
+    // FIX: Return type List<User> (was Page<User> — caused incompatible types
+    // compile error since UserService assigns result to List<User>).
     // =========================================================================
 
-    /**
-     * Cursor-paginated search across active users filtered by role name and a
-     * text query matched against username OR email (case-insensitive).
-     * Returns only users with id < {@code cursor}, ordered by id DESC.
-     *
-     * @param role     role name, e.g. "ROLE_USER", "ROLE_DEPARTMENT"
-     * @param query    search string matched against username and email
-     * @param cursor   only users with id < cursor (pagination anchor)
-     * @param pageable page size
-     */
     @Query("SELECT u FROM User u JOIN u.role r " +
             "WHERE r.name = :role " +
             "AND u.isActive = true " +
@@ -299,18 +235,11 @@ public interface UserRepo extends JpaRepository<User, Long> {
             Pageable pageable);
 
     // =========================================================================
-    // GEOGRAPHIC DISTRIBUTION (getUserDistributionByPincode)
-    //
-    // FIX: UserService.getUserDistributionByPincode() calls this method which
-    // was missing.  It returns aggregate counts grouped by pincode — much more
-    // efficient than loading all users and grouping in Java.
+    // GEOGRAPHIC DISTRIBUTION
+    // FIX: UserService.getUserDistributionByPincode() called this method which
+    // was missing. Returns {pincode, count} pairs as aggregate DB query.
     // =========================================================================
 
-    /**
-     * Returns pincode → user count pairs for all active users with a valid pincode.
-     * Each Object[] element is { pincode (String), count (Long) }.
-     * Used by getUserDistributionByPincode() and rolled up by getUserDistributionByState().
-     */
     @Query("SELECT u.pincode, COUNT(u) FROM User u " +
             "WHERE u.isActive = true " +
             "AND u.pincode IS NOT NULL " +
@@ -322,6 +251,17 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // =========================================================================
     // ADMIN / STATS
     // =========================================================================
+
+    /**
+     * FIX — HyperlocalSeedService calls findFirstByRoleName(Constant.ROLE_ADMIN)
+     * to find a system owner for seeded communities.
+     * Returns the first active user with the given role ordered by id ASC so
+     * the result is deterministic (lowest-id admin = earliest-created = stable).
+     */
+    @Query("SELECT u FROM User u JOIN u.role r " +
+            "WHERE r.name = :roleName AND u.isActive = true " +
+            "ORDER BY u.id ASC")
+    Optional<User> findFirstByRoleName(@Param("roleName") String roleName);
 
     @Query("SELECT COUNT(u) FROM User u WHERE u.isActive = true")
     long countActiveUsers();
