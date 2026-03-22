@@ -14,21 +14,34 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Sends real-time events via WebSocket.
+ * Sends real-time events via WebSocket (STOMP).
  *
  * ── Routing rule ──────────────────────────────────────────────────────────────
  * WebSocketConfig sets the STOMP principal as:
- *   new UsernamePasswordAuthenticationToken(userDetails, ...)
- * so Authentication.getName() == userDetails.getUsername() == EMAIL.
+ *   new UsernamePasswordAuthenticationToken(user, ...)
+ * so Authentication.getName() == user.getUsername() == EMAIL.
  *
- * convertAndSendToUser(name, dest, payload) routes to /user/{name}/queue/...
+ * convertAndSendToUser(email, dest, payload) routes to /user/{email}/queue/...
  * We MUST pass getUserEmail(userId), NOT userId.toString().
  *
  * ── Message-ID consistency ────────────────────────────────────────────────────
- * sendMessageToSession() now receives the ChatMessage already persisted by
- * ChatSessionService.addMessage() and reuses its messageId in the outgoing DTO.
- * This guarantees the WebSocket echo and the REST history endpoint (/api/chat/messages)
- * always carry the SAME messageId, so the frontend merge/dedup is correct.
+ * sendMessageToSession() receives the ChatMessage already persisted by
+ * ChatSessionService.addMessage() and reuses its messageId in the DTO.
+ * This guarantees the WebSocket echo and the REST history endpoint
+ * (/api/chat/messages) always carry the SAME messageId.
+ *
+ * ── Rich media relay ─────────────────────────────────────────────────────────
+ * sendMediaToSession() forwards the transient ChatMessage produced by
+ * ChatSessionService.addMediaMessage() to both participants.
+ * The mediaPayload (base64 data-URI) travels inside ChatMessageDto and is
+ * NEVER written to any store — it lives only as a WebSocket frame.
+ * Timed / view-once metadata (viewTimer, viewOnce) is relayed as-is;
+ * enforcement is entirely client-side (matching Telegram's design).
+ *
+ * ── WebRTC signaling ──────────────────────────────────────────────────────────
+ * relaySignal() forwards CALL_OFFER / CALL_ANSWER / CALL_ICE / CALL_ENDED to
+ * the partner only (sender does NOT receive an echo).  Audio/video streams
+ * are peer-to-peer and never touch this server.
  */
 @Service
 @RequiredArgsConstructor
@@ -41,15 +54,15 @@ public class ChatMessagingService {
     private static final String DEST_MESSAGES = "/queue/messages";
     private static final String DEST_MATCH    = "/queue/match";
     private static final String DEST_TYPING   = "/queue/typing";
+    private static final String DEST_CALL     = "/queue/call";
 
-    // ── Public API ────────────────────────────────────────────────────────────
+    // ── Text messages ─────────────────────────────────────────────────────────
 
     /**
      * Send a TEXT message to both users in the session.
      *
-     * @param storedMessage The ChatMessage already added to the session via
-     *                      ChatSessionService.addMessage(). Reusing its
-     *                      messageId keeps echo and history in sync.
+     * @param storedMessage ChatMessage already added via ChatSessionService.addMessage().
+     *                      Reusing its messageId keeps echo and history in sync.
      */
     public void sendMessageToSession(String sessionId, ChatMessage storedMessage) {
         ChatSession session = chatSessionService.getSession(sessionId);
@@ -58,7 +71,7 @@ public class ChatMessagingService {
             return;
         }
 
-        ChatMessageDto messageDto = ChatMessageDto.builder()
+        ChatMessageDto dto = ChatMessageDto.builder()
                 .messageId(storedMessage.getMessageId())
                 .senderId(storedMessage.getSenderId())
                 .content(storedMessage.getContent())
@@ -66,11 +79,114 @@ public class ChatMessagingService {
                 .timestamp(storedMessage.getTimestamp())
                 .build();
 
-        sendToUser(session.getUser1Id(), messageDto);
-        sendToUser(session.getUser2Id(), messageDto);
+        sendToUser(session.getUser1Id(), dto);
+        sendToUser(session.getUser2Id(), dto);
 
-        log.debug("Message {} delivered in session {}", storedMessage.getMessageId(), sessionId);
+        log.debug("Text message {} delivered in session {}", storedMessage.getMessageId(), sessionId);
     }
+
+    // ── Rich media relay (IMAGE / VIDEO / STICKER / VOICE_NOTE) ──────────────
+
+    /**
+     * Relay a rich-media message (IMAGE, VIDEO, STICKER, VOICE_NOTE) to both
+     * session participants.
+     *
+     * The {@code mediaPayload} field (base64 data-URI), {@code viewTimer}, and
+     * {@code viewOnce} are forwarded as-is inside the DTO.  Nothing is stored.
+     * This method is the only stop between sender and recipient.
+     *
+     * Caller: invoke this immediately after ChatSessionService.addMediaMessage()
+     * returns — pass the returned ChatMessage object directly.
+     *
+     * @param sessionId    active session ID
+     * @param mediaMessage transient ChatMessage from ChatSessionService.addMediaMessage()
+     */
+    public void sendMediaToSession(String sessionId, ChatMessage mediaMessage) {
+        ChatSession session = chatSessionService.getSession(sessionId);
+        if (session == null) {
+            log.warn("sendMediaToSession: session {} not found", sessionId);
+            return;
+        }
+        if (!session.isActive()) {
+            log.warn("sendMediaToSession: session {} is not active", sessionId);
+            return;
+        }
+
+        ChatMessageDto dto = ChatMessageDto.builder()
+                .messageId(mediaMessage.getMessageId())
+                .senderId(mediaMessage.getSenderId())
+                .messageType(mediaMessage.getMessageType().name())
+                .timestamp(mediaMessage.getTimestamp())
+                // ── media fields ──────────────────────────────────────────────
+                .mediaPayload(mediaMessage.getMediaPayload())
+                .mimeType(mediaMessage.getMimeType())
+                .mediaName(mediaMessage.getMediaName())
+                // ── Telegram-style timer/view-once ────────────────────────────
+                .viewTimer(mediaMessage.getViewTimer())
+                .viewOnce(mediaMessage.isViewOnce())
+                .build();
+
+        sendToUser(session.getUser1Id(), dto);
+        sendToUser(session.getUser2Id(), dto);
+
+        log.info("Media {} ({}) relayed in session {} | viewTimer={}s viewOnce={}",
+                mediaMessage.getMessageId(),
+                mediaMessage.getMessageType(),
+                sessionId,
+                mediaMessage.getViewTimer(),
+                mediaMessage.isViewOnce());
+    }
+
+    // ── WebRTC signaling relay ────────────────────────────────────────────────
+
+    /**
+     * Relay a WebRTC signaling message (CALL_OFFER / CALL_ANSWER / CALL_ICE /
+     * CALL_ENDED) from the initiating user to their partner only.
+     *
+     * Sender does NOT receive an echo.  Nothing is stored anywhere.
+     * The server acts purely as a STOMP signaling channel.
+     *
+     * @param sessionId active session ID
+     * @param signal    ChatMessage carrying SDP / ICE JSON in mediaPayload
+     */
+    public void relaySignal(String sessionId, ChatMessage signal) {
+        ChatSession session = chatSessionService.getSession(sessionId);
+        if (session == null) {
+            log.warn("relaySignal: session {} not found", sessionId);
+            return;
+        }
+
+        // Resolve sender's real userId from their anonymousId so we can find partner
+        Long senderId = resolveUserId(session, signal.getSenderId());
+        if (senderId == null) {
+            log.warn("relaySignal: cannot resolve userId for anonymousId={} session={}",
+                    signal.getSenderId(), sessionId);
+            return;
+        }
+
+        Long partnerId = session.getPartnerId(senderId);
+        if (partnerId == null) {
+            log.warn("relaySignal: no partner in session {}", sessionId);
+            return;
+        }
+
+        ChatMessageDto dto = ChatMessageDto.builder()
+                .messageId(signal.getMessageId())
+                .senderId(signal.getSenderId())
+                .messageType(signal.getMessageType().name())
+                .mediaPayload(signal.getMediaPayload())   // SDP / ICE JSON
+                .timestamp(signal.getTimestamp())
+                .build();
+
+        String partnerEmail = chatSessionService.getUserEmail(partnerId);
+        if (partnerEmail != null) {
+            messagingTemplate.convertAndSendToUser(partnerEmail, DEST_CALL, dto);
+            log.debug("Signal {} ({}) relayed to partner userId={} session={}",
+                    signal.getMessageId(), signal.getMessageType(), partnerId, sessionId);
+        }
+    }
+
+    // ── Session-level notifications ───────────────────────────────────────────
 
     /**
      * Notify the partner when the other user leaves.
@@ -133,7 +249,7 @@ public class ChatMessagingService {
     }
 
     /**
-     * Send typing indicator to the partner.
+     * Send typing indicator to the partner only.
      */
     public void sendTypingIndicator(String sessionId, Long typingUserId) {
         ChatSession session = chatSessionService.getSession(sessionId);
@@ -152,7 +268,7 @@ public class ChatMessagingService {
     }
 
     /**
-     * Send a system message to both users.
+     * Send a SYSTEM message to both users (used for reconnect / disconnect notices).
      */
     public void sendSystemMessage(String sessionId, String content) {
         ChatSession session = chatSessionService.getSession(sessionId);
@@ -193,5 +309,16 @@ public class ChatMessagingService {
         event.put("yourAnonymousId", session.getUserAnonymousId(recipientId));
         event.put("partnerAnonymousId", session.getUserAnonymousId(otherId));
         messagingTemplate.convertAndSendToUser(email, DEST_MATCH, event);
+    }
+
+    /**
+     * Reverse-lookup: given an anonymousId, return the real userId from the session.
+     * Used by relaySignal() to determine who the partner is.
+     */
+    private Long resolveUserId(ChatSession session, String anonymousId) {
+        if (anonymousId == null) return null;
+        if (anonymousId.equals(session.getUser1AnonymousId())) return session.getUser1Id();
+        if (anonymousId.equals(session.getUser2AnonymousId())) return session.getUser2Id();
+        return null;
     }
 }

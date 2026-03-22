@@ -9,6 +9,7 @@ import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.service.ChatMessagingService;
 import com.JanSahayak.AI.service.ChatSessionService;
 import com.JanSahayak.AI.service.MatchmakingService;
+import com.JanSahayak.AI.service.WebRtcSignalingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -25,19 +26,52 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * Handles all chat operations:
+ *
+ *  ── Original WebSocket handlers (unchanged) ───────────────────────────────
+ *  /app/chat.send      — send a text message
+ *  /app/chat.typing    — send typing indicator
+ *
+ *  ── Original REST endpoints (unchanged) ───────────────────────────────────
+ *  POST   /api/chat/search          — find / join a match
+ *  POST   /api/chat/search/cancel   — cancel matchmaking
+ *  GET    /api/chat/session         — get current session
+ *  GET    /api/chat/online-count    — active users + queue size
+ *  POST   /api/chat/session/leave   — leave current session
+ *  GET    /api/chat/messages        — get recent text messages
+ *  GET    /api/chat/admin/statistics— admin stats
+ *
+ *  ── New media REST endpoints ─────────────────────────────────────────────
+ *  POST   /api/chat/{sessionId}/media          — send image / video / sticker /
+ *                                                voice note (with optional timer)
+ *
+ *  ── New WebRTC signaling REST endpoints ──────────────────────────────────
+ *  POST   /api/chat/{sessionId}/call/offer     — initiate voice / video call
+ *  POST   /api/chat/{sessionId}/call/answer    — accept incoming call
+ *  POST   /api/chat/{sessionId}/call/ice       — relay ICE candidate
+ *  POST   /api/chat/{sessionId}/call/end       — end / reject call
+ *
+ * ── Why media goes via REST and not STOMP @MessageMapping ─────────────────
+ * Images and video clips can be several MB.  STOMP frames have a practical
+ * size ceiling and buffering them in the broker wastes heap.  REST POST gives
+ * us chunked transfer, a clean 413 / 400 path for oversized payloads, and
+ * keeps the WebSocket channel free for low-latency control messages.
+ */
 @RestController
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor
 @Slf4j
 public class ChatController {
 
-    private final MatchmakingService   matchmakingService;
-    private final ChatSessionService   chatSessionService;
-    private final ChatMessagingService chatMessagingService;
+    private final MatchmakingService     matchmakingService;
+    private final ChatSessionService     chatSessionService;
+    private final ChatMessagingService   chatMessagingService;
+    private final WebRtcSignalingService webRtcSignalingService;
 
     // ── WebSocket handlers ────────────────────────────────────────────────────
     // @AuthenticationPrincipal does NOT work in @MessageMapping handlers.
-    // Use Principal parameter — Spring always injects Authentication there for STOMP.
+    // Use Principal — Spring always injects Authentication there for STOMP.
 
     @MessageMapping("/chat.send")
     public void sendMessage(
@@ -80,7 +114,7 @@ public class ChatController {
         }
     }
 
-    // ── REST endpoints ────────────────────────────────────────────────────────
+    // ── Original REST endpoints ───────────────────────────────────────────────
 
     @PostMapping("/search")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
@@ -225,6 +259,175 @@ public class ChatController {
         }
     }
 
+    // ── NEW: Rich media endpoints ─────────────────────────────────────────────
+
+    /**
+     * POST /api/chat/{sessionId}/media
+     *
+     * Send a rich-media message: image, video, sticker, or voice note.
+     * Optionally include a Telegram-style self-destruct timer or view-once flag.
+     *
+     * Request body:
+     * {
+     *   "type":         "IMAGE" | "VIDEO" | "STICKER" | "VOICE_NOTE",
+     *   "mediaPayload": "data:image/jpeg;base64,...",   // base64 data-URI
+     *   "mimeType":     "image/jpeg",                   // MIME hint
+     *   "mediaName":    "sunset.jpg",                   // optional
+     *   "viewTimer":    10,                             // optional: 0–60 seconds (0 = no timer)
+     *   "viewOnce":     false                           // optional: true = view once like Telegram
+     * }
+     *
+     * Returns: the generated messageId (string).
+     *
+     * ── Timer behaviour ──────────────────────────────────────────────────────
+     *  viewTimer > 0  → receiver sees a countdown starting from first open;
+     *                   client destroys the media data when it hits zero.
+     *  viewOnce == true → media is destroyed immediately on first open;
+     *                     takes precedence over viewTimer on the client side.
+     *  Both false/0   → media shows normally for the life of the chat session
+     *                   (which is itself ephemeral — never stored on server).
+     *
+     * ── Storage guarantee ────────────────────────────────────────────────────
+     * Media is NEVER written to disk, database, or session.recentMessages.
+     * It exists only as an in-flight WebSocket frame.
+     */
+    @PostMapping("/{sessionId}/media")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> sendMedia(
+            @PathVariable String sessionId,
+            @RequestBody MediaRequest req,
+            @AuthenticationPrincipal User user) {
+        try {
+            ChatMessage.MessageType type = parseMediaType(req.getType());
+
+            // Clamp timer to valid range (0–60 s)
+            int viewTimer = Math.max(0, Math.min(req.getViewTimer(), 60));
+
+            ChatMessage msg = chatSessionService.addMediaMessage(
+                    sessionId,
+                    user.getId(),
+                    type,
+                    req.getMediaPayload(),
+                    req.getMimeType(),
+                    req.getMediaName(),
+                    viewTimer,
+                    req.isViewOnce());
+
+            chatMessagingService.sendMediaToSession(sessionId, msg);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("messageId", msg.getMessageId());
+            response.put("viewTimer", viewTimer);
+            response.put("viewOnce", req.isViewOnce());
+            return ResponseEntity.ok(ApiResponse.success("Media sent", response));
+
+        } catch (RuntimeException e) {
+            log.error("Error sending media in session {} for user {}", sessionId, user.getId(), e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<Map<String, Object>>error("Media send failed", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error sending media in session {}", sessionId, e);
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.<Map<String, Object>>error("Media send failed", "Internal error"));
+        }
+    }
+
+    // ── NEW: WebRTC signaling endpoints ───────────────────────────────────────
+
+    /**
+     * POST /api/chat/{sessionId}/call/offer
+     *
+     * Initiate a voice or video call.
+     *
+     * Body: { "callType": "VOICE" | "VIDEO", "sdp": "<SDP offer JSON>" }
+     */
+    @PostMapping("/{sessionId}/call/offer")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> callOffer(
+            @PathVariable String sessionId,
+            @RequestBody CallOfferRequest req,
+            @AuthenticationPrincipal User user) {
+        try {
+            WebRtcSignalingService.CallType callType =
+                    WebRtcSignalingService.CallType.valueOf(req.getCallType().toUpperCase());
+            webRtcSignalingService.initiateCall(sessionId, user.getId(), callType, req.getSdp());
+            return ResponseEntity.ok(ApiResponse.success("Call offer sent", null));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<Void>error("Invalid call type", e.getMessage()));
+        } catch (RuntimeException e) {
+            log.error("Error sending call offer in session {} for user {}", sessionId, user.getId(), e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<Void>error("Call offer failed", e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/chat/{sessionId}/call/answer
+     *
+     * Accept an incoming call.
+     *
+     * Body: { "sdp": "<SDP answer JSON>" }
+     */
+    @PostMapping("/{sessionId}/call/answer")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> callAnswer(
+            @PathVariable String sessionId,
+            @RequestBody SdpRequest req,
+            @AuthenticationPrincipal User user) {
+        try {
+            webRtcSignalingService.acceptCall(sessionId, user.getId(), req.getSdp());
+            return ResponseEntity.ok(ApiResponse.success("Call answer sent", null));
+        } catch (RuntimeException e) {
+            log.error("Error answering call in session {} for user {}", sessionId, user.getId(), e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<Void>error("Call answer failed", e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/chat/{sessionId}/call/ice
+     *
+     * Relay an ICE candidate to the partner.
+     *
+     * Body: { "candidate": "<RTCIceCandidate JSON>" }
+     */
+    @PostMapping("/{sessionId}/call/ice")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> iceCandidate(
+            @PathVariable String sessionId,
+            @RequestBody IceRequest req,
+            @AuthenticationPrincipal User user) {
+        try {
+            webRtcSignalingService.relayIceCandidate(sessionId, user.getId(), req.getCandidate());
+            return ResponseEntity.ok(ApiResponse.success("ICE candidate relayed", null));
+        } catch (RuntimeException e) {
+            log.error("Error relaying ICE in session {} for user {}", sessionId, user.getId(), e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<Void>error("ICE relay failed", e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/chat/{sessionId}/call/end
+     *
+     * End or reject the active call.  No request body needed.
+     */
+    @PostMapping("/{sessionId}/call/end")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> endCall(
+            @PathVariable String sessionId,
+            @AuthenticationPrincipal User user) {
+        try {
+            webRtcSignalingService.endCall(sessionId, user.getId());
+            return ResponseEntity.ok(ApiResponse.success("Call ended", null));
+        } catch (RuntimeException e) {
+            log.error("Error ending call in session {} for user {}", sessionId, user.getId(), e);
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.<Void>error("End call failed", e.getMessage()));
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
@@ -260,6 +463,73 @@ public class ChatController {
                 .content(message.getContent())
                 .messageType(message.getMessageType().name())
                 .timestamp(message.getTimestamp())
+                // Media messages are never in recentMessages, so these will always be null/0/false
+                // for history responses — but included for completeness in case that changes.
+                .mediaPayload(message.getMediaPayload())
+                .mimeType(message.getMimeType())
+                .mediaName(message.getMediaName())
+                .viewTimer(message.getViewTimer())
+                .viewOnce(message.isViewOnce())
                 .build();
+    }
+
+    private ChatMessage.MessageType parseMediaType(String raw) {
+        if (raw == null) throw new RuntimeException("Media type is required");
+        try {
+            ChatMessage.MessageType type = ChatMessage.MessageType.valueOf(raw.toUpperCase());
+            if (type != ChatMessage.MessageType.IMAGE
+                    && type != ChatMessage.MessageType.VIDEO
+                    && type != ChatMessage.MessageType.STICKER
+                    && type != ChatMessage.MessageType.VOICE_NOTE) {
+                throw new RuntimeException("Not a media type: " + raw + ". Allowed: IMAGE, VIDEO, STICKER, VOICE_NOTE");
+            }
+            return type;
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Unknown media type: " + raw + ". Allowed: IMAGE, VIDEO, STICKER, VOICE_NOTE");
+        }
+    }
+
+    // ── Request body DTOs ─────────────────────────────────────────────────────
+
+    /**
+     * Request body for POST /{sessionId}/media
+     *
+     * viewTimer: 0–60 (seconds). 0 = no timer (default).
+     * viewOnce:  true = destroy on first open (Telegram "⊕ 1" mode).
+     */
+    @lombok.Data
+    public static class MediaRequest {
+        /** "IMAGE", "VIDEO", "STICKER", or "VOICE_NOTE" */
+        private String  type;
+        /** base64 data-URI, e.g. "data:image/jpeg;base64,..." */
+        private String  mediaPayload;
+        /** MIME type, e.g. "image/jpeg", "video/mp4" */
+        private String  mimeType;
+        /** Optional display name, e.g. "clip.mp4" */
+        private String  mediaName;
+        /** 0 = no timer; 1–60 = seconds visible after first open */
+        private int     viewTimer  = 0;
+        /** true = view-once mode (destroy on first open) */
+        private boolean viewOnce   = false;
+    }
+
+    @lombok.Data
+    public static class CallOfferRequest {
+        /** "VOICE" or "VIDEO" */
+        private String callType;
+        /** SDP offer JSON from RTCPeerConnection */
+        private String sdp;
+    }
+
+    @lombok.Data
+    public static class SdpRequest {
+        /** SDP answer JSON from RTCPeerConnection */
+        private String sdp;
+    }
+
+    @lombok.Data
+    public static class IceRequest {
+        /** RTCIceCandidate JSON string */
+        private String candidate;
     }
 }

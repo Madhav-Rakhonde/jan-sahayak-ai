@@ -43,6 +43,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *   convertAndSendToUser(name, dest, payload) routes to /user/{name}/queue/...
  *   The STOMP principal name is the user's EMAIL, not the numeric userId.
  *   All routing therefore goes through getUserEmail(Long userId).
+ *
+ * ── Rich media (new) ──────────────────────────────────────────────────────────
+ *   addMediaMessage() creates a transient ChatMessage for IMAGE / VIDEO /
+ *   STICKER / VOICE_NOTE.  It does NOT add the message to session.recentMessages
+ *   — media is relayed once and then dropped, consistent with the "never store"
+ *   policy.  The caller (ChatMediaController) must immediately pass the returned
+ *   object to ChatMessagingService.sendMediaToSession().
  */
 @Service
 @Slf4j
@@ -131,6 +138,8 @@ public class ChatSessionService {
         return sessionId != null ? getSession(sessionId) : null;
     }
 
+    // ── Text message ──────────────────────────────────────────────────────────
+
     public ChatMessage addMessage(String sessionId, Long senderId, String content) {
         ChatSession session = getSession(sessionId);
         if (session == null)            throw new RuntimeException("Session not found: " + sessionId);
@@ -144,14 +153,82 @@ public class ChatSessionService {
         // FIX MEMORY LEAK #1 — trim message list to cap so it never grows unbounded
         List<ChatMessage> msgs = session.getRecentMessages();
         if (msgs != null && msgs.size() > MAX_RECENT_MESSAGES) {
-            // Remove oldest entries (index 0) until we are within the cap.
-            // subList + clear is O(n) but happens rarely and avoids copying.
             msgs.subList(0, msgs.size() - MAX_RECENT_MESSAGES).clear();
         }
 
         log.debug("Message added to session {} by user {}", sessionId, senderId);
         return message;
     }
+
+    // ── Rich media message (IMAGE / VIDEO / STICKER / VOICE_NOTE) ─────────────
+
+    /**
+     * Create a transient rich-media message and return it for immediate relay.
+     *
+     * ── Storage policy ────────────────────────────────────────────────────────
+     * Media messages are intentionally NOT added to session.recentMessages.
+     * They exist only as an in-flight WebSocket frame — once delivered, dropped.
+     * This means they are never replayed in chat history and never accumulate in
+     * the in-memory session object, keeping heap pressure predictable.
+     *
+     * ── Payload size guard ────────────────────────────────────────────────────
+     * Rejects payloads over 50 MB (base64 string length) to prevent a single
+     * large video from exhausting heap while it is buffered in the WebSocket
+     * send queue.  50 MB base64 ≈ 37.5 MB raw binary.
+     *
+     * ── Timer / view-once ─────────────────────────────────────────────────────
+     * viewTimer is clamped to 0–60 s in ChatMessage.mediaMessage().
+     * viewOnce takes precedence over viewTimer on the client side.
+     * The server only relays these values; enforcement is client-side.
+     *
+     * @param sessionId    active session
+     * @param senderId     userId of the sender
+     * @param type         IMAGE | VIDEO | STICKER | VOICE_NOTE
+     * @param mediaPayload base64 data-URI, e.g. "data:image/jpeg;base64,..."
+     * @param mimeType     MIME type hint, e.g. "image/jpeg", "video/mp4"
+     * @param mediaName    optional display name (may be null)
+     * @param viewTimer    0 = no timer; 1–60 = seconds visible after first open
+     * @param viewOnce     true = destroy on first open
+     * @return transient ChatMessage — caller MUST immediately pass to
+     *         ChatMessagingService.sendMediaToSession()
+     */
+    public ChatMessage addMediaMessage(
+            String sessionId,
+            Long senderId,
+            ChatMessage.MessageType type,
+            String mediaPayload,
+            String mimeType,
+            String mediaName,
+            int viewTimer,
+            boolean viewOnce) {
+
+        ChatSession session = getSession(sessionId);
+        if (session == null)            throw new RuntimeException("Session not found: " + sessionId);
+        if (!session.hasUser(senderId)) throw new RuntimeException("User not part of this session");
+        if (!session.isActive())        throw new RuntimeException("Session is not active");
+
+        // Guard: reject over-large payloads before they hit the WebSocket send queue
+        // 50 MB base64 string ≈ 37.5 MB raw — generous enough for video clips
+        if (mediaPayload != null && mediaPayload.length() > 50L * 1024 * 1024) {
+            throw new RuntimeException("Media payload exceeds 50 MB limit");
+        }
+
+        String senderAnonymousId = session.getUserAnonymousId(senderId);
+        ChatMessage message = ChatMessage.mediaMessage(
+                sessionId, senderAnonymousId, type,
+                mediaPayload, mimeType, mediaName,
+                viewTimer, viewOnce);
+
+        // Touch lastActivityAt so the session doesn't time out during media exchange
+        session.setLastActivityAt(Instant.now());
+
+        // NOTE: message is NOT added to session.recentMessages — media is ephemeral
+        log.debug("Media message {} ({}) created in session {} by user {} | timer={}s viewOnce={}",
+                message.getMessageId(), type, sessionId, senderId, viewTimer, viewOnce);
+        return message;
+    }
+
+    // ── Session end ───────────────────────────────────────────────────────────
 
     /**
      * Normal, intentional leave (user clicks "Leave chat").
@@ -201,8 +278,7 @@ public class ChatSessionService {
     // ── Reconnect flow ────────────────────────────────────────────────────────
 
     /**
-     * Called when a WebSocket disconnect event is detected for this user
-     * (e.g. from an ApplicationListener<SessionDisconnectEvent>).
+     * Called when a WebSocket disconnect event is detected for this user.
      *
      * Behaviour:
      *  • If the user has an ACTIVE session  → mark DISCONNECTED (grace period starts).
@@ -210,13 +286,10 @@ public class ChatSessionService {
      *
      * The partner is sent a soft "partner disconnected" system message so their
      * UI can show a reconnecting spinner rather than treating it as a hard leave.
-     *
-     * @param userId the user whose WebSocket just dropped
      */
     public void handleUserDisconnect(Long userId) {
         ChatSession session = getUserSession(userId);
         if (session == null || !session.isActive()) {
-            // Nothing to do — user had no active session or already ended
             return;
         }
 
@@ -224,10 +297,8 @@ public class ChatSessionService {
         log.info("User {} disconnected from session {} — starting grace period of {}s",
                 userId, sessionId, Constant.CHAT_RECONNECT_GRACE_PERIOD_SECONDS);
 
-        // Mark session as temporarily disconnected (NOT ended yet)
         session.markDisconnected(userId);
 
-        // Notify the partner with a soft message (not a hard leave)
         Long partnerId = session.getPartnerId(userId);
         if (partnerId != null) {
             try {
@@ -240,20 +311,10 @@ public class ChatSessionService {
     }
 
     /**
-     * Called when a user reconnects (e.g. after a page refresh) and hits the
-     * matchmaking or chat endpoint again.
+     * Called when a user reconnects (e.g. after a page refresh).
      *
-     * Returns the existing {@link ChatSession} if the user is within the grace
-     * period, or {@code null} if there is nothing to reconnect to (session ended,
-     * grace period expired, or user was never in a session).
-     *
-     * When reconnection succeeds:
-     *  • Session status → ACTIVE
-     *  • userSessionMap entry is re-registered (it may have been cleaned up)
-     *  • Partner is notified that the user is back
-     *
-     * @param userId the user trying to rejoin
-     * @return the resumed ChatSession, or null if reconnect is not possible
+     * Returns the existing ChatSession if the user is within the grace period,
+     * or null if there is nothing to reconnect to.
      */
     public ChatSession reconnectToSession(Long userId) {
         String sessionId = userSessionMap.get(userId);
@@ -264,36 +325,26 @@ public class ChatSessionService {
 
         ChatSession session = activeSessions.get(sessionId);
         if (session == null) {
-            // Mapping is stale — clean it up
             userSessionMap.remove(userId);
             log.debug("reconnectToSession: stale mapping for user {}, removed", userId);
             return null;
         }
 
-        // Only allow reconnect during the grace period
         if (!session.isInReconnectWindow()) {
             log.info("reconnectToSession: grace period expired for user {} session {}", userId, sessionId);
-            // Treat as a normal leave now — clean up fully
             forceEndSessionForDisconnectedUser(session, userId);
             return null;
         }
 
-        // --- Reconnect succeeds ---
         log.info("User {} reconnected to session {} within grace period", userId, sessionId);
         session.markReconnected();
-
-        // Re-register mapping in case it was cleared
         userSessionMap.put(userId, sessionId);
 
-        // Add a system message so both sides know the user is back
         String anonId = session.getUserAnonymousId(userId);
-        session.addMessage(ChatMessage.systemMessage(sessionId,
-                anonId + " reconnected."));
+        session.addMessage(ChatMessage.systemMessage(sessionId, anonId + " reconnected."));
 
-        // Notify the partner
         try {
-            chatMessagingService.sendSystemMessage(sessionId,
-                    "Your partner has reconnected!");
+            chatMessagingService.sendSystemMessage(sessionId, "Your partner has reconnected!");
         } catch (Exception e) {
             log.warn("Could not send reconnect notification in session {}", sessionId, e);
         }
@@ -328,8 +379,6 @@ public class ChatSessionService {
 
     public boolean isUserInSession(Long userId) {
         ChatSession session = getUserSession(userId);
-        // DISCONNECTED sessions are NOT counted as "in session" for matchmaking purposes —
-        // the reconnect path handles that separately via reconnectToSession().
         return session != null && session.isActive();
     }
 
@@ -375,11 +424,6 @@ public class ChatSessionService {
             }
         }
         for (String sid : toRemove) {
-            // MEMORY LEAK FIX: original code only removed from activeSessions.
-            // userSessionMap and emailCache entries were never evicted here, so they
-            // accumulated indefinitely — 2 leaked entries per ended session, every
-            // 2-minute cleanup cycle.  Mirrors the cleanup already done correctly
-            // in endSession() and forceEndSessionForDisconnectedUser().
             ChatSession s = activeSessions.remove(sid);
             if (s != null) {
                 userSessionMap.remove(s.getUser1Id());
@@ -408,7 +452,6 @@ public class ChatSessionService {
             Long disconnectedUser = session.getDisconnectedUserId();
             log.info("Grace period expired for user {} in session {} — ending session",
                     disconnectedUser, session.getSessionId());
-            // This sends the hard "partner left" notification to the still-connected user
             forceEndSessionForDisconnectedUser(session, disconnectedUser);
         }
 
@@ -423,8 +466,7 @@ public class ChatSessionService {
      * Returns the WebSocket principal name (= email) for a user.
      * convertAndSendToUser() routes to /user/{email}/queue/...
      *
-     * FIX MEMORY LEAK #2 — served from emailCache when available to avoid
-     * repeated DB round-trips and short-lived User object allocation per send.
+     * FIX MEMORY LEAK #2 — served from emailCache when available.
      */
     public String getUserEmail(Long userId) {
         String cached = emailCache.get(userId);
@@ -434,25 +476,21 @@ public class ChatSessionService {
         return email;
     }
 
-    /** Raw DB lookup — only called on cache miss. */
-    private String fetchEmail(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
-        return user.getUsername(); // getUsername() returns EMAIL in this project
+    /**
+     * Resolve a userId from an email address.
+     * Used by ChatMediaController to identify the authenticated caller.
+     */
+    public Long resolveUserIdByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .map(User::getId)
+                .orElseThrow(() -> new RuntimeException("User not found for email: " + email));
     }
 
     /**
      * Called by WebSocketDisconnectListener when a WebSocket session drops.
      *
-     * WebSocketConfig stores the STOMP principal as a
-     * UsernamePasswordAuthenticationToken(user, ...), so
-     * event.getUser().getName() == user.getUsername() == EMAIL.
-     *
-     * We look up the user by email (via UserRepo.findByEmail), then delegate
-     * to handleUserDisconnect(Long userId).
-     *
-     * @param email the principal name from the disconnect event — always an email
-     *              in this project (User.getUsername() returns email)
+     * @param email the principal name from the disconnect event (always an email
+     *              in this project — User.getUsername() returns email)
      */
     public void handleUserDisconnectByEmail(String email) {
         userRepository.findByEmail(email).ifPresentOrElse(
@@ -465,7 +503,7 @@ public class ChatSessionService {
 
     /**
      * End a session because a disconnected user never reconnected.
-     * Notifies the remaining partner and cleans up mappings.
+     * Notifies the remaining partner and cleans up all mappings.
      */
     private void forceEndSessionForDisconnectedUser(ChatSession session, Long disconnectedUserId) {
         String sessionId = session.getSessionId();
@@ -481,10 +519,16 @@ public class ChatSessionService {
             userSessionMap.remove(session.getUser1Id());
             userSessionMap.remove(session.getUser2Id());
             activeSessions.remove(sessionId);
-            // FIX MEMORY LEAK #2 — evict email cache entries
             emailCache.remove(session.getUser1Id());
             emailCache.remove(session.getUser2Id());
         }
+    }
+
+    /** Raw DB lookup — only called on cache miss. */
+    private String fetchEmail(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+        return user.getUsername(); // getUsername() returns EMAIL in this project
     }
 
     private String getActualDisplayName(Long userId) {
