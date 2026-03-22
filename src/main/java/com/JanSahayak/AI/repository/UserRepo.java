@@ -2,6 +2,7 @@ package com.JanSahayak.AI.repository;
 
 import com.JanSahayak.AI.model.Role;
 import com.JanSahayak.AI.model.User;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -35,9 +36,6 @@ public interface UserRepo extends JpaRepository<User, Long> {
      *
      * This query fetches both User and Role in ONE query with a JOIN, eliminating the
      * extra round-trip on the hottest code path in the application.
-     *
-     * Usage in UserService.loadUserByUsername():
-     *   User user = userRepository.findByEmailWithRole(email).orElseThrow(...);
      */
     @Query("SELECT u FROM User u JOIN FETCH u.role WHERE u.email = :email")
     Optional<User> findByEmailWithRole(@Param("email") String email);
@@ -48,6 +46,20 @@ public interface UserRepo extends JpaRepository<User, Long> {
      */
     @Query("SELECT u FROM User u JOIN FETCH u.role WHERE u.username = :username")
     Optional<User> findByUsernameWithRole(@Param("username") String username);
+
+    /**
+     * FIX — CommunityInviteService.sendInvite() calls findByActualUsername().
+     *
+     * In the User entity, getActualUsername() returns the `username` column.
+     * There is no separate "actualUsername" DB column — the JPA field is `username`.
+     * This method delegates to the existing findByUsername() contract so the
+     * service can look up users by the display username (@handle).
+     *
+     * Named findByActualUsername to match the call-site in CommunityInviteService
+     * without changing the service code.
+     */
+    @Query("SELECT u FROM User u WHERE u.username = :username AND u.isActive = true")
+    Optional<User> findByActualUsername(@Param("username") String username);
 
     // =========================================================================
     // PINCODE — EXACT & PREFIX
@@ -144,6 +156,79 @@ public interface UserRepo extends JpaRepository<User, Long> {
     List<User> searchByUsernameWithCursor(
             @Param("query") String query,
             @Param("beforeId") Long beforeId,
+            Pageable pageable);
+
+    // =========================================================================
+    // CURSOR-BASED USER FEED (UserService — new users feed)
+    //
+    // FIX: UserService.java calls these two methods which were missing from
+    // UserRepo.  They power a cursor-paginated "new users" feed filtered to
+    // active users created after a given timestamp, optionally with an id
+    // cursor for stable pagination.
+    // =========================================================================
+
+    /**
+     * Active users created after {@code createdAt}, with id less than {@code cursor}
+     * (i.e. older in the result set), ordered newest-first.
+     *
+     * Used by UserService for cursor-paginated new-user feeds when a cursor is present.
+     *
+     * @param createdAt  only users created after this timestamp are returned
+     * @param cursor     only users with id < cursor are returned (pagination anchor)
+     * @param pageable   page size (limit + 1 for has-next detection)
+     */
+    @Query("SELECT u FROM User u WHERE u.isActive = true " +
+            "AND u.createdAt > :createdAt " +
+            "AND u.id < :cursor " +
+            "ORDER BY u.createdAt DESC")
+    Page<User> findByIsActiveTrueAndCreatedAtAfterAndIdLessThanOrderByCreatedAtDesc(
+            @Param("createdAt") Timestamp createdAt,
+            @Param("cursor") Long cursor,
+            Pageable pageable);
+
+    /**
+     * Active users created after {@code createdAt}, ordered newest-first.
+     * No id cursor — used for the first page of the new-user feed.
+     *
+     * @param createdAt  only users created after this timestamp are returned
+     * @param pageable   page size (limit + 1 for has-next detection)
+     */
+    @Query("SELECT u FROM User u WHERE u.isActive = true " +
+            "AND u.createdAt > :createdAt " +
+            "ORDER BY u.createdAt DESC")
+    Page<User> findByIsActiveTrueAndCreatedAtAfterOrderByCreatedAtDesc(
+            @Param("createdAt") Timestamp createdAt,
+            Pageable pageable);
+
+    // =========================================================================
+    // ROLE + SEARCH WITH CURSOR (UserService — searchUsersByRoleAndQueryWithCursor)
+    //
+    // FIX: UserService.java calls searchUsersByRoleAndQueryWithCursor() which
+    // was missing.  Powers a cursor-paginated search filtered by role name and
+    // a text query matched against username or email.
+    // =========================================================================
+
+    /**
+     * Cursor-paginated search across active users filtered by role name and a
+     * text query (matched against username OR email, case-insensitive).
+     * Returns only users with id < {@code cursor}, ordered by id DESC.
+     *
+     * @param role     role name to filter by, e.g. "ROLE_USER", "ROLE_DEPARTMENT"
+     * @param query    search string matched against username and email
+     * @param cursor   only users with id < cursor are returned (pagination anchor)
+     * @param pageable page size (limit + 1 for has-next detection)
+     */
+    @Query("SELECT u FROM User u JOIN u.role r " +
+            "WHERE r.name = :role " +
+            "AND u.isActive = true " +
+            "AND u.id < :cursor " +
+            "AND (LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
+            "     OR LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%'))) " +
+            "ORDER BY u.id DESC")
+    Page<User> searchUsersByRoleAndQueryWithCursor(
+            @Param("role") String role,
+            @Param("query") String query,
+            @Param("cursor") Long cursor,
             Pageable pageable);
 
     // =========================================================================

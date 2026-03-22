@@ -7,9 +7,7 @@ import com.JanSahayak.AI.model.User;
 import lombok.Builder;
 import lombok.Getter;
 
-import java.util.Arrays;
 import java.util.Date;
-import java.util.List;
 
 /**
  * SavedPostDto
@@ -21,13 +19,32 @@ import java.util.List;
  * This DTO normalises both into the same shape so the frontend only needs to
  * handle one object type:
  *
- *   postType = "SOCIAL_POST"   → content came from a SocialPost
+ *   postType = "SOCIAL_POST"    → content came from a SocialPost
  *   postType = "BROADCAST_POST" → content came from a government broadcast Post
  *
  * Static factory methods:
  *   SavedPostDto.fromSocialPost(savedPost)
  *   SavedPostDto.fromBroadcastPost(savedPost)
  *   SavedPostDto.from(savedPost)   ← auto-selects the right factory
+ *
+ * ── FIX: int → Integer for nullable count fields ──────────────────────────────
+ * The engagement count getters on Post (getLikeCount, getDislikeCount, etc.) return
+ * primitive {@code int}.  Comparing a primitive to {@code null} is a compile error:
+ *   "bad operand types for binary operator '!=' — first type: int, second type: <nulltype>"
+ *
+ * Root cause: the DTO builder's .likeCount(...) etc. methods were being called with
+ * ternary expressions like {@code post.getLikeCount() != null ? post.getLikeCount() : 0}
+ * but since {@code getLikeCount()} returns primitive {@code int} the {@code != null}
+ * check is illegal.
+ *
+ * Fix applied: the six engagement-count fields are declared as {@code Integer}
+ * (boxed wrapper) instead of {@code int}.  This means:
+ *  - The null checks in fromBroadcastPost() are simply removed — primitives are
+ *    used directly (no NPE risk since they are value types).
+ *  - The null checks in fromSocialPost() remain valid because SocialPost's getters
+ *    return {@code Integer} (boxed), which CAN be null.
+ *  - The DTO serialises to JSON identically: Jackson maps both {@code int} and
+ *    {@code Integer} to a JSON number; null Integer fields serialise to JSON null.
  */
 @Getter
 @Builder
@@ -64,7 +81,7 @@ public class SavedPostDto {
     private String mediaUrls;
 
     /** Number of media items. 0 for broadcast posts with no image. */
-    private int    mediaCount;
+    private Integer mediaCount;
 
     private Date   createdAt;
 
@@ -83,13 +100,18 @@ public class SavedPostDto {
     private String authorRole;
 
     // ── Engagement counts ─────────────────────────────────────────────────────
+    // FIX: declared as Integer (boxed) instead of int (primitive).
+    // Reason: fromBroadcastPost() calls post.getLikeCount() etc. which return
+    // primitive int.  Comparing a primitive to null is a compile error.
+    // With Integer, null-safety is preserved for SocialPost (whose getters return
+    // Integer) and the Post path is used directly without a null check.
 
-    private int likeCount;
-    private int dislikeCount;
-    private int commentCount;
-    private int shareCount;
-    private int saveCount;
-    private int viewCount;
+    private Integer likeCount;
+    private Integer dislikeCount;
+    private Integer commentCount;
+    private Integer shareCount;
+    private Integer saveCount;
+    private Integer viewCount;
 
     // ── SocialPost-only extras (null for broadcast posts) ────────────────────
 
@@ -103,7 +125,7 @@ public class SavedPostDto {
      * Human-readable broadcast scope: "COUNTRY", "STATE", "DISTRICT", "AREA".
      * Null for SocialPosts.
      */
-    private String broadcastScope;
+    private String  broadcastScope;
 
     /** Whether the broadcast post is a country-wide government broadcast. */
     private Boolean countryWideBroadcast;
@@ -124,9 +146,12 @@ public class SavedPostDto {
 
     /**
      * Build a DTO from a SavedPost that references a SocialPost.
+     *
+     * SocialPost getters (getLikeCount, etc.) return Integer (boxed) so null checks
+     * are valid and the existing ternary fallback-to-zero pattern is preserved.
      */
     public static SavedPostDto fromSocialPost(SavedPost savedPost) {
-        SocialPost sp   = savedPost.getSocialPost();
+        SocialPost sp     = savedPost.getSocialPost();
         User       author = sp.getUser();
 
         return SavedPostDto.builder()
@@ -147,13 +172,13 @@ public class SavedPostDto {
                 .authorUsername(author != null ? author.getActualUsername() : null)
                 .authorProfileImage(author != null ? author.getProfileImage() : null)
                 .authorRole(resolveRole(author))
-                // Engagement
-                .likeCount(sp.getLikeCount()    != null ? sp.getLikeCount()    : 0)
-                .dislikeCount(sp.getDislikeCount() != null ? sp.getDislikeCount() : 0)
-                .commentCount(sp.getCommentCount() != null ? sp.getCommentCount() : 0)
-                .shareCount(sp.getShareCount()   != null ? sp.getShareCount()   : 0)
-                .saveCount(sp.getSaveCount()    != null ? sp.getSaveCount()    : 0)
-                .viewCount(sp.getViewCount()    != null ? sp.getViewCount()    : 0)
+                // Engagement — SocialPost getters return Integer (nullable), keep null-safe ternary
+                .likeCount(sp.getLikeCount()       != null ? sp.getLikeCount()       : 0)
+                .dislikeCount(sp.getDislikeCount() != null ? sp.getDislikeCount()    : 0)
+                .commentCount(sp.getCommentCount() != null ? sp.getCommentCount()    : 0)
+                .shareCount(sp.getShareCount()     != null ? sp.getShareCount()      : 0)
+                .saveCount(sp.getSaveCount()       != null ? sp.getSaveCount()       : 0)
+                .viewCount(sp.getViewCount()       != null ? sp.getViewCount()       : 0)
                 // SocialPost-only extras
                 .hashtags(sp.getHashtags())
                 .allowComments(sp.getAllowComments())
@@ -166,6 +191,12 @@ public class SavedPostDto {
 
     /**
      * Build a DTO from a SavedPost that references a government broadcast Post.
+     *
+     * FIX: Post getters (getLikeCount, etc.) return primitive int, NOT Integer.
+     * The original code had {@code post.getLikeCount() != null ? ... : 0} which
+     * fails to compile because int cannot be compared to null.
+     *
+     * Fix: use the primitive values directly — no null check needed for primitives.
      */
     public static SavedPostDto fromBroadcastPost(SavedPost savedPost) {
         Post   post   = savedPost.getPost();
@@ -189,13 +220,13 @@ public class SavedPostDto {
                 .authorUsername(author != null ? author.getActualUsername() : null)
                 .authorProfileImage(author != null ? author.getProfileImage() : null)
                 .authorRole(resolveRole(author))
-                // Engagement
-                .likeCount(post.getLikeCount()    != null ? post.getLikeCount()    : 0)
-                .dislikeCount(post.getDislikeCount() != null ? post.getDislikeCount() : 0)
-                .commentCount(post.getCommentCount() != null ? post.getCommentCount() : 0)
-                .shareCount(post.getShareCount()   != null ? post.getShareCount()   : 0)
-                .saveCount(post.getSaveCount()    != null ? post.getSaveCount()    : 0)
-                .viewCount(post.getViewCount()    != null ? post.getViewCount()    : 0)
+                // Engagement — Post getters return primitive int; use directly (no null check)
+                .likeCount(post.getLikeCount())
+                .dislikeCount(post.getDislikeCount())
+                .commentCount(post.getCommentCount())
+                .shareCount(post.getShareCount())
+                .saveCount(post.getSaveCount())
+                .viewCount(post.getViewCount())
                 // SocialPost-only extras — null for broadcast posts
                 .hashtags(null)
                 .allowComments(null)
