@@ -297,10 +297,23 @@ public class User implements UserDetails {
 
     // ===== Spring Security UserDetails Methods =====
 
+    /**
+     * FIX: Added Hibernate.isInitialized() guard before accessing role.getName().
+     *
+     * Without this guard, if Role is a lazy proxy and the Hibernate session is
+     * already closed (e.g. JWT filter running outside a transaction), calling
+     * role.getName() throws LazyInitializationException → authentication fails → 403.
+     *
+     * The primary fix is in CustomUserDetailsService using JOIN FETCH queries so
+     * Role is always initialized. This guard is a defensive second layer that
+     * prevents a crash even if the Role proxy is somehow not yet initialized —
+     * instead of throwing, it returns an empty authority list and logs nothing,
+     * which will result in an access-denied rather than a 500/crash.
+     */
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
-        if (role != null && role.getName() != null) {
+        if (role != null && Hibernate.isInitialized(role) && role.getName() != null) {
             authorities.add(new SimpleGrantedAuthority(role.getName()));
         }
         return authorities;

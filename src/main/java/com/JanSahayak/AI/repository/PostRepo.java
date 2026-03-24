@@ -155,12 +155,12 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     // ===== Trending and Analytics Methods =====
     @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate " +
-            "ORDER BY (SIZE(p.likes) + SIZE(p.comments) + SIZE(p.views)) DESC")
+            "ORDER BY (p.likeCount + p.commentCount + p.viewCount) DESC")
     List<Post> findTrendingPosts(@Param("startDate") Timestamp startDate, Pageable pageable);
 
     @Query("SELECT " +
-            "SUM(CASE WHEN SIZE(p.userTags) > 0 THEN 1 ELSE 0 END), " +
-            "SUM(CASE WHEN SIZE(p.userTags) = 0 THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN p.userTags IS NOT EMPTY THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN p.userTags IS EMPTY THEN 1 ELSE 0 END), " +
             "SUM(CASE WHEN SIZE(p.userTags) > 1 THEN 1 ELSE 0 END), " +
             "AVG(SIZE(p.userTags)) " +
             "FROM Post p")
@@ -216,9 +216,9 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
             "(p.broadcastScope IS NULL OR " +
             "(p.broadcastScope = :countryScope AND p.targetCountry = 'IN') OR " +
-            "(p.broadcastScope = :stateScope AND p.targetStates LIKE %:statePrefix%) OR " +
-            "(p.broadcastScope = :districtScope AND p.targetDistricts LIKE %:districtPrefix%) OR " +
-            "(p.broadcastScope = :areaScope AND p.targetPincodes LIKE %:pincode%)) " +
+            "(p.broadcastScope = :stateScope AND p.targetStates LIKE CONCAT('%', :statePrefix, '%')) OR " +
+            "(p.broadcastScope = :districtScope AND p.targetDistricts LIKE CONCAT('%', :districtPrefix, '%')) OR " +
+            "(p.broadcastScope = :areaScope AND p.targetPincodes LIKE CONCAT('%', :pincode, '%'))) " +
             "AND p.status = :status " +
             "ORDER BY p.createdAt DESC")
     List<Post> findVisiblePostsForUserByLocation(
@@ -241,9 +241,9 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
             "(p.broadcastScope IS NULL OR " +
             "(p.broadcastScope = :countryScope AND p.targetCountry = 'IN') OR " +
-            "(p.broadcastScope = :stateScope AND p.targetStates LIKE %:statePrefix%) OR " +
-            "(p.broadcastScope = :districtScope AND p.targetDistricts LIKE %:districtPrefix%) OR " +
-            "(p.broadcastScope = :areaScope AND p.targetPincodes LIKE %:pincode%)) " +
+            "(p.broadcastScope = :stateScope AND p.targetStates LIKE CONCAT('%', :statePrefix, '%')) OR " +
+            "(p.broadcastScope = :districtScope AND p.targetDistricts LIKE CONCAT('%', :districtPrefix, '%')) OR " +
+            "(p.broadcastScope = :areaScope AND p.targetPincodes LIKE CONCAT('%', :pincode, '%'))) " +
             "AND p.status = :status " +
             "ORDER BY p.createdAt DESC")
     List<Post> findVisiblePostsForIndianUser(
@@ -302,8 +302,8 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role " +
             "WHERE p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByStatusAndIdLessThanOrderByCreatedAtDesc(
-            @Param("status") PostStatus status,
-            @Param("beforeId") Long beforeId,
+            PostStatus status,
+            Long beforeId,
             Pageable pageable);
 
     // ===== CURSOR-BASED PAGINATION METHODS =====
@@ -445,7 +445,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate AND p.id < :beforeId " +
-            "ORDER BY (SIZE(p.likes) + SIZE(p.comments) + SIZE(p.views)) DESC")
+            "ORDER BY (p.likeCount + p.commentCount + p.viewCount) DESC")
     List<Post> findTrendingPostsWithCursor(
             @Param("startDate") Timestamp startDate,
             @Param("beforeId") Long beforeId,
@@ -456,9 +456,9 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
             "(p.broadcastScope IS NULL OR " +
             "(p.broadcastScope = :countryScope AND p.targetCountry = 'IN') OR " +
-            "(p.broadcastScope = :stateScope AND p.targetStates LIKE %:statePrefix%) OR " +
-            "(p.broadcastScope = :districtScope AND p.targetDistricts LIKE %:districtPrefix%) OR " +
-            "(p.broadcastScope = :areaScope AND p.targetPincodes LIKE %:pincode%)) " +
+            "(p.broadcastScope = :stateScope AND p.targetStates LIKE CONCAT('%', :statePrefix, '%')) OR " +
+            "(p.broadcastScope = :districtScope AND p.targetDistricts LIKE CONCAT('%', :districtPrefix, '%')) OR " +
+            "(p.broadcastScope = :areaScope AND p.targetPincodes LIKE CONCAT('%', :pincode, '%'))) " +
             "AND p.status = :status AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
     List<Post> findVisiblePostsForUserByLocationAndIdLessThan(
@@ -556,7 +556,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("limit") int limit);
 
     @Query(value = "SELECT p.* FROM posts p " +
-            "WHERE ((p.broadcast_scope = 'AREA' AND p.target_pincodes LIKE %:pincode%) " +
+            "WHERE ((p.broadcast_scope = 'AREA' AND p.target_pincodes LIKE CONCAT('%',:pincode,'%')) " +
             "OR (p.broadcast_scope = 'COUNTRY' AND p.target_country = 'IN')) " +
             "AND p.status = :status AND p.id < :beforeId " +
             "ORDER BY p.created_at DESC LIMIT :limit", nativeQuery = true)

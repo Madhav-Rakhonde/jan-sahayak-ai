@@ -76,7 +76,7 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
             "JOIN FETCH c.post p " +
             "JOIN FETCH c.user u " +
             "WHERE c.user = :user " +
-            "AND p.status IN ('ACTIVE', 'RESOLVED') " +
+            "AND p.status IN (com.JanSahayak.AI.enums.PostStatus.ACTIVE, com.JanSahayak.AI.enums.PostStatus.RESOLVED) " +
             "AND p.user.isActive = true " +
             "ORDER BY c.createdAt DESC")
     List<Comment> findByUserWithVisiblePostsOrderByCreatedAtDesc(@Param("user") User user, Pageable pageable);
@@ -85,7 +85,7 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
             "JOIN FETCH c.post p " +
             "JOIN FETCH c.user u " +
             "WHERE c.user = :user " +
-            "AND p.status IN ('ACTIVE', 'RESOLVED') " +
+            "AND p.status IN (com.JanSahayak.AI.enums.PostStatus.ACTIVE, com.JanSahayak.AI.enums.PostStatus.RESOLVED) " +
             "AND p.user.isActive = true " +
             "AND c.id < :beforeId " +
             "ORDER BY c.createdAt DESC")

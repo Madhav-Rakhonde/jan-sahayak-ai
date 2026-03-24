@@ -45,6 +45,21 @@ public interface UserRepo extends JpaRepository<User, Long> {
     Optional<User> findByUsernameWithRole(@Param("username") String username);
 
     /**
+     * JOIN FETCH version of findById — required by CustomUserDetailsService.loadUserById().
+     *
+     * The JWT filter calls loadUserById() on every authenticated request, then
+     * immediately calls getAuthorities() → role.getName(). Without JOIN FETCH,
+     * Role is a lazy proxy and the Hibernate session is already closed by the
+     * time getAuthorities() is invoked → LazyInitializationException → 403 on
+     * every protected endpoint.
+     *
+     * This query loads User + Role in ONE SQL query, guaranteeing the Role is
+     * always initialized regardless of transaction boundaries.
+     */
+    @Query("SELECT u FROM User u JOIN FETCH u.role WHERE u.id = :id")
+    Optional<User> findByIdWithRole(@Param("id") Long id);
+
+    /**
      * FIX: CommunityInviteService calls findByActualUsername().
      * In User.java, getActualUsername() returns the `username` column — there is
      * no separate DB column. This query searches by u.username under the name

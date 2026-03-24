@@ -68,7 +68,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             JOIN UserTag ut ON ut.post = p
             WHERE ut.taggedUser = :user
             AND ut.isActive = true
-            AND p.status IN ('ACTIVE', 'RESOLVED')
+            AND p.status IN (com.JanSahayak.AI.enums.PostStatus.ACTIVE, com.JanSahayak.AI.enums.PostStatus.RESOLVED)
             ORDER BY p.id DESC
             """)
     @QueryHints({
@@ -282,7 +282,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     @Query("""
             SELECT ut FROM UserTag ut
             WHERE ut.isActive = true
-            AND ut.post.status = 'RESOLVED'
+            AND ut.post.status = com.JanSahayak.AI.enums.PostStatus.RESOLVED
             AND ut.post.resolvedAt IS NOT NULL
             ORDER BY ut.post.resolvedAt DESC
             """)
@@ -421,7 +421,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             AND NOT EXISTS (
                 SELECT 1 FROM Post p
                 WHERE p.id = ut.post.id
-                AND p.status IN ('ACTIVE', 'RESOLVED')
+                AND p.status IN (com.JanSahayak.AI.enums.PostStatus.ACTIVE, com.JanSahayak.AI.enums.PostStatus.RESOLVED)
             )
             """)
     List<UserTag> findTagsForCleanup(@NonNull @Param("cleanupDate") Date cleanupDate,

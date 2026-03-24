@@ -46,9 +46,20 @@ public class CustomUserDetailsService implements UserDetailsService {
         return user;
     }
 
+    /**
+     * FIX: Switched from findById() to findByIdWithRole() which uses JOIN FETCH.
+     *
+     * findById() does NOT fetch the lazy Role proxy — when the JWT filter later
+     * calls user.getAuthorities() → role.getName(), Hibernate tries to initialize
+     * the proxy but there is no session → LazyInitializationException → 403 on
+     * every authenticated request.
+     *
+     * findByIdWithRole() loads User + Role in a single query, guaranteeing the
+     * Role is always initialized regardless of transaction boundaries.
+     */
     @Transactional
     public UserDetails loadUserById(Long id) {
-        User user = userRepo.findById(id)
+        User user = userRepo.findByIdWithRole(id)
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "User not found with id: " + id));
 
