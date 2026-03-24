@@ -64,7 +64,8 @@ import java.util.Date;
                 @Index(name = "idx_user_tag_tagged_at",   columnList = "tagged_at")
         }
 )
-@Data
+@Getter                 // ← replaces @Data: generates only getters
+@Setter                 // ← replaces @Data: generates only setters
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -319,6 +320,12 @@ public class UserTag {
     // OBJECT IDENTITY
     // =========================================================================
 
+    /**
+     * Safe toString — uses only scalar fields and ID accessors.
+     * Does NOT call toString() on any lazy-loaded JPA entity proxy,
+     * preventing LazyInitializationException and infinite recursion
+     * (which @Data's generated toString() would cause).
+     */
     @Override
     public String toString() {
         if (isSocialPostTag()) {
@@ -329,5 +336,38 @@ public class UserTag {
         return String.format(
                 "UserTag{id=%d, postId=%d, taggedUser=%s, taggedBy=%s, active=%s}",
                 id, getPostId(), getTaggedUsername(), getTaggedByUsername(), isActive);
+    }
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    /**
+     * Identity-based equality — two UserTag instances are equal only when
+     * they share the same database ID.
+     *
+     * WHY NOT @Data's generated equals/hashCode:
+     *   @Data generates equals/hashCode that traverses ALL fields, including
+     *   lazy-loaded JPA proxies (post, socialPost, taggedUser, taggedBy).
+     *   Touching those proxies outside a Hibernate session throws
+     *   LazyInitializationException, and traversing bidirectional associations
+     *   causes infinite recursion / StackOverflow.
+     *
+     * This implementation is safe in all contexts — inside and outside sessions,
+     *   in Sets, Maps, and Spring caches.
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof UserTag)) return false;
+        UserTag other = (UserTag) o;
+        return id != null && id.equals(other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        // Constant hashCode for unsaved entities (id == null) is intentional:
+        // it keeps the contract stable before and after a flush/persist call.
+        return id != null ? id.hashCode() : 31;
     }
 }
