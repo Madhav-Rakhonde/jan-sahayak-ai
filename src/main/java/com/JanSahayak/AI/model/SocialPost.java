@@ -119,7 +119,7 @@ public class SocialPost {
     @Builder.Default
     private PostStatus status = PostStatus.ACTIVE;
 
-    @Column(name = "allow_comments", nullable = false)
+    @Column(name = "allow_comments", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean allowComments = true;
 
@@ -140,7 +140,7 @@ public class SocialPost {
     @Column(name = "location_name", length = 200)
     private String locationName;
 
-    @Column(name = "show_location", nullable = false)
+    @Column(name = "show_location", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean showLocation = false;
 
@@ -189,7 +189,7 @@ public class SocialPost {
      * Always false for non-community posts.
      */
     @Column(name = "community_feed_eligible",
-            nullable = false)
+            nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean communityFeedEligible = false;
 
@@ -253,7 +253,7 @@ public class SocialPost {
     // VIRAL EXPANSION
     // =========================================================================
 
-    @Column(name = "is_viral", nullable = false)
+    @Column(name = "is_viral", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean isViral = false;
 
@@ -294,7 +294,7 @@ public class SocialPost {
     @Builder.Default
     private Integer reportCount = 0;
 
-    @Column(name = "is_flagged", nullable = false)
+    @Column(name = "is_flagged", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean isFlagged = false;
 

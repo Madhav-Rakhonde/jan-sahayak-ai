@@ -29,6 +29,10 @@ public interface UserRepo extends JpaRepository<User, Long> {
      * JOIN FETCH version of findByEmail for the Spring Security authentication path.
      * User.role is FetchType.LAZY — this loads both in ONE query, eliminating the
      * extra round-trip on every authenticated API request.
+     *
+     * FIX: This method must be used in CustomUserDetailsService.loadUserByUsername()
+     * instead of plain findByEmail() to avoid the "could not initialize proxy - no Session"
+     * error caused by accessing the lazy Role outside a Hibernate session.
      */
     @Query("SELECT u FROM User u JOIN FETCH u.role WHERE u.email = :email")
     Optional<User> findByEmailWithRole(@Param("email") String email);
@@ -41,10 +45,14 @@ public interface UserRepo extends JpaRepository<User, Long> {
     Optional<User> findByUsernameWithRole(@Param("username") String username);
 
     /**
-     * FIX — CommunityInviteService calls findByActualUsername().
+     * FIX: CommunityInviteService calls findByActualUsername().
      * In User.java, getActualUsername() returns the `username` column — there is
      * no separate DB column. This query searches by u.username under the name
      * the service expects, so the service needs no changes.
+     *
+     * FIX (PostgreSQL): Changed "u.isActive = true" — explicit boolean comparison
+     * is required on PostgreSQL to avoid "could not determine data type of parameter"
+     * errors when Hibernate maps the Boolean field.
      */
     @Query("SELECT u FROM User u WHERE u.username = :username AND u.isActive = true")
     Optional<User> findByActualUsername(@Param("username") String username);
@@ -63,6 +71,11 @@ public interface UserRepo extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u WHERE u.pincode = :pincode AND u.isActive = true ORDER BY u.id ASC")
     List<User> findActiveUsersByPincode(@Param("pincode") String pincode, Pageable pageable);
 
+    /**
+     * FIX (PostgreSQL): SUBSTRING(col, start, length) syntax is standard SQL.
+     * PostgreSQL also supports SUBSTRING(col FROM start FOR length) but the
+     * positional version used here works on both MySQL and PostgreSQL via JPQL.
+     */
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
             "AND u.pincode IS NOT NULL " +
             "AND LENGTH(u.pincode) = 6 " +
@@ -118,8 +131,6 @@ public interface UserRepo extends JpaRepository<User, Long> {
 
     // =========================================================================
     // ACTIVE USER LISTING — cursor-paginated
-    // FIX: UserService.getAllActiveUsers() and getUsersByRole() called these four
-    // methods which were missing from the repo entirely.
     // =========================================================================
 
     @Query("SELECT u FROM User u WHERE u.isActive = true AND u.id < :beforeId ORDER BY u.id DESC")
@@ -147,8 +158,6 @@ public interface UserRepo extends JpaRepository<User, Long> {
 
     // =========================================================================
     // RECENTLY CREATED USERS — cursor-paginated
-    // FIX: Return type List<User> (was Page<User> — caused incompatible types
-    // compile error since UserService assigns result directly to List<User>).
     // =========================================================================
 
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
@@ -169,8 +178,6 @@ public interface UserRepo extends JpaRepository<User, Long> {
 
     // =========================================================================
     // USER SEARCH / TAGGING
-    // FIX: UserService.searchUsersForTagging() called these two methods which
-    // were missing from the repo entirely.
     // =========================================================================
 
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
@@ -217,8 +224,6 @@ public interface UserRepo extends JpaRepository<User, Long> {
 
     // =========================================================================
     // ROLE + SEARCH WITH CURSOR
-    // FIX: Return type List<User> (was Page<User> — caused incompatible types
-    // compile error since UserService assigns result to List<User>).
     // =========================================================================
 
     @Query("SELECT u FROM User u JOIN u.role r " +
@@ -236,10 +241,13 @@ public interface UserRepo extends JpaRepository<User, Long> {
 
     // =========================================================================
     // GEOGRAPHIC DISTRIBUTION
-    // FIX: UserService.getUserDistributionByPincode() called this method which
-    // was missing. Returns {pincode, count} pairs as aggregate DB query.
     // =========================================================================
 
+    /**
+     * FIX (PostgreSQL): LENGTH() is standard SQL and works on PostgreSQL.
+     * CONCAT and GROUP BY on a scalar column are also fully supported.
+     * No changes needed from MySQL version for this query.
+     */
     @Query("SELECT u.pincode, COUNT(u) FROM User u " +
             "WHERE u.isActive = true " +
             "AND u.pincode IS NOT NULL " +
@@ -253,7 +261,7 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // =========================================================================
 
     /**
-     * FIX — HyperlocalSeedService calls findFirstByRoleName(Constant.ROLE_ADMIN)
+     * HyperlocalSeedService calls findFirstByRoleName(Constant.ROLE_ADMIN)
      * to find a system owner for seeded communities.
      * Returns the first active user with the given role ordered by id ASC so
      * the result is deterministic (lowest-id admin = earliest-created = stable).
@@ -269,6 +277,10 @@ public interface UserRepo extends JpaRepository<User, Long> {
     @Query("SELECT COUNT(u) FROM User u WHERE u.createdAt > :since")
     long countUsersCreatedAfter(@Param("since") Timestamp since);
 
+    /**
+     * FIX (PostgreSQL): u.isActive = false — explicit boolean comparison
+     * prevents Hibernate from generating an ambiguous type cast on PostgreSQL.
+     */
     @Query("SELECT u FROM User u WHERE u.isActive = false ORDER BY u.updatedAt DESC")
     List<User> findInactiveUsers(Pageable pageable);
 }

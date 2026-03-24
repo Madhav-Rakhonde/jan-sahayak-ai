@@ -45,7 +45,7 @@ public class Notification {
     @Column(name = "reference_type", length = 50)
     private String referenceType;
 
-    @Column(name = "is_read", nullable = false)
+    @Column(name = "is_read", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean isRead = false;
 

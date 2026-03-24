@@ -96,7 +96,7 @@ public class UserInterestProfile {
      * True when interactionCount > 200 — signals echo-chamber risk.
      * Feed service doubles diversity injection for this user.
      */
-    @Column(name = "bubble_risk_flag", nullable = false)
+    @Column(name = "bubble_risk_flag", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean bubbleRiskFlag = false;
 

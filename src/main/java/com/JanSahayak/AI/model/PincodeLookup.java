@@ -44,7 +44,7 @@ public class PincodeLookup {
     @Column(name = "longitude", precision = 11, scale = 8)
     private BigDecimal longitude;
 
-    @Column(name = "is_active", nullable = false)
+    @Column(name = "is_active", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean isActive = true;
 

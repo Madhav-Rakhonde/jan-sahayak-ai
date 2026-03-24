@@ -79,7 +79,21 @@ public class User implements UserDetails {
     @Size(min = 6, max = 6, message = "Pincode must be exactly 6 digits")
     private String pincode;
 
-    @Column(name = "is_active", nullable = false)
+    /**
+     * FIX: Added columnDefinition = "boolean" to explicitly tell Hibernate/PostgreSQL
+     * to treat this column as a native BOOLEAN, not a BIT type.
+     *
+     * Root cause of error:
+     *   ERROR: column "is_active" is of type bit but expression is of type boolean
+     *
+     * Without columnDefinition, Hibernate may generate/expect a BIT column in
+     * PostgreSQL, which is NOT assignment-compatible with Java's Boolean/boolean.
+     * PostgreSQL's BOOLEAN type IS compatible, and this annotation enforces that.
+     *
+     * If the column already exists as BIT in the DB, run this migration once:
+     *   ALTER TABLE users ALTER COLUMN is_active TYPE boolean USING is_active::boolean;
+     */
+    @Column(name = "is_active", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean isActive = true;
 
@@ -135,7 +149,7 @@ public class User implements UserDetails {
      * including the Spring Security authentication path that fires on every API request.
      * This doubled query count on the hottest path in the application.
      *
-     * Role is now loaded lazily. The authentication path in UserService uses
+     * Role is now loaded lazily. The authentication path in CustomUserDetailsService uses
      * UserRepo.findByEmailWithRole() which does a JOIN FETCH in a single query,
      * so there is no extra round-trip for authentication.
      *

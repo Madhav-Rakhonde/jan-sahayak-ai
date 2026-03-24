@@ -32,9 +32,9 @@ public class CommunityMember {
     @Column(name = "member_role", nullable = false, length = 20)
     @Builder.Default private MemberRole memberRole = MemberRole.MEMBER;
 
-    @Column(name = "is_active", nullable = false) @Builder.Default private Boolean isActive = true;
-    @Column(name = "is_muted",  nullable = false) @Builder.Default private Boolean isMuted  = false;
-    @Column(name = "is_banned", nullable = false) @Builder.Default private Boolean isBanned = false;
+    @Column(name = "is_active", nullable = false, columnDefinition = "boolean") @Builder.Default private Boolean isActive = true;
+    @Column(name = "is_muted", nullable = false, columnDefinition = "boolean") @Builder.Default private Boolean isMuted = false;
+    @Column(name = "is_banned", nullable = false, columnDefinition = "boolean") @Builder.Default private Boolean isBanned = false;
 
     @Column(name = "joined_at", nullable = false, updatable = false)
     @Temporal(TemporalType.TIMESTAMP) @Builder.Default private Date joinedAt = new Date();

@@ -31,22 +31,39 @@ import java.util.Date;
 @Entity
 @Table(
         name = "saved_posts",
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        columnNames = {"user_id", "social_post_id"},
-                        name = "uk_saved_post_user_social_post"
-                ),
-                @UniqueConstraint(
-                        columnNames = {"user_id", "post_id"},
-                        name = "uk_saved_post_user_post"
-                )
-        },
+        // NOTE: @UniqueConstraint is intentionally NOT used here.
+        //
+        // ROOT CAUSE: PostgreSQL @UniqueConstraint requires all included columns to be
+        // NOT NULL to enforce uniqueness correctly. social_post_id and post_id are both
+        // nullable by design (XOR pattern — exactly one is set). A standard unique
+        // constraint over (user_id, social_post_id) allows duplicate rows when
+        // social_post_id IS NULL because PostgreSQL treats NULL != NULL in unique checks,
+        // meaning (user_id=1, social_post_id=NULL) can be inserted multiple times.
+        //
+        // SOLUTION: Enforce uniqueness via partial indexes created in Flyway migration:
+        //
+        //   -- Drop any leftover broken constraints if they exist:
+        //   DROP INDEX IF EXISTS uk_saved_post_user_social_post;
+        //   DROP INDEX IF EXISTS uk_saved_post_user_post;
+        //
+        //   -- Partial unique indexes (supported natively in PostgreSQL since PG 7.2):
+        //   CREATE UNIQUE INDEX uk_saved_post_user_social_post
+        //       ON saved_posts (user_id, social_post_id)
+        //       WHERE social_post_id IS NOT NULL;
+        //
+        //   CREATE UNIQUE INDEX uk_saved_post_user_post
+        //       ON saved_posts (user_id, post_id)
+        //       WHERE post_id IS NOT NULL;
+        //
+        // Service-layer and @PrePersist XOR guard provide additional safety.
         indexes = {
-                @Index(name = "idx_saved_post_user",        columnList = "user_id"),
-                @Index(name = "idx_saved_post_social_post", columnList = "social_post_id"),
-                @Index(name = "idx_saved_post_post",        columnList = "post_id"),
-                @Index(name = "idx_saved_post_saved_at",    columnList = "saved_at"),
-                @Index(name = "idx_saved_post_user_date",   columnList = "user_id, saved_at")
+                @Index(name = "idx_saved_post_user",            columnList = "user_id"),
+                @Index(name = "idx_saved_post_social_post",     columnList = "social_post_id"),
+                @Index(name = "idx_saved_post_post",            columnList = "post_id"),
+                @Index(name = "idx_saved_post_saved_at",        columnList = "saved_at"),
+                @Index(name = "idx_saved_post_user_date",       columnList = "user_id, saved_at"),
+                @Index(name = "idx_saved_post_user_sp",         columnList = "user_id, social_post_id"),
+                @Index(name = "idx_saved_post_user_post",       columnList = "user_id, post_id")
         }
 )
 @Getter

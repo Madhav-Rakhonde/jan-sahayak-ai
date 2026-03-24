@@ -92,7 +92,7 @@ public class Community {
      *    this value onto SocialPost.communityFeedEligible so the feed query
      *    needs no JOIN.
      */
-    @Column(name = "feed_eligible", nullable = false)
+    @Column(name = "feed_eligible", nullable = false, columnDefinition = "boolean")
     @Builder.Default private Boolean feedEligible = true;
 
     /**
@@ -117,22 +117,22 @@ public class Community {
     @Column(name = "state_prefix",        length = 2)   private String  statePrefix;
     @Column(name = "district_prefix",     length = 3)   private String  districtPrefix;
     @Column(name = "location_name",       length = 200)  private String  locationName;
-    @Column(name = "location_restricted", nullable = false)
+    @Column(name = "location_restricted", nullable = false, columnDefinition = "boolean")
     @Builder.Default private Boolean locationRestricted = false;
 
     // ── Hyperlocal Seed ───────────────────────────────────────────────────────
 
-    @Column(name = "is_system_seeded",   nullable = false) @Builder.Default private Boolean isSystemSeeded   = false;
+    @Column(name = "is_system_seeded", nullable = false, columnDefinition = "boolean") @Builder.Default private Boolean isSystemSeeded = false;
     @Column(name = "ward_name",          length = 200)                       private String  wardName;
     @Column(name = "seed_trigger_count", nullable = false) @Builder.Default private Integer seedTriggerCount = 0;
     @Column(name = "seed_threshold",     nullable = false) @Builder.Default private Integer seedThreshold    = 5;
 
     // ── Settings ──────────────────────────────────────────────────────────────
 
-    @Column(name = "allow_member_posts",    nullable = false) @Builder.Default private Boolean allowMemberPosts    = true;
-    @Column(name = "require_post_approval", nullable = false) @Builder.Default private Boolean requirePostApproval = false;
+    @Column(name = "allow_member_posts", nullable = false, columnDefinition = "boolean") @Builder.Default private Boolean allowMemberPosts = true;
+    @Column(name = "require_post_approval", nullable = false, columnDefinition = "boolean") @Builder.Default private Boolean requirePostApproval = false;
     /** Always true — JanSahayak is fully anonymous. Enforced in lifecycle hooks. */
-    @Column(name = "allow_anonymous_posts", nullable = false) @Builder.Default private Boolean allowAnonymousPosts = true;
+    @Column(name = "allow_anonymous_posts", nullable = false, columnDefinition = "boolean") @Builder.Default private Boolean allowAnonymousPosts = true;
 
     // ── Engagement Counters ───────────────────────────────────────────────────
 

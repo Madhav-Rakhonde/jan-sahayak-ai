@@ -90,7 +90,7 @@ public class CommunityInvite {
      * true  = only ONE person can use this invite (targeted username invite).
      * false = multiple people can use this link until it expires (shareable link).
      */
-    @Column(name = "single_use", nullable = false)
+    @Column(name = "single_use", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean singleUse = true;
 

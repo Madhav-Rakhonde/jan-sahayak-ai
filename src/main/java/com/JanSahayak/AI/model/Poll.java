@@ -67,7 +67,7 @@ public class Poll {
     private Date expiresAt;
 
     /** false = one vote per user (default), true = user can select multiple options */
-    @Column(name = "allow_multiple_votes", nullable = false)
+    @Column(name = "allow_multiple_votes", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean allowMultipleVotes = false;
 
@@ -75,7 +75,7 @@ public class Poll {
      * true  = everyone sees results while poll is open (default, like Twitter)
      * false = results hidden until user votes or poll expires
      */
-    @Column(name = "show_results_before_expiry", nullable = false)
+    @Column(name = "show_results_before_expiry", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean showResultsBeforeExpiry = true;
 
@@ -88,7 +88,7 @@ public class Poll {
 
     // ===== Status =====
 
-    @Column(name = "is_active", nullable = false)
+    @Column(name = "is_active", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean isActive = true;
 
