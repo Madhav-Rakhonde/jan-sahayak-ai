@@ -129,7 +129,9 @@ public class SocialPostService {
 
             return convertToDto(savedPost, user);
 
-        } catch (ValidationException | IllegalArgumentException e) {
+        } catch (ValidationException | IllegalArgumentException | SecurityException e) {
+            // Propagate input / permission errors directly so the client sees the
+            // real reason (e.g. "You must be a member of this community to post in it.")
             cleanupMediaFiles(null);
             throw e;
         } catch (Exception e) {
@@ -946,6 +948,15 @@ public class SocialPostService {
                 .build();
 
         socialPost.inheritLocationFromUser(user);
+
+        if (createDto.getCommunityId() != null) {
+            communityService.findCommunityForPost(createDto.getCommunityId(), user)
+                    .ifPresent(community -> {
+                        socialPost.setCommunity(community);
+                        socialPost.syncCommunityDenormalizedFields(community);
+                    });
+        }
+        // ── End community wiring ──────────────────────────────────────────────
 
         if (!mediaUrls.isEmpty())        socialPost.setMediaUrlsList(mediaUrls);
         if (!hashtags.isEmpty())         socialPost.setHashtagsList(hashtags);

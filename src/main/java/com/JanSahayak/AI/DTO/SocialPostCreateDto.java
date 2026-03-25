@@ -33,4 +33,7 @@ public class SocialPostCreateDto {
 
     // Optional: Comment settings
     private Boolean allowComments;
+
+    // Optional: Community this post belongs to (null = regular social post)
+    private Long communityId;
 }

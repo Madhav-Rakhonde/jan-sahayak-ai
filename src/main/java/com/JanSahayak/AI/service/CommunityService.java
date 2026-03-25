@@ -536,6 +536,41 @@ public class CommunityService {
     // =========================================================================
 
     /**
+     * Looks up a Community for use during post creation and validates that the
+     * requesting user is allowed to post in it.
+     *
+     * Rules enforced:
+     *  - Community must exist and be ACTIVE.
+     *  - Community must allow member posts (allowMemberPosts = true).
+     *  - User must be an active member of the community.
+     *
+     * Returns an Optional so the caller can use ifPresent() without a try/catch.
+     * Throws ValidationException / SecurityException directly so the error message
+     * reaches the client instead of being swallowed.
+     */
+    public Optional<Community> findCommunityForPost(Long communityId, User user) {
+        CommunityValidationUtil.validateCommunityId(communityId);
+
+        Community community = communityRepo.findById(communityId)
+                .orElseThrow(() -> new ValidationException(
+                        "Community not found with id: " + communityId));
+
+        CommunityValidationUtil.assertCommunityActive(community);
+
+        if (!Boolean.TRUE.equals(community.getAllowMemberPosts())) {
+            throw new ValidationException(
+                    "This community does not allow member posts.");
+        }
+
+        if (!isMember(communityId, user.getId())) {
+            throw new SecurityException(
+                    "You must be a member of this community to post in it.");
+        }
+
+        return Optional.of(community);
+    }
+
+    /**
      * Called by SocialPostService.createPost() after saving a community post.
      *
      * What this does:
@@ -544,13 +579,16 @@ public class CommunityService {
      *  2. Increments community post counter + weekly stats
      */
     public void onPostPublished(SocialPost post, Long communityId) {
-        communityRepo.findById(communityId).ifPresent(community -> {
-            post.syncCommunityDenormalizedFields(community);
-            socialPostRepo.save(post);
+        // NOTE: syncCommunityDenormalizedFields() is now called inside
+        // SocialPostService.buildSocialPost() BEFORE the initial save, so there is
+        // no need to sync + re-save here. This method only updates community counters.
+        if (communityRepo.existsById(communityId)) {
             communityRepo.incrementPostCount(communityId);
             communityRepo.incrementPostsLast7d(communityId);
             communityRepo.incrementActivePostersLast7d(communityId);
-        });
+        } else {
+            log.warn("[Community] onPostPublished: communityId={} not found — counters not updated", communityId);
+        }
     }
 
     /** Called by SocialPostService.deletePost() for community posts. */
