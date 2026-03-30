@@ -425,6 +425,20 @@ public class CommunityService {
      * </p>
      */
     @Transactional(readOnly = true)
+    public PaginatedResponse<CommunityPostResponse> getCommunityPostsBySlug(
+            String slug, String sort, Long requesterId, Long cursor, Double cursorScore, Integer limit) {
+
+        Community community = communityRepo.findBySlug(slug)
+                .orElseThrow(() -> new ValidationException("Community not found with slug: " + slug));
+
+        if ("TOP".equalsIgnoreCase(sort)) {
+            return getCommunityTopPosts(community.getId(), requesterId, cursor, cursorScore, limit);
+        } else {
+            return getCommunityPosts(community.getId(), requesterId, cursor, limit);
+        }
+    }
+
+    @Transactional(readOnly = true)
     public PaginatedResponse<CommunityPostResponse> getCommunityPosts(
             Long communityId, Long requesterId, Long cursor, Integer limit) {
 

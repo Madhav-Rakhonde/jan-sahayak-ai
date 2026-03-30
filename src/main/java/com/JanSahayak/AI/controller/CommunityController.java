@@ -175,6 +175,25 @@ public class CommunityController {
     }
 
     /**
+     * GET /api/communities/slug/{slug}/posts
+     *
+     * <p>New "Suitable" API: Robust slug-based feed lookup.
+     * Supports ?sort=NEW (default) or ?sort=TOP.</p>
+     */
+    @GetMapping("/slug/{slug}/posts")
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommunityPostResponse>>> communityPostsBySlug(
+            @PathVariable String slug,
+            @RequestParam(defaultValue = "NEW") String sort,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(required = false) Double cursorScore,
+            @RequestParam(required = false) Integer limit,
+            @AuthenticationPrincipal User currentUser) {
+        Long uid = currentUser != null ? currentUser.getId() : null;
+        return ResponseEntity.ok(ApiResponse.success(
+                communityService.getCommunityPostsBySlug(slug, sort, uid, cursor, cursorScore, limit)));
+    }
+
+    /**
      * GET /api/communities/{id}/posts/top
      *
      * <p>Returns posts in this community sorted by engagement score ("Hot / Top" tab).</p>
