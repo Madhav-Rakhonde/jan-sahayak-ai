@@ -735,6 +735,7 @@ public class CommunityService {
                 .content(post.getContent())
                 .imageUrl(post.getMediaUrls() != null && !post.getMediaUrls().isBlank()
                         ? post.getMediaUrls().split(",")[0].trim() : null)
+                .mediaUrls(post.getMediaUrlsList())
                 .postType(post.hasMedia() ? "IMAGE" : "TEXT")
                 .isAnonymous(false)
                 // Author — always available (SocialPost has no anonymous flag)

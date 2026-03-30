@@ -299,6 +299,7 @@ public final class CommunityDto {
         private Long    id;
         private String  content;
         private String  imageUrl;
+        private List<String> mediaUrls;
         private String  postType;          // "TEXT" | "IMAGE" | "ANONYMOUS"
         private boolean isAnonymous;
 
