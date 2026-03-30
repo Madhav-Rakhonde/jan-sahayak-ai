@@ -169,6 +169,22 @@ public class InterestProfileService {
 
     // ── Onboarding seed ───────────────────────────────────────────────────────
 
+    /**
+     * FIX: Added @Transactional(propagation = REQUIRES_NEW).
+     *
+     * WHY: seedFromOnboarding() is called inside CommunityService.joinCommunity(),
+     * which is itself @Transactional. Without REQUIRES_NEW, any exception thrown
+     * here (e.g. a DB constraint violation) marks the OUTER transaction as
+     * rollback-only. Spring then throws UnexpectedRollbackException when
+     * joinCommunity() tries to commit — even if the caller wrapped this call in
+     * a try/catch. The try/catch catches the immediate exception but cannot
+     * un-poison the outer transaction once Hibernate has flagged it.
+     *
+     * REQUIRES_NEW suspends the caller's transaction, opens a fresh independent
+     * one, and commits/rolls back entirely on its own. A failure here is isolated
+     * to the seed step only — the join always succeeds regardless.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public void seedFromOnboarding(Long userId, List<String> topics) {
         for (String topic : topics) {
             repo.seedTopic(userId, topic.toLowerCase().trim(), 3.0);
@@ -177,6 +193,12 @@ public class InterestProfileService {
         log.info("Seeded {} topics for new user {}", topics.size(), userId);
     }
 
+    /**
+     * FIX: Added @Transactional(propagation = REQUIRES_NEW) for the same reason
+     * as seedFromOnboarding — language seeding is also called from transactional
+     * contexts and must not be able to poison the caller's transaction.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public void seedLanguagePreferencesFromOnboarding(Long userId, List<String> langCodes) {
         if (langCodes == null || langCodes.isEmpty()) return;
         for (String code : langCodes) {

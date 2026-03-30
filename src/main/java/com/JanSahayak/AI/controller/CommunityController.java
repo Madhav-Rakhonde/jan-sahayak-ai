@@ -4,7 +4,6 @@ import com.JanSahayak.AI.DTO.CommunityDto.CommunityInviteDto.*;
 import com.JanSahayak.AI.DTO.PaginatedResponse;
 import com.JanSahayak.AI.DTO.CommunityDto.*;
 import com.JanSahayak.AI.exception.ApiResponse;
-import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.service.CommunityInviteService;
 import com.JanSahayak.AI.service.CommunityService;
@@ -143,8 +142,29 @@ public class CommunityController {
     // COMMUNITY POSTS
     // =========================================================================
 
+    /**
+     * GET /api/communities/{id}/posts
+     *
+     * <p>Returns posts in this community sorted newest-first (default "New" tab).</p>
+     *
+     * <p>Access:
+     * <ul>
+     *   <li>PUBLIC community  — open to everyone, including unauthenticated callers</li>
+     *   <li>PRIVATE community — authenticated members only (403 otherwise)</li>
+     *   <li>SECRET  community — authenticated members only (403 otherwise)</li>
+     * </ul>
+     * </p>
+     *
+     * <p>Pagination: cursor-based on post {@code id}. Pass the {@code nextCursor}
+     * value from the previous page as the {@code cursor} query param.</p>
+     *
+     * @param id          community PK
+     * @param cursor      exclusive lower-bound post id for the next page (optional)
+     * @param limit       page size — clamped to [1, MAX_FEED_LIMIT] server-side
+     * @param currentUser injected from JWT; null for unauthenticated requests
+     */
     @GetMapping("/{id}/posts")
-    public ResponseEntity<ApiResponse<PaginatedResponse<SocialPost>>> communityPosts(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommunityPostResponse>>> communityPosts(
             @PathVariable Long id,
             @RequestParam(required = false) Long cursor,
             @RequestParam(required = false) Integer limit,
@@ -154,8 +174,25 @@ public class CommunityController {
                 communityService.getCommunityPosts(id, uid, cursor, limit)));
     }
 
+    /**
+     * GET /api/communities/{id}/posts/top
+     *
+     * <p>Returns posts in this community sorted by engagement score ("Hot / Top" tab).</p>
+     *
+     * <p>Pagination uses a composite cursor of {@code (id, score)} to keep pages
+     * stable as scores change. Pass both {@code cursor} and {@code cursorScore}
+     * from the previous page's {@code nextCursor} / {@code nextCursorScore} fields.</p>
+     *
+     * <p>Same access rules as {@code GET /{id}/posts}.</p>
+     *
+     * @param id          community PK
+     * @param cursor      id of the last post on the previous page (optional)
+     * @param cursorScore engagement score of the last post on the previous page (optional)
+     * @param limit       page size — clamped server-side
+     * @param currentUser injected from JWT; null for unauthenticated requests
+     */
     @GetMapping("/{id}/posts/top")
-    public ResponseEntity<ApiResponse<PaginatedResponse<SocialPost>>> communityTopPosts(
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommunityPostResponse>>> communityTopPosts(
             @PathVariable Long id,
             @RequestParam(required = false) Long cursor,
             @RequestParam(required = false) Double cursorScore,

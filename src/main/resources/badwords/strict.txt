@@ -1,7 +1,8 @@
-# Curated Bad Words List for Indian Social Media App
-# Last Updated: 2025-01-15
+# Bad Words List - Indian Social Media App
+# Last Updated: 2026-03-26
+# Format: one word/phrase per line, # for comments
 
-# ===== English Abusive Words =====
+# ===== English =====
 fuck
 fucking
 fucked
@@ -16,33 +17,136 @@ pussy
 cock
 slut
 whore
+motherfucker
+son of a bitch
+piece of shit
+bastard
+dumbass
+jackass
+dipshit
+shithead
+bullshit
+scumbag
+douchebag
+prick
+twat
+wanker
+faggot
+retard
+moron
+idiot
+stupid
+screw you
+go to hell
+shut the fuck up
+wtf
+stfu
 
-# ===== Hindi/Urdu Abusive Words (Transliterated) =====
+# ===== Hindi/Urdu (Transliterated) =====
 mc
 bc
+bkl
+bsdk
 madarchod
+madar chod
+madrchod
 behenchod
+behen chod
 bhenchod
-chutiya
-chutiye
-chod
-chodu
 bhosdi
 bhosdike
+bhosad
+chutiya
+chutiye
+choot
+chod
+chodu
 gandu
+gaandu
 gand
 harami
+haraami
+haramzada
+haramzadi
 kamina
 kutta
+kuttiya
 kutti
 randi
 saala
 saali
+saala kutta
+saali kutti
 bhadwa
 bhadwe
+bhadva
+lund
+lauda
+lavda
+lode
+tatti
+ullu
+ullu ka patta
+suar ki aulad
+khotey ki aulad
+kutte ki aulad
+ghasti
+gashti
+najayaz
+chinaal
+hijda
+teri maa ki
+teri behen ki
+gaand maar
+gaand mara
+bhen ke lode
+maa ki aankh
+tharki
+besharam
+nalayak
+nikamma
+jhatu
+chakka
 
-
-motherfucker
-son of a bitch
-piece of shit
-
+# ===== Marathi (Transliterated) =====
+jhavto
+jhavtos
+jhav
+zavto
+zavya
+zavadya
+haramkhor
+bhikarchodi
+bhikarchot
+lawd
+lavaday
+landya
+gandya
+aai zhaadya
+aai chi gaand
+aai ghaltos
+aai chi choot
+tuzya aai chi
+tuzya baapachi
+bay zhaadya
+bayko zhaadya
+chinal
+kutri
+suar
+randichi
+bhadve
+nakTya
+sala
+sali
+rand
+ghanta
+aila
+aaila
+aaichi
+aaichi gand
+halkat
+pagal
+vedya
+zadpya
+chakram
+bokda

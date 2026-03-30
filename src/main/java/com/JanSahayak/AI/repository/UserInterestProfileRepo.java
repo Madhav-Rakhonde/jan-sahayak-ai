@@ -195,8 +195,9 @@ public interface UserInterestProfileRepo
     @Transactional
     @Query(value = """
         INSERT INTO user_interest_profiles
-            (user_id, topic, weight, interaction_count, total_signals_cache, last_engaged_at, created_at)
-        VALUES (:uid, :topic, :weight, 1, 1, NOW(), NOW())
+            (user_id, topic, weight, interaction_count, total_signals_cache,
+             bubble_risk_flag, last_engaged_at, created_at)
+        VALUES (:uid, :topic, :weight, 1, 1, FALSE, NOW(), NOW())
         ON CONFLICT (user_id, topic) DO NOTHING
         """, nativeQuery = true)
     void seedTopic(

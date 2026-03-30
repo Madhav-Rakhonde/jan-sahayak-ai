@@ -131,6 +131,14 @@ public class CommunityService {
         Community.CommunityPrivacy oldPrivacy     = community.getPrivacy();
         boolean                    oldFeedEligible = Boolean.TRUE.equals(community.getFeedEligible());
 
+        // F7: Handle community name update — guard against duplicate names
+        if (req.getName() != null && !req.getName().equals(community.getName())) {
+            if (communityRepo.existsByName(req.getName())) {
+                throw new IllegalArgumentException("A community named '" + req.getName() + "' already exists.");
+            }
+            community.setName(req.getName());
+        }
+
         if (req.getDescription()         != null) community.setDescription(req.getDescription());
         if (req.getCategory()            != null) community.setCategory(req.getCategory());
         if (req.getTags()                != null) community.setTags(CommunityValidationUtil.normalizeTags(req.getTags()));
@@ -405,43 +413,72 @@ public class CommunityService {
     // =========================================================================
 
     /**
-     * Posts inside this community — all posts regardless of engagement score.
-     * Used on the community detail / profile page (newest first).
+     * Returns the newest-first post feed for a community (the default "New" tab).
+     *
+     * <p>Access rules:
+     * <ul>
+     *   <li>PUBLIC  → open to everyone, including unauthenticated visitors</li>
+     *   <li>PRIVATE → members only (non-members get 403)</li>
+     *   <li>SECRET  → members only (non-members get 403; community existence is
+     *                 already hidden from discovery, so 403 is safe here)</li>
+     * </ul>
+     * </p>
      */
     @Transactional(readOnly = true)
-    public PaginatedResponse<SocialPost> getCommunityPosts(
+    public PaginatedResponse<CommunityPostResponse> getCommunityPosts(
             Long communityId, Long requesterId, Long cursor, Integer limit) {
+
         Community community = findCommunityOrThrow(communityId);
-        if (community.isSecret() && !isMember(communityId, requesterId)) {
-            throw new SecurityException("You must be a member to view this community's posts.");
-        }
+        assertPostReadAccess(community, requesterId);
+
         PaginationSetup setup = PaginationUtils.setupSocialPostFeedPagination(
                 "getCommunityPosts", cursor, limit);
         Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
+
         List<SocialPost> raw = socialPostRepo.findCommunityPostsCursor(
                 communityId, setup.getSanitizedCursor(), pageable);
-        return PaginationUtils.createSocialPostResponse(raw, setup.getValidatedLimit());
+
+        List<CommunityPostResponse> mapped = raw.stream()
+                .map(p -> toPostResponse(p, requesterId))
+                .collect(Collectors.toList());
+
+        return PaginationUtils.createIdBasedResponse(
+                mapped, setup.getValidatedLimit(),
+                dto -> raw.get(mapped.indexOf(dto)).getId());
     }
 
     /**
-     * Posts inside this community sorted by engagement — the "Hot / Top" sort.
+     * Returns community posts sorted by engagement score — the "Top / Hot" sort.
+     *
+     * <p>Uses a composite cursor of {@code (id, engagementScore)} so that
+     * pages are stable even as scores change between requests.</p>
+     *
+     * <p>Same access rules as {@link #getCommunityPosts}.</p>
      */
     @Transactional(readOnly = true)
-    public PaginatedResponse<SocialPost> getCommunityTopPosts(
+    public PaginatedResponse<CommunityPostResponse> getCommunityTopPosts(
             Long communityId, Long requesterId, Long cursor, Double cursorScore, Integer limit) {
+
         Community community = findCommunityOrThrow(communityId);
-        if (community.isSecret() && !isMember(communityId, requesterId)) {
-            throw new SecurityException("You must be a member to view this community's posts.");
-        }
+        assertPostReadAccess(community, requesterId);
+
         PaginationSetup setup = PaginationUtils.setupSocialPostFeedPagination(
                 "getCommunityTopPosts", cursor, limit);
         Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
+
         List<SocialPost> raw = socialPostRepo.findCommunityPostsByEngagement(
                 communityId,
                 setup.getSanitizedCursor(),
                 cursorScore != null ? cursorScore : Double.MAX_VALUE,
                 pageable);
-        return PaginationUtils.createSocialPostResponse(raw, setup.getValidatedLimit());
+
+        List<CommunityPostResponse> mapped = raw.stream()
+                .map(p -> toPostResponse(p, requesterId))
+                .collect(Collectors.toList());
+
+        return PaginationUtils.createIdBasedResponse(
+                mapped, setup.getValidatedLimit(),
+                dto -> raw.get(mapped.indexOf(dto)).getId());
     }
 
     // =========================================================================
@@ -647,6 +684,81 @@ public class CommunityService {
     // =========================================================================
     // INTERNAL HELPERS
     // =========================================================================
+
+    /**
+     * Enforces read-access rules for community post feeds.
+     *
+     * <ul>
+     *   <li>PUBLIC  — anyone (requesterId may be null for anonymous visitors)</li>
+     *   <li>PRIVATE — authenticated members only</li>
+     *   <li>SECRET  — authenticated members only</li>
+     * </ul>
+     */
+    private void assertPostReadAccess(Community community, Long requesterId) {
+        if (community.isPublic()) return;
+        // PRIVATE and SECRET both require membership
+        if (requesterId == null || !isMember(community.getId(), requesterId)) {
+            throw new SecurityException("You must be a member to view this community's posts.");
+        }
+    }
+
+    /**
+     * Maps a {@link SocialPost} entity to the API-safe {@link CommunityPostResponse} DTO.
+     *
+     * <p>Anonymity is enforced here: when {@code post.isAnonymous()} is true, author
+     * identity fields are intentionally left null so they are never serialised.</p>
+     *
+     * @param post        the entity fetched from the database
+     * @param requesterId the authenticated caller's user-id (null for anonymous visitors)
+     */
+    private CommunityPostResponse toPostResponse(SocialPost post, Long requesterId) {
+        User author = post.getUser();
+
+        // Build the lightweight community attribution badge
+        CommunityPostAttributionInfo attribution = null;
+        if (post.getCommunity() != null) {
+            Community c = post.getCommunity();
+            attribution = CommunityPostAttributionInfo.builder()
+                    .communityId(c.getId())
+                    .communityName(c.getName())
+                    .communitySlug(c.getSlug())
+                    .communityAvatarUrl(c.getAvatarUrl())
+                    .healthTier(c.getHealthTier())
+                    .healthTierEmoji(c.getHealthTierEmoji())
+                    .isSystemSeeded(Boolean.TRUE.equals(c.getIsSystemSeeded()))
+                    .wardName(c.getWardName())
+                    .build();
+        }
+
+        return CommunityPostResponse.builder()
+                .id(post.getId())
+                .content(post.getContent())
+                .imageUrl(post.getMediaUrls() != null && !post.getMediaUrls().isBlank()
+                        ? post.getMediaUrls().split(",")[0].trim() : null)
+                .postType(post.hasMedia() ? "IMAGE" : "TEXT")
+                .isAnonymous(false)
+                // Author — always available (SocialPost has no anonymous flag)
+                .authorId(author == null ? null : author.getId())
+                .authorUsername(author == null ? null : author.getActualUsername())
+                .authorProfileImage(author == null ? null : author.getProfileImage())
+                // Engagement
+                .likeCount(post.getLikeCount() != null ? post.getLikeCount() : 0)
+                .commentCount(post.getCommentCount() != null ? post.getCommentCount() : 0)
+                .shareCount(post.getShareCount() != null ? post.getShareCount() : 0)
+                // Viewer-context
+                .isLikedByMe(false)
+                .isPendingApproval(false)
+                .isMyPost(requesterId != null
+                        && author != null && requesterId.equals(author.getId()))
+                // Feed reach — map viralTier to feed reach label
+                .feedReach(post.getViralTier() != null ? post.getViralTier() : "COMMUNITY_ONLY")
+                // Attribution badge
+                .community(attribution)
+                // Timestamps
+                .createdAt(post.getCreatedAt())
+                .updatedAt(post.getUpdatedAt())
+                .build();
+    }
 
     private void syncPostDenormalizedFields(Long communityId, Community community) {
         String  newPrivacy      = community.getPrivacy() != null ? community.getPrivacy().name() : null;

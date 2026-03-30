@@ -46,6 +46,14 @@ public final class CommunityDto {
 
     @Data @NoArgsConstructor @AllArgsConstructor @Builder
     public static class UpdateCommunityRequest {
+        /**
+         * F7: Added name field — previously missing, causing name changes from the
+         * AdminPanel settings form to be silently dropped by the backend.
+         * Validation mirrors CreateCommunityRequest: 3–100 characters when provided.
+         */
+        @Size(min = 3, max = 100, message = "Name must be 3–100 characters")
+        private String   name;
+
         @Size(max = 1000) private String description;
         private String   category;
         private String   tags;
@@ -266,6 +274,62 @@ public final class CommunityDto {
         private String  weeklyPostTrend;   // "↑" / "→" / "↓"
         private String  suggestion;        // actionable tip based on weakest component
         private Date    scoreUpdatedAt;
+    }
+
+    /**
+     * Post card returned from community feed endpoints.
+     *
+     * <p>Deliberately avoids exposing the raw {@code SocialPost} entity so that
+     * internal DB columns (e.g. {@code feedEligible}, denormalised community fields,
+     * JPA relations) are never serialised over the wire. Only fields the frontend
+     * actually needs are projected here.</p>
+     *
+     * <p>Visibility rules enforced by the service layer:
+     * <ul>
+     *   <li>PUBLIC community  — anyone can read</li>
+     *   <li>PRIVATE community — members only</li>
+     *   <li>SECRET  community — members only</li>
+     * </ul>
+     * </p>
+     */
+    @Data @NoArgsConstructor @AllArgsConstructor @Builder
+    public static class CommunityPostResponse {
+
+        // ── Post identity ─────────────────────────────────────────────────────
+        private Long    id;
+        private String  content;
+        private String  imageUrl;
+        private String  postType;          // "TEXT" | "IMAGE" | "ANONYMOUS"
+        private boolean isAnonymous;
+
+        // ── Author (null when isAnonymous=true) ───────────────────────────────
+        private Long    authorId;
+        private String  authorUsername;
+        private String  authorProfileImage;
+
+        // ── Engagement counters ───────────────────────────────────────────────
+        private int     likeCount;
+        private int     commentCount;
+        private int     shareCount;
+
+        // ── Viewer-context flags ──────────────────────────────────────────────
+        /** Whether the authenticated caller has liked this post. */
+        private boolean isLikedByMe;
+        /** Whether this post is pending moderator approval. */
+        private boolean isPendingApproval;
+        /** Whether the caller is the author of this post. */
+        private boolean isMyPost;
+
+        // ── Feed reach (shown as a small badge on the card) ───────────────────
+        /** Highest feed tier this post has reached: LOCAL/DISTRICT/STATE/NATIONAL/COMMUNITY_ONLY */
+        private String  feedReach;
+
+        // ── Community attribution (used when post appears outside community) ──
+        private CommunityPostAttributionInfo community;
+
+        // ── Timestamps ────────────────────────────────────────────────────────
+        private Date    createdAt;
+        private Date    updatedAt;
     }
 
     /**
