@@ -429,12 +429,20 @@ public class CommunityService {
             String slug, String sort, Long requesterId, Long cursor, Double cursorScore, Integer limit) {
 
         Community community = communityRepo.findBySlug(slug)
+                .or(() -> communityRepo.findByName(slug)) // Fallback to name if slug doesn't match (handles human-readable URLs)
                 .orElseThrow(() -> new ValidationException("Community not found with slug: " + slug));
 
+        return getCommunityPostsById(community.getId(), sort, requesterId, cursor, cursorScore, limit);
+    }
+
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommunityPostResponse> getCommunityPostsById(
+            Long id, String sort, Long requesterId, Long cursor, Double cursorScore, Integer limit) {
+
         if ("TOP".equalsIgnoreCase(sort)) {
-            return getCommunityTopPosts(community.getId(), requesterId, cursor, cursorScore, limit);
+            return getCommunityTopPosts(id, requesterId, cursor, cursorScore, limit);
         } else {
-            return getCommunityPosts(community.getId(), requesterId, cursor, limit);
+            return getCommunityPosts(id, requesterId, cursor, limit);
         }
     }
 

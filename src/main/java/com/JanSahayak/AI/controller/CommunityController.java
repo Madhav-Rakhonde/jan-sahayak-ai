@@ -166,12 +166,14 @@ public class CommunityController {
     @GetMapping("/{id}/posts")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommunityPostResponse>>> communityPosts(
             @PathVariable Long id,
+            @RequestParam(defaultValue = "NEW") String sort,
             @RequestParam(required = false) Long cursor,
+            @RequestParam(required = false) Double cursorScore,
             @RequestParam(required = false) Integer limit,
             @AuthenticationPrincipal User currentUser) {
         Long uid = currentUser != null ? currentUser.getId() : null;
         return ResponseEntity.ok(ApiResponse.success(
-                communityService.getCommunityPosts(id, uid, cursor, limit)));
+                communityService.getCommunityPostsById(id, sort, uid, cursor, cursorScore, limit)));
     }
 
     /**
