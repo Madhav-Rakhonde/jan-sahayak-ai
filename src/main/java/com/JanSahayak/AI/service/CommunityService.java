@@ -220,27 +220,36 @@ public class CommunityService {
         CommunityValidationUtil.validateUser(user);
 
         if (community.isPublic()) {
-            CommunityMember member = CommunityMember.builder()
-                    .community(community).user(user)
-                    .memberRole(CommunityMember.MemberRole.MEMBER).build();
-            memberRepo.save(member);
+            memberRepo.findByCommunityIdAndUserId(communityId, userId)
+                .ifPresentOrElse(
+                    m -> {
+                        // User was once a member, reactivate/reset them
+                        m.setIsActive(true);
+                        m.setMemberRole(CommunityMember.MemberRole.MEMBER);
+                        m.setIsBanned(false);
+                        m.setJoinedAt(new Date());
+                        memberRepo.save(m);
+                    },
+                    () -> {
+                        // New member, insert fresh record
+                        memberRepo.save(CommunityMember.builder()
+                                .community(community).user(user)
+                                .memberRole(CommunityMember.MemberRole.MEMBER).build());
+                    }
+                );
+
             communityRepo.incrementMemberCount(communityId);
             communityRepo.incrementNewMembersLast7d(communityId);
-
+            
             // ── HLIG v2: Seed interest profile from community category ─────────
-            // Joining a community is a strong onboarding signal — seed the user's
-            // interest profile so they skip cold-start and see relevant posts
-            // immediately. @Async in InterestProfileService — never blocks here.
             if (community.getCategory() != null) {
                 try {
                     interestProfileService.seedFromOnboarding(userId, List.of(community.getCategory()));
-                    log.debug("[HLIG] seedFromOnboarding: userId={} category={}", userId, community.getCategory());
                 } catch (Exception e) {
                     log.warn("[HLIG] seedFromOnboarding failed: userId={} category={} reason={}",
                             userId, community.getCategory(), e.getMessage());
                 }
             }
-            // ── END HLIG v2 ───────────────────────────────────────────────────
 
             return Map.of("joined", true, "message", "Joined successfully.");
         } else {
@@ -294,9 +303,26 @@ public class CommunityService {
         if (req.isApprove()) {
             jr.approve(reviewerId);
             joinRequestRepo.save(jr);
-            memberRepo.save(CommunityMember.builder()
-                    .community(community).user(jr.getUser())
-                    .memberRole(CommunityMember.MemberRole.MEMBER).build());
+            
+            // Check if user is already in the community_members table (even if inactive)
+            memberRepo.findByCommunityIdAndUserId(communityId, jr.getUser().getId())
+                .ifPresentOrElse(
+                    m -> {
+                        // User was once a member, reactivate/reset them
+                        m.setIsActive(true);
+                        m.setMemberRole(CommunityMember.MemberRole.MEMBER);
+                        m.setIsBanned(false);
+                        m.setJoinedAt(new Date()); // Optional: update join date to now
+                        memberRepo.save(m);
+                    },
+                    () -> {
+                        // New member, insert fresh record
+                        memberRepo.save(CommunityMember.builder()
+                                .community(community).user(jr.getUser())
+                                .memberRole(CommunityMember.MemberRole.MEMBER).build());
+                    }
+                );
+
             communityRepo.incrementMemberCount(communityId);
             communityRepo.incrementNewMembersLast7d(communityId);
 

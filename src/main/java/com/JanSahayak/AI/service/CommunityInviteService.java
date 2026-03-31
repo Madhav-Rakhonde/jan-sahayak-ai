@@ -289,11 +289,25 @@ public class CommunityInviteService {
         User acceptor = findUserOrThrow(acceptorUserId);
 
         // ── 7. Create membership ──────────────────────────────────────────────
-        memberRepo.save(CommunityMember.builder()
-                .community(community)
-                .user(acceptor)
-                .memberRole(CommunityMember.MemberRole.MEMBER)
-                .build());
+        memberRepo.findByCommunityIdAndUserId(community.getId(), acceptorUserId)
+            .ifPresentOrElse(
+                m -> {
+                    // User was once a member, reactivate/reset them
+                    m.setIsActive(true);
+                    m.setMemberRole(CommunityMember.MemberRole.MEMBER);
+                    m.setIsBanned(false);
+                    m.setJoinedAt(new java.util.Date());
+                    memberRepo.save(m);
+                },
+                () -> {
+                    // New member, insert fresh record
+                    memberRepo.save(CommunityMember.builder()
+                            .community(community)
+                            .user(acceptor)
+                            .memberRole(CommunityMember.MemberRole.MEMBER)
+                            .build());
+                }
+            );
 
         communityRepo.incrementMemberCount(community.getId());
         communityRepo.incrementNewMembersLast7d(community.getId());
