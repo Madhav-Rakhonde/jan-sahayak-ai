@@ -90,6 +90,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,  "/api/users/{userId}").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/recommendations/posts").permitAll()
 
+                        // ── Communities ───────────────────────────────────────────────────────────
+                        .requestMatchers(HttpMethod.GET,  "/api/communities").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/communities/search").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/communities/{slug}").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/communities/slug/{slug}/posts").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/communities/invites/preview/{token}").permitAll()
+
                         // ── Admin-only ────────────────────────────────────────────────────────────
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/users").hasRole("ADMIN")
