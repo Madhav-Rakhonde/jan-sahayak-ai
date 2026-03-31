@@ -69,7 +69,7 @@ public interface UserRepo extends JpaRepository<User, Long> {
      * is required on PostgreSQL to avoid "could not determine data type of parameter"
      * errors when Hibernate maps the Boolean field.
      */
-    @Query("SELECT u FROM User u WHERE u.username = :username AND u.isActive = true")
+    @Query("SELECT u FROM User u WHERE (u.username = :username OR u.email = :username) AND u.isActive = true")
     Optional<User> findByActualUsername(@Param("username") String username);
 
     // =========================================================================
