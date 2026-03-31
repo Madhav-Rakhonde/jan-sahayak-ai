@@ -245,10 +245,12 @@ public class CommunityService {
             return Map.of("joined", true, "message", "Joined successfully.");
         } else {
             // PRIVATE community → create join request.
-            // Delete any stale (REJECTED/EXPIRED) request first to avoid violating
-            // the uk_join_request unique constraint on (community_id, user_id).
+            // uk_join_request is a unique constraint on (community_id, user_id) with no
+            // status column. Delete any stale row (APPROVED/REJECTED/CANCELLED) first so
+            // a returning member (leave → rejoin) does not crash on duplicate key insert.
             joinRequestRepo.findByCommunityIdAndUserId(communityId, userId)
                     .ifPresent(joinRequestRepo::delete);
+            joinRequestRepo.flush();
 
             CommunityJoinRequest jr = CommunityJoinRequest.builder()
                     .community(community).user(user)
@@ -268,6 +270,9 @@ public class CommunityService {
                 .orElseThrow(() -> new ValidationException("You are not a member of this community."));
         memberRepo.deactivateMember(communityId, userId);
         communityRepo.decrementMemberCount(communityId);
+        // Remove the join request so uk_join_request does not block a future rejoin.
+        joinRequestRepo.findByCommunityIdAndUserId(communityId, userId)
+                .ifPresent(joinRequestRepo::delete);
     }
 
     // =========================================================================
