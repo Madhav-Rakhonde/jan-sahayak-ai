@@ -358,7 +358,10 @@ public final class CommunityDto {
         @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
         public static class SendInviteRequest {
 
-            /** Username of the person to invite. Null = generate shareable link only. */
+            /** ID of the person to invite. Prioritized over username. */
+            private Long inviteeId;
+
+            /** Username or Display Name of the person to invite. Fallback for link-only invites. */
             private String inviteeUsername;
 
             /** Optional personal message (max 300 chars). */

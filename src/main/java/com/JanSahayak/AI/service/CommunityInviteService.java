@@ -92,11 +92,15 @@ public class CommunityInviteService {
 
         // ── 4. Resolve invitee (if targeted invite) ────────────────────────────
         User invitee = null;
-        if (req.getInviteeUsername() != null && !req.getInviteeUsername().isBlank()) {
+        if (req.getInviteeId() != null) {
+            invitee = findUserOrThrow(req.getInviteeId());
+        } else if (req.getInviteeUsername() != null && !req.getInviteeUsername().isBlank()) {
             invitee = userRepo.findByActualUsername(req.getInviteeUsername().trim())
                     .orElseThrow(() -> new NoSuchElementException(
-                            "User not found: @" + req.getInviteeUsername()));
+                            "User not found: " + req.getInviteeUsername()));
+        }
 
+        if (invitee != null) {
             // Must not already be a member
             if (memberRepo.existsByCommunityIdAndUserIdAndIsActiveTrue(communityId, invitee.getId())) {
                 throw new ValidationException(
