@@ -198,13 +198,13 @@ public class UserController {
     @GetMapping("/search")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     @Transactional(readOnly = true)
-    public ResponseEntity<ApiResponse<PaginatedResponse<User>>> searchUsers(
+    public ResponseEntity<ApiResponse<PaginatedResponse<UserTagSuggestionDto>>> searchUsers(
             @RequestParam @Size(min = 2, max = 50, message = "Query must be between 2 and 50 characters") String query,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
 
         try {
-            PaginatedResponse<User> response = userService.searchUsers(query, beforeId, limit);
+            PaginatedResponse<UserTagSuggestionDto> response = userService.searchUsers(query, beforeId, limit);
             return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully", response));
 
         } catch (ValidationException e) {

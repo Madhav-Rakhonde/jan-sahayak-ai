@@ -635,7 +635,7 @@ public class UserService implements UserDetailsService {
             throw new ServiceException("Could not retrieve user count.", e);
         }
     }
-    public PaginatedResponse<User> searchUsers(String query, Long beforeId, Integer limit) {
+    public PaginatedResponse<UserTagSuggestionDto> searchUsers(String query, Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
                     "searchUsers", beforeId, limit,
@@ -655,11 +655,20 @@ public class UserService implements UserDetailsService {
                 users = userRepository.searchByUsername(query.trim(), pageable);
             }
 
-            PaginatedResponse<User> response = PaginationUtils.createUserResponse(
-                    users != null ? users : List.of(), setup.getValidatedLimit());
+            if (users == null) {
+                users = List.of();
+            }
+
+            // Map to DTOs to avoid LazyInitializationException and keep response size small
+            List<UserTagSuggestionDto> userDtos = users.stream()
+                    .map(this::convertToUserTagSuggestion)
+                    .collect(Collectors.toList());
+
+            PaginatedResponse<UserTagSuggestionDto> response = PaginationUtils.createIdBasedResponse(
+                    userDtos, setup.getValidatedLimit(), UserTagSuggestionDto::getId);
 
             PaginationUtils.logPaginationResults("searchUsers",
-                    response.getData(), response.isHasMore(), response.getNextCursor());
+                    userDtos, response.isHasMore(), response.getNextCursor());
 
             return response;
         } catch (Exception e) {
