@@ -95,11 +95,13 @@ public class CommunityInviteService {
         if (req.getInviteeId() != null) {
             invitee = findUserOrThrow(req.getInviteeId());
         } else if (req.getInviteeUsername() != null && !req.getInviteeUsername().isBlank()) {
-            invitee = userRepo.findByActualUsername(req.getInviteeUsername().trim())
-                    .orElseThrow(() -> new NoSuchElementException(
-                            "User not found: " + req.getInviteeUsername()));
+            List<User> matches = userRepo.findByActualUsername(req.getInviteeUsername().trim());
+            if (matches.isEmpty()) {
+                throw new NoSuchElementException("User not found: " + req.getInviteeUsername());
+            }
+            invitee = matches.get(0);
         }
-
+        
         if (invitee != null) {
             // Must not already be a member
             if (memberRepo.existsByCommunityIdAndUserIdAndIsActiveTrue(communityId, invitee.getId())) {
