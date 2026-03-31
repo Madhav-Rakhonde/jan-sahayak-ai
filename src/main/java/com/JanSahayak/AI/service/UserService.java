@@ -635,4 +635,37 @@ public class UserService implements UserDetailsService {
             throw new ServiceException("Could not retrieve user count.", e);
         }
     }
+    public PaginatedResponse<User> searchUsers(String query, Long beforeId, Integer limit) {
+        try {
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
+                    "searchUsers", beforeId, limit,
+                    Constant.DEFAULT_USER_SEARCH_LIMIT, Constant.MAX_USER_SEARCH_LIMIT);
+
+            if (query == null || query.trim().length() < 2) {
+                return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
+            }
+
+            Pageable pageable = PaginationUtils.createPageable(setup);
+
+            List<User> users;
+            if (setup.hasCursor()) {
+                users = userRepository.searchByUsernameWithCursor(query.trim(),
+                        setup.getSanitizedCursor(), pageable);
+            } else {
+                users = userRepository.searchByUsername(query.trim(), pageable);
+            }
+
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(
+                    users != null ? users : List.of(), setup.getValidatedLimit());
+
+            PaginationUtils.logPaginationResults("searchUsers",
+                    response.getData(), response.isHasMore(), response.getNextCursor());
+
+            return response;
+        } catch (Exception e) {
+            log.error("Failed to search users with query: {}", query, e);
+            return PaginationUtils.handlePaginationError("searchUsers", e,
+                    PaginationUtils.validateUserSearchLimit(limit));
+        }
+    }
 }

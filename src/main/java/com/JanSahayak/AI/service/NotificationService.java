@@ -626,6 +626,57 @@ public class NotificationService {
         }
     }
 
+    // ===== COMMUNITY INVITE NOTIFICATIONS =====
+
+    /**
+     * Send notification when a user is invited to a community.
+     * Called by CommunityInviteService after a targeted (username) invite is created.
+     */
+    @Async
+    @Transactional
+    public void notifyCommunityInvite(
+            com.JanSahayak.AI.model.CommunityInvite invite) {
+        try {
+            if (invite == null || invite.getInvitee() == null || invite.getCommunity() == null) {
+                log.warn("Invalid parameters for community invite notification");
+                return;
+            }
+
+            User invitee = invite.getInvitee();
+            User inviter = invite.getInviter();
+            com.JanSahayak.AI.model.Community community = invite.getCommunity();
+
+            String title = "Community Invite";
+            String message = String.format("%s invited you to join \"%s\"",
+                    inviter != null ? inviter.getActualUsername() : "Someone",
+                    community.getName());
+
+            // actionUrl contains the invite token so the frontend can accept/decline
+            String actionUrl = "/invite/" + invite.getToken();
+
+            Notification notification = createNotification(
+                    invitee,
+                    NotificationType.COMMUNITY_INVITE,
+                    title,
+                    message,
+                    community.getId(),
+                    "COMMUNITY_INVITE",
+                    actionUrl,
+                    inviter
+            );
+
+            sendRealtimeNotification(notification);
+
+            log.info("Community invite notification sent: communityId={}, invitee={}, inviter={}",
+                    community.getId(),
+                    invitee.getActualUsername(),
+                    inviter != null ? inviter.getActualUsername() : "null");
+
+        } catch (Exception e) {
+            log.error("Failed to send community invite notification", e);
+        }
+    }
+
     // ===== NOTIFICATION MANAGEMENT =====
 
     /**

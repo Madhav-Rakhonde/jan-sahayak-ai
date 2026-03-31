@@ -21,6 +21,9 @@ public enum NotificationType {
     SYSTEM_ANNOUNCEMENT("System announcement", "system"),
     ACCOUNT_UPDATE("Account update", "system"),
 
+    // Community notifications
+    COMMUNITY_INVITE("You've been invited to a community", "community"),
+
     // Department notifications
     DEPARTMENT_MESSAGE("Message from department", "department"),
     POST_ATTENTION_REQUIRED("A post requires attention", "department");
@@ -59,5 +62,9 @@ public enum NotificationType {
 
     public boolean isDepartmentRelated() {
         return "department".equals(category);
+    }
+
+    public boolean isCommunityRelated() {
+        return "community".equals(category);
     }
 }

@@ -29,6 +29,7 @@ public class CommunityInviteService {
     private final CommunityRepo        communityRepo;
     private final CommunityMemberRepo  memberRepo;
     private final UserRepo             userRepo;
+    private final NotificationService  notificationService;
 
     /**
      * Frontend base URL used to build invite links.
@@ -127,6 +128,11 @@ public class CommunityInviteService {
                 communityId, inviter.getActualUsername(),
                 invitee != null ? invitee.getActualUsername() : "LINK",
                 invite.getToken(), invite.getSingleUse());
+
+        // Send notification to the invitee (only for targeted invites)
+        if (invitee != null) {
+            notificationService.notifyCommunityInvite(invite);
+        }
 
         return toInviteResponse(invite);
     }

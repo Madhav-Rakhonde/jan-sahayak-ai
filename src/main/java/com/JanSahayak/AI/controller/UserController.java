@@ -195,6 +195,28 @@ public class UserController {
         }
     }
 
+    @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<PaginatedResponse<User>>> searchUsers(
+            @RequestParam @Size(min = 2, max = 50, message = "Query must be between 2 and 50 characters") String query,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
+
+        try {
+            PaginatedResponse<User> response = userService.searchUsers(query, beforeId, limit);
+            return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully", response));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in searchUsers: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in searchUsers for query: {}", query, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while searching users"));
+        }
+    }
+
     // ===== User Search and Tagging Methods =====
 
     @GetMapping("/search/tagging")
