@@ -642,34 +642,46 @@ public class NotificationService {
             return;
         }
 
-        User invitee = invite.getInvitee();
-        User inviter = invite.getInviter();
-        com.JanSahayak.AI.model.Community community = invite.getCommunity();
+        try {
+            Long inviteeId = invite.getInvitee().getId();
+            Long inviterId = invite.getInviter() != null ? invite.getInviter().getId() : null;
+            Long communityId = invite.getCommunity().getId();
+            String communityName = invite.getCommunity().getName();
+            String inviterName = invite.getInviter() != null ? invite.getInviter().getActualUsername() : null;
+            String actionUrl = "/invite/" + invite.getToken();
 
-        String title = "Community Invite";
-        String message = String.format("%s invited you to join \"%s\"",
-                inviter != null ? inviter.getActualUsername() : "Someone",
-                community.getName());
+            // Refetch the invitee using userRepository to avoid Detached Entity exceptions
+            User managedInvitee = userRepository.findById(inviteeId).orElse(null);
+            if (managedInvitee == null) return;
 
-        String actionUrl = "/invite/" + invite.getToken();
+            User managedInviter = inviterId != null ? userRepository.findById(inviterId).orElse(null) : null;
 
-        Notification notification = createNotification(
-                invitee,
-                NotificationType.COMMUNITY_INVITE,
-                title,
-                message,
-                community.getId(),
-                "COMMUNITY_INVITE",
-                actionUrl,
-                inviter
-        );
+            String title = "Community Invite";
+            String message = String.format("%s invited you to join \"%s\"",
+                    managedInviter != null ? managedInviter.getActualUsername() : "Someone",
+                    communityName);
 
-        sendRealtimeNotification(notification);
+            Notification notification = createNotification(
+                    managedInvitee,
+                    NotificationType.COMMUNITY_INVITE,
+                    title,
+                    message,
+                    communityId,
+                    "COMMUNITY_INVITE",
+                    actionUrl,
+                    managedInviter
+            );
 
-        log.info("Community invite notification sent: communityId={}, invitee={}, inviter={}",
-                community.getId(),
-                invitee.getActualUsername(),
-                inviter != null ? inviter.getActualUsername() : "null");
+            sendRealtimeNotification(notification);
+
+            log.info("Community invite notification sent: communityId={}, invitee={}, inviter={}",
+                    communityId,
+                    managedInvitee.getActualUsername(),
+                    managedInviter != null ? managedInviter.getActualUsername() : "null");
+        } catch (Exception ex) {
+            log.error("Failed to execute notifyCommunityInvite due to exception:", ex);
+            throw ex;
+        }
     }
 
     // ===== NOTIFICATION MANAGEMENT =====
