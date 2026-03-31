@@ -244,7 +244,12 @@ public class CommunityService {
 
             return Map.of("joined", true, "message", "Joined successfully.");
         } else {
-            // PRIVATE community → create join request
+            // PRIVATE community → create join request.
+            // Delete any stale (REJECTED/EXPIRED) request first to avoid violating
+            // the uk_join_request unique constraint on (community_id, user_id).
+            joinRequestRepo.findByCommunityIdAndUserId(communityId, userId)
+                    .ifPresent(joinRequestRepo::delete);
+
             CommunityJoinRequest jr = CommunityJoinRequest.builder()
                     .community(community).user(user)
                     .message(req != null ? req.getMessage() : null).build();
