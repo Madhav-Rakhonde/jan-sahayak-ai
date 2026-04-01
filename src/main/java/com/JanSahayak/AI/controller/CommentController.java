@@ -147,7 +147,6 @@ public class CommentController {
      *      now → commentService.getCommentsByPostId(postId, ...) loads Post inside @Transactional
      */
     @GetMapping("/post/{postId}")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentsByPost(
             @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
@@ -174,7 +173,6 @@ public class CommentController {
      *      now → commentService.getCommentsBySocialPostId(postId, ...) loads inside @Transactional
      */
     @GetMapping("/social-posts/{postId}")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentsBySocialPost(
             @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
@@ -204,7 +202,6 @@ public class CommentController {
      * FIX: was loading Post in controller; now delegates ID-only to service.
      */
     @GetMapping("/post/{postId}/top-level")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getTopLevelCommentsByPost(
             @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
@@ -230,7 +227,6 @@ public class CommentController {
      * FIX: was loading SocialPost in controller; now delegates ID-only to service.
      */
     @GetMapping("/social-posts/{postId}/top-level")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getTopLevelCommentsBySocialPost(
             @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
@@ -260,7 +256,6 @@ public class CommentController {
      * No change needed here — replies are keyed on commentId, no Post entity load.
      */
     @GetMapping("/{commentId}/replies")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentReplies(
             @PathVariable @NotNull Long commentId,
             @RequestParam(required = false) Long beforeId,
@@ -290,7 +285,6 @@ public class CommentController {
      * FIX: was loading Post in controller; now delegates ID-only to service.
      */
     @GetMapping("/post/{postId}/count")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Long>> getCommentCountByPost(
             @PathVariable @NotNull Long postId) {
 
@@ -313,7 +307,6 @@ public class CommentController {
      * FIX: was loading SocialPost in controller; now delegates ID-only to service.
      */
     @GetMapping("/social-posts/{postId}/count")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Long>> getCommentCountBySocialPost(
             @PathVariable @NotNull Long postId) {
 
