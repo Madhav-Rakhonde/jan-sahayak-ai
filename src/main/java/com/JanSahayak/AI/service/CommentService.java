@@ -279,10 +279,10 @@ public class CommentService {
 
             List<Comment> comments;
             if (setup.hasCursor()) {
-                comments = commentRepository.findBySocialPostAndIdLessThanOrderByCreatedAtAsc(
+                comments = commentRepository.findBySocialPostAndIdLessThanOrderByCreatedAtDesc(
                         socialPost, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                comments = commentRepository.findBySocialPostOrderByCreatedAtAsc(socialPost, setup.toPageable());
+                comments = commentRepository.findBySocialPostOrderByCreatedAtDesc(socialPost, setup.toPageable());
             }
 
             List<CommentDto> commentDtos = convertCommentsToDto(comments);

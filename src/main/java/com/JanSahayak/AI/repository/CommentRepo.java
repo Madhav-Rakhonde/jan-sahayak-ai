@@ -22,23 +22,27 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
 
     // ── SocialPost comment queries ────────────────────────────────────────────
 
-    List<Comment> findBySocialPostAndIdLessThanOrderByCreatedAtAsc(
-            SocialPost socialPost, Long id, Pageable pageable);
+    @Query("SELECT COUNT(c) FROM Comment c WHERE c.socialPost = :socialPost")
+    Long countBySocialPost(@Param("socialPost") SocialPost socialPost);
 
-    List<Comment> findBySocialPostOrderByCreatedAtAsc(
-            SocialPost socialPost, Pageable pageable);
-
-    Long countBySocialPost(SocialPost socialPost);
-
-    @Query("SELECT c FROM Comment c WHERE c.socialPost = :socialPost AND c.parentComment IS NULL")
+    @Query("SELECT c FROM Comment c LEFT JOIN FETCH c.user WHERE c.socialPost = :socialPost AND c.parentComment IS NULL ORDER BY c.createdAt DESC")
     List<Comment> findTopLevelCommentsBySocialPost(
             @Param("socialPost") SocialPost socialPost, Pageable pageable);
 
-    @Query("SELECT c FROM Comment c WHERE c.socialPost = :socialPost AND c.parentComment IS NULL AND c.id < :id")
+    @Query("SELECT c FROM Comment c LEFT JOIN FETCH c.user WHERE c.socialPost = :socialPost AND c.parentComment IS NULL AND c.id < :id ORDER BY c.createdAt DESC")
     List<Comment> findTopLevelCommentsBySocialPostAndIdLessThan(
             @Param("socialPost") SocialPost socialPost,
             @Param("id") Long id,
             Pageable pageable);
+
+    // ── All comments for SocialPost (Fixed for performance & pagination) ──
+
+    @Query("SELECT c FROM Comment c LEFT JOIN FETCH c.user WHERE c.socialPost = :socialPost ORDER BY c.createdAt DESC")
+    List<Comment> findBySocialPostOrderByCreatedAtDesc(@Param("socialPost") SocialPost socialPost, Pageable pageable);
+
+    @Query("SELECT c FROM Comment c LEFT JOIN FETCH c.user WHERE c.socialPost = :socialPost AND c.id < :beforeId ORDER BY c.createdAt DESC")
+    List<Comment> findBySocialPostAndIdLessThanOrderByCreatedAtDesc(@Param("socialPost") SocialPost socialPost, @Param("beforeId") Long beforeId, Pageable pageable);
+
 
     // ── Top-level comment queries (with JOIN FETCH) ───────────────────────────
 

@@ -11,12 +11,8 @@ import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.exception.PostNotFoundException;
 import com.JanSahayak.AI.exception.ServiceException;
 import com.JanSahayak.AI.exception.ValidationException;
-import com.JanSahayak.AI.model.Poll;
-import com.JanSahayak.AI.model.SavedPost;
-import com.JanSahayak.AI.model.PostShare;
+import com.JanSahayak.AI.model.*;
 import com.JanSahayak.AI.model.PostShare.ShareType;
-import com.JanSahayak.AI.model.SocialPost;
-import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.payload.PostUtility;
 import com.JanSahayak.AI.payload.SocialPostUtility;
@@ -56,6 +52,7 @@ public class SocialPostService {
     private final SocialPostMediaService   mediaService;
     private final PostInteractionService   postInteractionService;
     private final NotificationService      notificationService;
+    private final CommunityMemberRepo communityMemberRepo;
 
     @Lazy
     @Autowired
@@ -733,7 +730,10 @@ public class SocialPostService {
                     // ═════════════════════════════════════════════════════════════════════════
                     // BATCH ENRICHMENT: Author roles in communities
                     // ═════════════════════════════════════════════════════════════════════════
-                    List<Long> authorIds = posts.stream().map(p -> p.getAuthor().getId()).distinct().toList();
+                    List<Long> authorIds = posts.stream()
+                            .map(p -> p.getUser().getId())  // Fixed: getUser() instead of getAuthor()
+                            .distinct()
+                            .toList();
                     List<CommunityMember> authorMemberships = communityMemberRepo.findActiveByUserIdInAndCommunityIdIn(
                             authorIds, communityPostIds);
 
@@ -747,7 +747,7 @@ public class SocialPostService {
                     dtos.forEach(dto -> {
                         if (dto.getCommunityId() != null) {
                             dto.setIsMember(memberCommunityIds.contains(dto.getCommunityId()));
-                            
+
                             String roleKey = dto.getAuthor().getId() + "_" + dto.getCommunityId();
                             dto.setAuthorRole(authorRoleMap.getOrDefault(roleKey, null));
                         }
