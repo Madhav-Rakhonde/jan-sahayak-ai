@@ -121,7 +121,7 @@ public class PostInteractionService {
             PostView saved = postViewRepository.save(view);
             socialPostRepository.save(socialPost);
 
-            fireHligSignal(() -> interestProfileService.onView(user.getId(), socialPost),
+            fireHligSignal(() -> interestProfileService.onView(user.getId(), socialPost.getId()),
                     "VIEW", socialPost.getId(), user.getId());
 
             log.info("View recorded: socialPost={} user={} viewCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getViewCount());
@@ -251,7 +251,7 @@ public class PostInteractionService {
                     postLikeRepository.delete(row);
                     socialPost.decrementLikeCount();
                     socialPostRepository.save(socialPost);
-                    fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost),
+                    fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost.getId()),
                             "UNLIKE", socialPost.getId(), user.getId());
                     log.info("[Like] Removed: socialPost={} user={} likeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getLikeCount());
                     return false;
@@ -261,7 +261,7 @@ public class PostInteractionService {
                     socialPost.decrementDislikeCount();
                     socialPost.incrementLikeCount();
                     socialPostRepository.save(socialPost);
-                    fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost),
+                    fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost.getId()),
                             "LIKE", socialPost.getId(), user.getId());
                     if (socialPost.getCommunity() != null) {
                         try { communityService.onLikeAdded(socialPost.getCommunity().getId()); }
@@ -275,7 +275,7 @@ public class PostInteractionService {
                 socialPost.incrementLikeCount();
                 postLikeRepository.save(newLike);
                 socialPostRepository.save(socialPost);
-                fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost),
+                fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost.getId()),
                         "LIKE", socialPost.getId(), user.getId());
                 if (socialPost.getCommunity() != null) {
                     try { communityService.onLikeAdded(socialPost.getCommunity().getId()); }
@@ -313,7 +313,7 @@ public class PostInteractionService {
                     postLikeRepository.delete(row);
                     socialPost.decrementDislikeCount();
                     socialPostRepository.save(socialPost);
-                    fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost),
+                    fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost.getId()),
                             "UN-DISLIKE", socialPost.getId(), user.getId());
                     log.info("[Dislike] Removed: socialPost={} user={} dislikeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getDislikeCount());
                     return false;
@@ -323,7 +323,7 @@ public class PostInteractionService {
                     socialPost.decrementLikeCount();
                     socialPost.incrementDislikeCount();
                     socialPostRepository.save(socialPost);
-                    fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost),
+                    fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost.getId()),
                             "DISLIKE", socialPost.getId(), user.getId());
                     log.info("[Dislike] Flipped LIKE→DISLIKE: socialPost={} user={}", socialPost.getId(), user.getActualUsername());
                     return true;
@@ -333,7 +333,7 @@ public class PostInteractionService {
                 socialPost.incrementDislikeCount();
                 postLikeRepository.save(newDislike);
                 socialPostRepository.save(socialPost);
-                fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost),
+                fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost.getId()),
                         "DISLIKE", socialPost.getId(), user.getId());
                 log.info("[Dislike] Added: socialPost={} user={} dislikeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getDislikeCount());
                 return true;
@@ -478,7 +478,7 @@ public class PostInteractionService {
                 savedPostRepo.delete(existing.get());
                 socialPost.decrementSaveCount();
                 socialPostRepository.save(socialPost);
-                fireHligSignal(() -> interestProfileService.onUnsave(user.getId(), socialPost),
+                fireHligSignal(() -> interestProfileService.onUnsave(user.getId(), socialPost.getId()),
                         "UNSAVE", socialPost.getId(), user.getId());
                 log.info("[Save] Removed: socialPost={} user={} saveCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getSaveCount());
                 return false;
@@ -487,7 +487,7 @@ public class PostInteractionService {
                 socialPost.incrementSaveCount();
                 savedPostRepo.save(sp);
                 socialPostRepository.save(socialPost);
-                fireHligSignal(() -> interestProfileService.onSave(user.getId(), socialPost),
+                fireHligSignal(() -> interestProfileService.onSave(user.getId(), socialPost.getId()),
                         "SAVE", socialPost.getId(), user.getId());
                 log.info("[Save] Added: socialPost={} user={} saveCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getSaveCount());
                 return true;
@@ -680,7 +680,7 @@ public class PostInteractionService {
             socialPostRepository.save(socialPost);
 
             if (user != null) {
-                fireHligSignal(() -> interestProfileService.onShare(user.getId(), socialPost),
+                fireHligSignal(() -> interestProfileService.onShare(user.getId(), socialPost.getId()),
                         "SHARE", socialPost.getId(), user.getId());
             }
 
@@ -737,7 +737,7 @@ public class PostInteractionService {
     public void markNotInterested(SocialPost socialPost, User user) {
         validateSocialPost(socialPost);
         validateUser(user);
-        fireHligSignal(() -> interestProfileService.onNotInterested(user.getId(), socialPost),
+        fireHligSignal(() -> interestProfileService.onNotInterested(user.getId(), socialPost.getId()),
                 "NOT_INTERESTED", socialPost.getId(), user.getId());
         log.info("[HLIG] Not-interested: socialPost={} user={}", socialPost.getId(), user.getId());
     }
@@ -745,7 +745,7 @@ public class PostInteractionService {
     public void recordScrollPast(SocialPost socialPost, User user) {
         validateSocialPost(socialPost);
         validateUser(user);
-        fireHligSignal(() -> interestProfileService.onScrolledPast(user.getId(), socialPost),
+        fireHligSignal(() -> interestProfileService.onScrolledPast(user.getId(), socialPost.getId()),
                 "SCROLL_PAST", socialPost.getId(), user.getId());
     }
 

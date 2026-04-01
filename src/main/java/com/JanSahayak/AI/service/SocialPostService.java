@@ -108,7 +108,7 @@ public class SocialPostService {
 
             // HLIG v2: post creation is the strongest interest signal (+5.0 weight).
             try {
-                interestProfileService.onPostCreated(savedPost.getUser().getId(), savedPost);
+                interestProfileService.onPostCreated(savedPost.getUser().getId(), savedPost.getId());
             } catch (Exception e) {
                 log.warn("[HLIG] onPostCreated failed: postId={} reason={}", savedPost.getId(), e.getMessage());
             }
@@ -590,7 +590,7 @@ public class SocialPostService {
         if (postId == null || user == null) return;
         try {
             SocialPost post = socialPostRepository.findById(postId).orElse(null);
-            if (post != null) interestProfileService.onScrolledPast(user.getId(), post);
+            if (post != null) interestProfileService.onScrolledPast(user.getId(), post.getId());
         } catch (Exception e) {
             log.warn("[HLIG] onScrolledPast failed: postId={} userId={} reason={}",
                     postId, user.getId(), e.getMessage());
@@ -602,7 +602,7 @@ public class SocialPostService {
         try {
             SocialPost post = socialPostRepository.findById(postId).orElse(null);
             if (post != null) {
-                interestProfileService.onNotInterested(user.getId(), post);
+                interestProfileService.onNotInterested(user.getId(), post.getId());
                 log.info("[HLIG] onNotInterested: postId={} userId={}", postId, user.getId());
             }
         } catch (Exception e) {

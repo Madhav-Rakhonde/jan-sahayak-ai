@@ -246,10 +246,10 @@ public class CommentService {
 
             List<Comment> comments;
             if (setup.hasCursor()) {
-                comments = commentRepository.findByPostAndIdLessThanOrderByCreatedAtAsc(
+                comments = commentRepository.findByPostAndIdLessThanOrderByCreatedAtDesc(
                         post, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                comments = commentRepository.findByPostOrderByCreatedAtAsc(post, setup.toPageable());
+                comments = commentRepository.findByPostOrderByCreatedAtDesc(post, setup.toPageable());
             }
 
             List<CommentDto> commentDtos = convertCommentsToDto(comments);
@@ -279,10 +279,10 @@ public class CommentService {
 
             List<Comment> comments;
             if (setup.hasCursor()) {
-                comments = commentRepository.findBySocialPostAndIdLessThanOrderByCreatedAtDesc(
-                        socialPost, setup.getSanitizedCursor(), setup.toPageable());
+                comments = commentRepository.findBySocialPostIdAndIdLessThanOrderByCreatedAtDesc(
+                        socialPost.getId(), setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                comments = commentRepository.findBySocialPostOrderByCreatedAtDesc(socialPost, setup.toPageable());
+                comments = commentRepository.findBySocialPostIdOrderByCreatedAtDesc(socialPost.getId(), setup.toPageable());
             }
 
             List<CommentDto> commentDtos = convertCommentsToDto(comments);
@@ -343,10 +343,10 @@ public class CommentService {
 
             List<Comment> comments;
             if (setup.hasCursor()) {
-                comments = commentRepository.findTopLevelCommentsBySocialPostAndIdLessThan(
-                        socialPost, setup.getSanitizedCursor(), setup.toPageable());
+                comments = commentRepository.findTopLevelCommentsBySocialPostIdAndIdLessThan(
+                        socialPost.getId(), setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                comments = commentRepository.findTopLevelCommentsBySocialPost(socialPost, setup.toPageable());
+                comments = commentRepository.findTopLevelCommentsBySocialPostId(socialPost.getId(), setup.toPageable());
             }
 
             List<CommentDto> commentDtos = convertCommentsToDto(comments);
@@ -417,10 +417,10 @@ public class CommentService {
 
             List<Comment> replies;
             if (setup.hasCursor()) {
-                replies = commentRepository.findByParentCommentAndIdLessThanOrderByCreatedAtAsc(
+                replies = commentRepository.findByParentCommentAndIdLessThanOrderByCreatedAtDesc(
                         parentComment, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                replies = commentRepository.findByParentCommentOrderByCreatedAtAsc(parentComment, setup.toPageable());
+                replies = commentRepository.findByParentCommentOrderByCreatedAtDesc(parentComment, setup.toPageable());
             }
 
             List<CommentDto> replyDtos = convertCommentsToDto(replies);

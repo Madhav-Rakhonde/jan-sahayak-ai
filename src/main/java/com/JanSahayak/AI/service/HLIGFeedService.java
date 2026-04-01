@@ -743,7 +743,7 @@ public class HLIGFeedService {
 
     private void fireImplicitViewSignals(User user, List<SocialPost> posts, int limit) {
         posts.stream().limit(limit).forEach(post -> {
-            try { interestService.onView(user.getId(), post); }
+            try { interestService.onView(user.getId(), post.getId()); }
             catch (Exception e) {
                 log.debug("[HLIG] implicit onView skipped postId={} userId={}: {}",
                         post.getId(), user.getId(), e.getMessage());

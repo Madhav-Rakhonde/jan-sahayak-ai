@@ -3,6 +3,7 @@ package com.JanSahayak.AI.service;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.UserInterestProfile;
+import com.JanSahayak.AI.repository.SocialPostRepo;
 import com.JanSahayak.AI.repository.UserInterestProfileRepo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ import java.util.stream.Collectors;
 public class InterestProfileService {
 
     private final UserInterestProfileRepo repo;
+    private final SocialPostRepo          socialPostRepo;
     private final TopicExtractor          topicExtractor;
 
     // FIX MEMORY LEAK #6 — needed for programmatic lang:: and nb:: cache eviction
@@ -33,69 +35,91 @@ public class InterestProfileService {
     // ── Signal handlers (all @Async) ──────────────────────────────────────────
 
     @Async
-    public void onLike(Long userId, SocialPost post) {
+    public void onLike(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
         applySignal(userId, post, Constant.HLIG_W_LIKE, topics, true);
         applyLanguageSignal(userId, post, Constant.HLIG_W_LIKE * 0.5);
     }
 
     @Async
-    public void onDislike(Long userId, SocialPost post) {
+    public void onDislike(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         applySignal(userId, post, Constant.HLIG_W_DISLIKE, topicExtractor.extract(post), false);
     }
 
     @Async
-    public void onUnlike(Long userId, SocialPost post) {
+    public void onUnlike(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         applySignal(userId, post, Constant.HLIG_W_UNLIKE, topicExtractor.extract(post), false);
     }
 
     @Async
-    public void onComment(Long userId, SocialPost post) {
+    public void onComment(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
         applySignal(userId, post, Constant.HLIG_W_COMMENT, topics, true);
         applyLanguageSignal(userId, post, Constant.HLIG_W_COMMENT * 0.5);
     }
 
     @Async
-    public void onSave(Long userId, SocialPost post) {
+    public void onSave(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
         applySignal(userId, post, Constant.HLIG_W_SAVE, topics, true);
         applyLanguageSignal(userId, post, Constant.HLIG_W_SAVE * 0.5);
     }
 
     @Async
-    public void onUnsave(Long userId, SocialPost post) {
+    public void onUnsave(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         applySignal(userId, post, Constant.HLIG_W_UNSAVE, topicExtractor.extract(post), false);
     }
 
     @Async
-    public void onShare(Long userId, SocialPost post) {
+    public void onShare(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
         applySignal(userId, post, Constant.HLIG_W_SHARE, topics, true);
         applyLanguageSignal(userId, post, Constant.HLIG_W_SHARE * 0.5);
     }
 
     @Async
-    public void onView(Long userId, SocialPost post) {
+    public void onView(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         applySignal(userId, post, Constant.HLIG_W_VIEW, topicExtractor.extract(post), true);
         applyLanguageSignal(userId, post, Constant.HLIG_W_VIEW * 0.5);
     }
 
     @Async
-    public void onScrolledPast(Long userId, SocialPost post) {
+    public void onScrolledPast(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         Map<String, Double> topics = topicExtractor.extractFromHashtagsOnly(post);
         if (topics.isEmpty()) return;
         applySignalWithTopics(userId, Constant.HLIG_W_SCROLL_PAST, topics, false);
     }
 
     @Async
-    public void onNotInterested(Long userId, SocialPost post) {
+    public void onNotInterested(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         applySignal(userId, post, Constant.HLIG_W_NOT_INTERESTED, topicExtractor.extract(post), false);
         log.info("User {} marked post {} as not interested", userId, post.getId());
     }
 
     @Async
-    public void onPostCreated(Long userId, SocialPost post) {
+    public void onPostCreated(Long userId, Long postId) {
+        SocialPost post = socialPostRepo.findById(postId).orElse(null);
+        if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
         applySignal(userId, post, Constant.HLIG_W_POST_CREATED, topics, true);
         applyLanguageSignal(userId, post, Constant.HLIG_W_POST_CREATED * 0.5);
