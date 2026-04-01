@@ -21,6 +21,7 @@ import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.payload.PostUtility;
 import com.JanSahayak.AI.payload.SocialPostUtility;
 import com.JanSahayak.AI.repository.PollRepository;
+import com.JanSahayak.AI.repository.CommunityMemberRepo;
 import com.JanSahayak.AI.repository.PollVoteRepository;
 import com.JanSahayak.AI.repository.SocialPostRepo;
 import com.JanSahayak.AI.repository.UserRepo;
@@ -48,6 +49,7 @@ public class SocialPostService {
     private final UserRepo                 userRepository;
     private final PollRepository           pollRepository;
     private final PollVoteRepository       pollVoteRepository;
+    private final CommunityMemberRepo      communityMemberRepository;
 
 
     private final ContentValidationService contentValidationService;
@@ -690,7 +692,7 @@ public class SocialPostService {
         final Set<Long>             fvp       = votedPollIds;
         final Map<Long, List<Long>> fvo       = votedOptionsMap;
 
-        return posts.stream()
+        List<SocialPostDto> dtos = posts.stream()
                 .map(post -> {
                     try {
                         if (post == null) return null;
@@ -711,6 +713,52 @@ public class SocialPostService {
                 })
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+
+        // ── Batch-enrich community posts with isMember flag (1 extra query for the whole page) ─
+        if (user != null) {
+            List<Long> communityPostIds = dtos.stream()
+                    .filter(d -> d.getCommunityId() != null)
+                    .map(SocialPostDto::getCommunityId)
+                    .distinct()
+                    .collect(Collectors.toList());
+
+            if (!communityPostIds.isEmpty()) {
+                try {
+                    Set<Long> memberCommunityIds = communityMemberRepository
+                            .findActiveByUserIdAndCommunityIdIn(user.getId(), communityPostIds)
+                            .stream()
+                            .map(cm -> cm.getCommunity().getId())
+                            .collect(Collectors.toSet());
+
+                    // ═════════════════════════════════════════════════════════════════════════
+                    // BATCH ENRICHMENT: Author roles in communities
+                    // ═════════════════════════════════════════════════════════════════════════
+                    List<Long> authorIds = posts.stream().map(p -> p.getAuthor().getId()).distinct().toList();
+                    List<CommunityMember> authorMemberships = communityMemberRepo.findActiveByUserIdInAndCommunityIdIn(
+                            authorIds, communityPostIds);
+
+                    // Map key: "userId_communityId" -> role
+                    Map<String, String> authorRoleMap = authorMemberships.stream()
+                            .collect(java.util.stream.Collectors.toMap(
+                                    cm -> cm.getUser().getId() + "_" + cm.getCommunity().getId(),
+                                    cm -> cm.getMemberRole().name(),
+                                    (r1, r2) -> r1)); // Should be unique per UK
+
+                    dtos.forEach(dto -> {
+                        if (dto.getCommunityId() != null) {
+                            dto.setIsMember(memberCommunityIds.contains(dto.getCommunityId()));
+                            
+                            String roleKey = dto.getAuthor().getId() + "_" + dto.getCommunityId();
+                            dto.setAuthorRole(authorRoleMap.getOrDefault(roleKey, null));
+                        }
+                    });
+                } catch (Exception e) {
+                    log.warn("[Community] batch membership enrichment failed: {}", e.getMessage());
+                }
+            }
+        }
+
+        return dtos;
     }
 
     private List<SocialPostDto> convertToDtoSimple(List<SocialPost> posts) {

@@ -81,17 +81,29 @@ public class SocialPostDto implements Serializable {
     private Date lastEngagedAt;
     private Long ageInHours;
 
-    // ── NEW: Post variant & poll payload ────────────────────────────────────
+    // ── Post variant & poll payload ────────────────────────────────────────────
     // variant tells the frontend PostCard HOW to render this post.
-    // Without this field, poll posts were falling through as "social" and
-    // rendering like/dislike buttons instead of poll options.
-    //
     // Possible values: "social" | "community" | "poll"
     @Builder.Default
     private String variant = "social";
 
     // Non-null only when variant = "poll"
     private PollSummaryDto poll;
+
+    // ── Community context fields ──────────────────────────────────────────────
+    // Populated when variant = "community" (or poll inside a community).
+    // communityId   — the community this post belongs to
+    // communityName — display name of the community
+    // communityAvatar — avatar URL of the community (may be null)
+    // communityMemberCount — total members (denormalized Integer, shown as a string on the card)
+    // isMember      — whether the requesting user is an active member of this community
+    // authorRole    — the post author's role inside the community ("MEMBER"/"MODERATOR"/"ADMIN")
+    private Long    communityId;
+    private String  communityName;
+    private String  communityAvatar;
+    private Integer communityMemberCount;
+    private Boolean isMember;     // user-specific; set in the service layer
+    private String  authorRole;   // user-specific; set in the service layer
 
     // ── Nested DTO ───────────────────────────────────────────────────────────
 
@@ -192,11 +204,40 @@ public class SocialPostDto implements Serializable {
         dto.setIsSavedByCurrentUser(isSaved);
         dto.setIsViewedByCurrentUser(isViewed);
 
-        // Derive community variant
+        // Derive community variant and populate community context fields
         if (socialPost.getCommunityId() != null) {
             dto.setVariant("community");
+            try {
+                com.JanSahayak.AI.model.Community c = socialPost.getCommunity();
+                if (c != null) {
+                    dto.setCommunityId(c.getId());
+                    dto.setCommunityName(c.getName());
+                    dto.setCommunityAvatar(c.getAvatarUrl());
+                    dto.setCommunityMemberCount(c.getMemberCount());
+                }
+            } catch (Exception ignored) {
+                // lazy-load guard: community fields remain null — safe to ignore
+            }
         }
 
+        return dto;
+    }
+
+    /**
+     * Enriches an existing DTO with user-specific membership context.
+     * Called from the service layer after batch-loading membership records,
+     * so PostCard can show the correct Join/Joined button state and author badge.
+     *
+     * @param isMember   true if the requesting user is an active, non-banned member
+     * @param authorRole the post author's role in the community (e.g. "MODERATOR"), or null
+     */
+    public static SocialPostDto enrichWithMembership(
+            SocialPostDto dto,
+            boolean isMember,
+            String authorRole) {
+        if (dto == null) return null;
+        dto.setIsMember(isMember);
+        dto.setAuthorRole(authorRole);
         return dto;
     }
 

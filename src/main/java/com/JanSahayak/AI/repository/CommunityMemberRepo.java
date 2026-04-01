@@ -20,6 +20,25 @@ public interface CommunityMemberRepo extends JpaRepository<CommunityMember, Long
 
     boolean existsByCommunityIdAndUserIdAndIsActiveTrueAndIsBannedFalse(Long communityId, Long userId);
 
+    /**
+     * Batch-loads membership records for a single user across multiple communities.
+     * Used by SocialPostService.convertToDtoBatch() to set isMember on community
+     * post DTOs without issuing a separate query per post.
+     *
+     * Only returns active, non-banned memberships.
+     */
+    @Query("""
+            SELECT cm FROM CommunityMember cm
+            WHERE cm.user.id       = :userId
+              AND cm.community.id IN :communityIds
+              AND cm.isActive      = true
+              AND cm.isBanned      = false
+            """)
+    List<CommunityMember> findActiveByUserIdAndCommunityIdIn(
+            @Param("userId")       Long userId,
+            @Param("communityIds") List<Long> communityIds);
+
+
 
     @Query("""
             SELECT cm FROM CommunityMember cm
@@ -81,4 +100,9 @@ public interface CommunityMemberRepo extends JpaRepository<CommunityMember, Long
             WHERE cm.community.id = :communityId AND cm.isActive = true
             """)
     List<Long> findActiveMemberUserIds(@Param("communityId") Long communityId);
+    @Query("SELECT cm FROM CommunityMember cm " +
+            "WHERE cm.user.id IN :userIds AND cm.community.id IN :communityIds AND cm.isActive = true")
+    List<CommunityMember> findActiveByUserIdInAndCommunityIdIn(
+            @Param("userIds") List<Long> userIds,
+            @Param("communityIds") List<Long> communityIds);
 }

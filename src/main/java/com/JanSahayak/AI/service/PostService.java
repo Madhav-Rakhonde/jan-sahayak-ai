@@ -1347,6 +1347,71 @@ public class PostService {
         }
     }
 
+    /**
+     * Official government feed — exclusively departments/admins, strictly geo-targeted.
+     * Waterfall: User's Pincode -> User's District -> User's State -> National.
+     */
+    public PaginatedResponse<PostResponse> getOfficialFeed(User user, Long beforeId, int limit) {
+        try {
+            PostUtility.validateUser(user);
+            pinCodeLookupService.populateUserLocationData(user);
+
+            int validLimit = Math.max(1, Math.min(limit, 50));
+
+            // Prep location data
+            String userPincode = user.getPincode();
+            String districtPrefix = (userPincode != null && userPincode.length() >= 3) ? userPincode.substring(0, 3) : null;
+            String statePrefix    = (userPincode != null && userPincode.length() >= 2) ? userPincode.substring(0, 2) : null;
+
+            Map<Long, Post> merged = new LinkedHashMap<>();
+
+            // 1. Area Level (Pincode) - Only if user has pincode
+            if (userPincode != null) {
+                List<Post> areaGov = postRepository.findOfficialAreaBroadcasts(BroadcastScope.AREA, PostStatus.ACTIVE, userPincode);
+                areaGov.forEach(p -> merged.put(p.getId(), p));
+            }
+
+            // 2. District Level
+            if (merged.size() < validLimit && districtPrefix != null) {
+                List<Post> districtGov = postRepository.findOfficialDistrictBroadcasts(BroadcastScope.DISTRICT, PostStatus.ACTIVE, districtPrefix);
+                districtGov.forEach(p -> merged.putIfAbsent(p.getId(), p));
+            }
+
+            // 3. State Level
+            if (merged.size() < validLimit && statePrefix != null) {
+                List<Post> stateGov = postRepository.findOfficialStateBroadcasts(BroadcastScope.STATE, PostStatus.ACTIVE, statePrefix);
+                stateGov.forEach(p -> merged.putIfAbsent(p.getId(), p));
+            }
+
+            // 4. National Level
+            if (merged.size() < validLimit) {
+                List<Post> nationalGov = postRepository.findOfficialCountryBroadcasts(BroadcastScope.COUNTRY, PostStatus.ACTIVE);
+                nationalGov.forEach(p -> merged.putIfAbsent(p.getId(), p));
+            }
+
+            // Filter by cursor, sort by ID desc, and limit
+            List<Post> finalPosts = merged.values().stream()
+                    .filter(p -> beforeId == null || p.getId() < beforeId)
+                    .sorted(Comparator.comparing(Post::getId).reversed())
+                    .limit(validLimit)
+                    .collect(Collectors.toList());
+
+                List<PostResponse> responses = finalPosts.stream()
+                        .map(p -> convertToPostResponse(p, user))
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+
+                boolean hasMore = responses.size() == validLimit;
+                Long nextCursor = hasMore ? responses.get(responses.size() - 1).getId() : null;
+                return PaginatedResponse.of(responses, hasMore, nextCursor, validLimit);
+
+        } catch (Exception e) {
+            log.error("[OfficialFeed] Failed for user={}", user != null ? user.getActualUsername() : "null", e);
+            return PaginationUtils.createEmptyResponse(Math.max(1, Math.min(limit, 50)));
+        }
+    }
+
+
     public PaginatedResponse<PostResponse> getIssuePostFeed(User user, Integer limit) {
         try {
             PostUtility.validateUser(user);

@@ -33,8 +33,10 @@ public class CommunityService {
     private final CommunityJoinRequestRepo      joinRequestRepo;
     private final UserRepo                      userRepo;
     private final SocialPostRepo                socialPostRepo;
+    private final PostLikeRepo                  postLikeRepo;            // Added
     private final CommunityHealthScoreService   healthScoreService;
     private final HyperlocalSeedService         hyperlocalSeedService;   // ← LOCATION PATCH
+
 
     // ── HLIG v2: Interest profile service ────────────────────────────────────
     // @Lazy breaks circular dependency:

@@ -276,6 +276,31 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             "ORDER BY p.createdAt DESC")
     List<Post> findGovernmentCountryBroadcasts(@Param("countryScope") BroadcastScope countryScope);
 
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+            "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
+            "p.targetPincodes LIKE CONCAT('%,', :pincode) OR p.targetPincodes = :pincode) AND " +
+            "p.user.role.name = 'ROLE_DEPARTMENT' ORDER BY p.createdAt DESC")
+    List<Post> findOfficialAreaBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("pincode") String pincode);
+
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+            "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
+            "p.targetDistricts LIKE CONCAT('%,', :prefix) OR p.targetDistricts = :prefix) AND " +
+            "p.user.role.name = 'ROLE_DEPARTMENT' ORDER BY p.createdAt DESC")
+    List<Post> findOfficialDistrictBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
+
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+            "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
+            "p.targetStates LIKE CONCAT('%,', :prefix) OR p.targetStates = :prefix) AND " +
+            "p.user.role.name = 'ROLE_DEPARTMENT' ORDER BY p.createdAt DESC")
+    List<Post> findOfficialStateBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
+
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+            "p.targetCountry = 'IN' AND p.user.role.name = 'ROLE_DEPARTMENT' " +
+            "ORDER BY p.createdAt DESC")
+    List<Post> findOfficialCountryBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status);
+
+
+
     @Query("SELECT COUNT(p) FROM Post p WHERE p.broadcastScope = :countryScope AND " +
             "p.targetCountry = 'IN' AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     Long countGovernmentCountryBroadcasts(@Param("countryScope") BroadcastScope countryScope);

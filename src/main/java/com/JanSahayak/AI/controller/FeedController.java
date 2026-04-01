@@ -220,6 +220,24 @@ public class FeedController {
         return ResponseEntity.ok(postService.getLocalFeed(user, beforeId, limit));
     }
 
+    /**
+     * Official government broadcasts only.
+     * Filtered by department/admin roles and user's geographic location.
+     *
+     * GET /api/v1/feed/official?beforeId={cursor}&limit=20
+     */
+    @GetMapping("/official")
+    public ResponseEntity<PaginatedResponse<PostResponse>> getOfficialFeed(
+            @AuthenticationPrincipal        User user,
+            @RequestParam(required = false)  Long beforeId,
+            @RequestParam(defaultValue = "20") int limit) {
+
+        limit = clampSize(limit);
+        log.debug("[Feed] OFFICIAL: userId={} beforeId={} limit={}", userId(user), beforeId, limit);
+        return ResponseEntity.ok(postService.getOfficialFeed(user, beforeId, limit));
+    }
+
+
     // =========================================================================
     // HLIG NEGATIVE SIGNAL ENDPOINTS  (fire-and-forget)
     // =========================================================================
