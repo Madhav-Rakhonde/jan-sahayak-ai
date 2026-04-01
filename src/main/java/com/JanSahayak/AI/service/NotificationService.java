@@ -632,7 +632,7 @@ public class NotificationService {
      * Send notification when a user is invited to a community.
      * Called by CommunityInviteService after a targeted (username) invite is created.
      */
-    // TEMP FOR DEBUGGING: Removed @Async to force the error to the UI
+    @Async
     @Transactional
     public void notifyCommunityInvite(com.JanSahayak.AI.model.CommunityInvite invite) {
 
@@ -670,9 +670,6 @@ public class NotificationService {
                     actionUrl,
                     managedInviter
             );
-            
-            // Force flush so we immediately discover any DB constraint exceptions
-            notificationRepository.flush();
 
             sendRealtimeNotification(notification);
 
@@ -682,8 +679,6 @@ public class NotificationService {
                     managedInviter != null ? managedInviter.getActualUsername() : "null");
         } catch (Exception ex) {
             log.error("Failed to execute notifyCommunityInvite due to exception:", ex);
-            // DEBUG: Throwing it so the frontend toast shows the exact error message!
-            throw new com.JanSahayak.AI.exception.ServiceException("DEBUG DB ERROR: " + ex.getMessage());
         }
     }
 
