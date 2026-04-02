@@ -28,6 +28,14 @@ public class InterestProfileService {
     private final SocialPostRepo          socialPostRepo;
     private final TopicExtractor          topicExtractor;
 
+    // Self-injection to fix proxy-bypass for @Transactional and @Async on internal calls
+    private InterestProfileService self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy InterestProfileService self) {
+        this.self = self;
+    }
+
     // FIX MEMORY LEAK #6 — needed for programmatic lang:: and nb:: cache eviction
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.context.ApplicationContext applicationContext;
@@ -35,94 +43,105 @@ public class InterestProfileService {
     // ── Signal handlers (all @Async) ──────────────────────────────────────────
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onLike(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
-        applySignal(userId, post, Constant.HLIG_W_LIKE, topics, true);
-        applyLanguageSignal(userId, post, Constant.HLIG_W_LIKE * 0.5);
+        self.applySignal(userId, post, Constant.HLIG_W_LIKE, topics, true);
+        self.applyLanguageSignal(userId, post, Constant.HLIG_W_LIKE * 0.5);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onDislike(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
-        applySignal(userId, post, Constant.HLIG_W_DISLIKE, topicExtractor.extract(post), false);
+        self.applySignal(userId, post, Constant.HLIG_W_DISLIKE, topicExtractor.extract(post), false);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onUnlike(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
-        applySignal(userId, post, Constant.HLIG_W_UNLIKE, topicExtractor.extract(post), false);
+        self.applySignal(userId, post, Constant.HLIG_W_UNLIKE, topicExtractor.extract(post), false);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onComment(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
-        applySignal(userId, post, Constant.HLIG_W_COMMENT, topics, true);
-        applyLanguageSignal(userId, post, Constant.HLIG_W_COMMENT * 0.5);
+        self.applySignal(userId, post, Constant.HLIG_W_COMMENT, topics, true);
+        self.applyLanguageSignal(userId, post, Constant.HLIG_W_COMMENT * 0.5);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onSave(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
-        applySignal(userId, post, Constant.HLIG_W_SAVE, topics, true);
-        applyLanguageSignal(userId, post, Constant.HLIG_W_SAVE * 0.5);
+        self.applySignal(userId, post, Constant.HLIG_W_SAVE, topics, true);
+        self.applyLanguageSignal(userId, post, Constant.HLIG_W_SAVE * 0.5);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onUnsave(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
-        applySignal(userId, post, Constant.HLIG_W_UNSAVE, topicExtractor.extract(post), false);
+        self.applySignal(userId, post, Constant.HLIG_W_UNSAVE, topicExtractor.extract(post), false);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onShare(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
-        applySignal(userId, post, Constant.HLIG_W_SHARE, topics, true);
-        applyLanguageSignal(userId, post, Constant.HLIG_W_SHARE * 0.5);
+        self.applySignal(userId, post, Constant.HLIG_W_SHARE, topics, true);
+        self.applyLanguageSignal(userId, post, Constant.HLIG_W_SHARE * 0.5);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onView(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
-        applySignal(userId, post, Constant.HLIG_W_VIEW, topicExtractor.extract(post), true);
-        applyLanguageSignal(userId, post, Constant.HLIG_W_VIEW * 0.5);
+        self.applySignal(userId, post, Constant.HLIG_W_VIEW, topicExtractor.extract(post), true);
+        self.applyLanguageSignal(userId, post, Constant.HLIG_W_VIEW * 0.5);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onScrolledPast(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
         Map<String, Double> topics = topicExtractor.extractFromHashtagsOnly(post);
         if (topics.isEmpty()) return;
-        applySignalWithTopics(userId, Constant.HLIG_W_SCROLL_PAST, topics, false);
+        self.applySignalWithTopics(userId, Constant.HLIG_W_SCROLL_PAST, topics, false);
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onNotInterested(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
-        applySignal(userId, post, Constant.HLIG_W_NOT_INTERESTED, topicExtractor.extract(post), false);
+        self.applySignal(userId, post, Constant.HLIG_W_NOT_INTERESTED, topicExtractor.extract(post), false);
         log.info("User {} marked post {} as not interested", userId, post.getId());
     }
 
     @Async
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onPostCreated(Long userId, Long postId) {
         SocialPost post = socialPostRepo.findById(postId).orElse(null);
         if (post == null) return;
         Map<String, Double> topics = topicExtractor.extract(post);
-        applySignal(userId, post, Constant.HLIG_W_POST_CREATED, topics, true);
-        applyLanguageSignal(userId, post, Constant.HLIG_W_POST_CREATED * 0.5);
+        self.applySignal(userId, post, Constant.HLIG_W_POST_CREATED, topics, true);
+        self.applyLanguageSignal(userId, post, Constant.HLIG_W_POST_CREATED * 0.5);
     }
 
     // ── Profile reads (cached) ────────────────────────────────────────────────
