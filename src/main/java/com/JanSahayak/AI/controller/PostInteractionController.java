@@ -241,6 +241,50 @@ public class PostInteractionController {
     }
 
     // =========================================================================
+    // LIKED & COMMENTED (For Activity Tab)
+    // =========================================================================
+
+    @GetMapping("/liked")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getLikedActivity(
+            @CurrentUser User currentUser,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        try {
+            Page<PostInteractionDto> socialLikes = interactionService.getLikedSocialPostsForUser(currentUser, page, size);
+            Page<PostInteractionDto> issueLikes  = interactionService.getLikedBroadcastPostsForUser(currentUser, page, size);
+            
+            return ok("Liked activity retrieved", Map.of(
+                "socialLikes", socialLikes,
+                "issueLikes", issueLikes
+            ));
+        } catch (Exception e) {
+            log.error("[Activity] getLikedActivity failed", e);
+            return err("Failed to retrieve liked activity", e.getMessage());
+        }
+    }
+
+    @GetMapping("/commented")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getCommentedActivity(
+            @CurrentUser User currentUser,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        try {
+            Page<PostInteractionDto> socialComments = interactionService.getCommentedSocialPostsForUser(currentUser, page, size);
+            Page<PostInteractionDto> issueComments  = interactionService.getCommentedBroadcastPostsForUser(currentUser, page, size);
+            
+            return ok("Commented activity retrieved", Map.of(
+                "socialComments", socialComments,
+                "issueComments", issueComments
+            ));
+        } catch (Exception e) {
+            log.error("[Activity] getCommentedActivity failed", e);
+            return err("Failed to retrieve commented activity", e.getMessage());
+        }
+    }
+
+    // =========================================================================
     // SHARE
     // =========================================================================
 

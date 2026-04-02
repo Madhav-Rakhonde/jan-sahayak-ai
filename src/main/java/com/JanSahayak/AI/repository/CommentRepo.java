@@ -59,13 +59,6 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
 
     /**
      * FIX: Added JOIN FETCH c.user to eliminate N lazy-load queries.
-     *
-     * The original findByPostOrderByCreatedAtAsc() returned Comment entities without
-     * fetching the user. Every call to comment.getUser().getActualUsername() (in
-     * CommentDto.fromComment()) then triggered a separate SELECT — one per comment.
-     * For a page of 20 comments = 20 extra queries.
-     *
-     * JOIN FETCH loads the user in the same query, reducing 20+1 queries to 1.
      */
     @Query("SELECT c FROM Comment c LEFT JOIN FETCH c.user WHERE c.post = :post ORDER BY c.createdAt DESC")
     List<Comment> findByPostOrderByCreatedAtDesc(@Param("post") Post post, Pageable pageable);
@@ -118,4 +111,10 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
 
     @Query("SELECT c FROM Comment c WHERE LOWER(c.text) LIKE LOWER(CONCAT('%', :searchTerm, '%')) AND c.id < :beforeId ORDER BY c.createdAt DESC")
     List<Comment> findByTextContainingIgnoreCaseAndIdLessThanOrderByCreatedAtDesc(@Param("searchTerm") String searchTerm, @Param("beforeId") Long beforeId, Pageable pageable);
+
+    @Query("SELECT c FROM Comment c WHERE c.socialPost IS NOT NULL AND c.user = :user ORDER BY c.createdAt DESC")
+    org.springframework.data.domain.Page<Comment> findBySocialPostNotNullAndUserOrderByCreatedAtDesc(@Param("user") User user, org.springframework.data.domain.Pageable pageable);
+
+    @Query("SELECT c FROM Comment c WHERE c.post IS NOT NULL AND c.user = :user ORDER BY c.createdAt DESC")
+    org.springframework.data.domain.Page<Comment> findByPostNotNullAndUserOrderByCreatedAtDesc(@Param("user") User user, org.springframework.data.domain.Pageable pageable);
 }

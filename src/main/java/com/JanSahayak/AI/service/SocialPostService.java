@@ -626,7 +626,7 @@ public class SocialPostService {
     // PRIVATE — DTO CONVERSION
     // =========================================================================
 
-    private SocialPostDto convertToDto(SocialPost post, User user) {
+    public SocialPostDto convertToDto(SocialPost post, User user) {
         if (post == null) return null;
         List<SocialPostDto> result = convertToDtoBatch(List.of(post), user);
         return result.isEmpty() ? null : result.get(0);

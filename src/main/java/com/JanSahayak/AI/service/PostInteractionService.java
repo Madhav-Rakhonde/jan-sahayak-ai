@@ -36,6 +36,7 @@ public class PostInteractionService {
     private final PostLikeRepo   postLikeRepository;
     private final SavedPostRepo  savedPostRepo;
     private final PostShareRepo  postShareRepo;
+    private final CommentRepo    commentRepo;
 
     @Lazy
     @Autowired
@@ -44,6 +45,14 @@ public class PostInteractionService {
     @Lazy
     @Autowired
     private InterestProfileService interestProfileService;
+
+    @Lazy
+    @Autowired
+    private PostService postService;
+
+    @Lazy
+    @Autowired
+    private SocialPostService socialPostService;
 
     // =========================================================================
     // VIEWS — REGULAR POST
@@ -608,6 +617,77 @@ public class PostInteractionService {
                 .content(content)
                 .type(type)
                 .build();
+    }
+
+    // ── Liked post listing ───────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public Page<PostInteractionDto> getLikedSocialPostsForUser(User user, int page, int size) {
+        validateUser(user);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
+        return postLikeRepository.findBySocialPostNotNullAndUserOrderByCreatedAtDesc(user, pageable)
+                .map(like -> convertToInteractionDto(like, "LIKE", "SOCIAL", user));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PostInteractionDto> getLikedBroadcastPostsForUser(User user, int page, int size) {
+        validateUser(user);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
+        return postLikeRepository.findByPostNotNullAndUserOrderByCreatedAtDesc(user, pageable)
+                .map(like -> convertToInteractionDto(like, "LIKE", "ISSUE", user));
+    }
+
+    // ── Commented post listing ────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public Page<PostInteractionDto> getCommentedSocialPostsForUser(User user, int page, int size) {
+        validateUser(user);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
+        return commentRepo.findBySocialPostNotNullAndUserOrderByCreatedAtDesc(user, pageable)
+                .map(c -> convertToInteractionDto(c, "COMMENT", "SOCIAL", user));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PostInteractionDto> getCommentedBroadcastPostsForUser(User user, int page, int size) {
+        validateUser(user);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
+        return commentRepo.findByPostNotNullAndUserOrderByCreatedAtDesc(user, pageable)
+                .map(c -> convertToInteractionDto(c, "COMMENT", "ISSUE", user));
+    }
+
+    private PostInteractionDto convertToInteractionDto(Object entity, String interactionType, String postType, User user) {
+        if (entity == null) return null;
+        
+        PostInteractionDto.PostInteractionDtoBuilder builder = PostInteractionDto.builder()
+                .interactionType(interactionType)
+                .postType(postType);
+
+        if (entity instanceof PostLike) {
+            PostLike like = (PostLike) entity;
+            builder.id(like.getId())
+                   .createdAt(like.getCreatedAt())
+                   .userId(like.getUser().getId());
+            if (like.getSocialPost() != null) {
+                builder.socialPost(socialPostService.convertToDto(like.getSocialPost(), user));
+                builder.content(like.getSocialPost().getContent());
+            } else if (like.getPost() != null) {
+                builder.post(postService.convertToPostResponse(like.getPost(), user));
+                builder.content(like.getPost().getContent());
+            }
+        } else if (entity instanceof Comment) {
+            Comment comment = (Comment) entity;
+            builder.id(comment.getId())
+                   .createdAt(comment.getCreatedAt())
+                   .userId(comment.getUser().getId())
+                   .content(comment.getText());
+            if (comment.getSocialPost() != null) {
+                builder.socialPost(socialPostService.convertToDto(comment.getSocialPost(), user));
+            } else if (comment.getPost() != null) {
+                builder.post(postService.convertToPostResponse(comment.getPost(), user));
+            }
+        }
+
+        return builder.build();
     }
 
     // ── Save counts ───────────────────────────────────────────────────────────

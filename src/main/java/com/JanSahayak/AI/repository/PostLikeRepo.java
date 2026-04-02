@@ -92,4 +92,12 @@ public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
     List<Long> findLikedPostIdsByUser(
             @Param("userId") Long userId,
             @Param("postIds") List<Long> postIds);
+
+    // =========================================================================
+    // USER ACTIVITY LOOKUPS
+    // =========================================================================
+
+    org.springframework.data.domain.Page<PostLike> findBySocialPostNotNullAndUserOrderByCreatedAtDesc(User user, org.springframework.data.domain.Pageable pageable);
+
+    org.springframework.data.domain.Page<PostLike> findByPostNotNullAndUserOrderByCreatedAtDesc(User user, org.springframework.data.domain.Pageable pageable);
 }
