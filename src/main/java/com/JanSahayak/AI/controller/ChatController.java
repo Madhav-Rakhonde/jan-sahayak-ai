@@ -92,7 +92,7 @@ public class ChatController {
                 return;
             }
             ChatMessage stored = chatSessionService.addMessage(
-                    session.getSessionId(), user.getId(), messageDto.getContent());
+                    session.getSessionId(), user.getId(), messageDto.getContent(), messageDto.getReplyToId());
             chatMessagingService.sendMessageToSession(session.getSessionId(), stored);
         } catch (Exception e) {
             log.error("Error processing message from user {}", user.getId(), e);
@@ -311,7 +311,8 @@ public class ChatController {
                     req.getMimeType(),
                     req.getMediaName(),
                     viewTimer,
-                    req.isViewOnce());
+                    req.isViewOnce(),
+                    req.getReplyToId());
 
             chatMessagingService.sendMediaToSession(sessionId, msg);
 
@@ -511,6 +512,8 @@ public class ChatController {
         private int     viewTimer  = 0;
         /** true = view-once mode (destroy on first open) */
         private boolean viewOnce   = false;
+        /** Optional: reference to another messageId */
+        private String  replyToId;
     }
 
     @lombok.Data

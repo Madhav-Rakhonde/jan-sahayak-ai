@@ -69,6 +69,12 @@ public class ChatMessage implements Serializable {
     /** Text content. Null for pure-media messages. */
     private String content;
 
+    /** 
+     * Optional: messageId of the message being replied to (Telegram-style).
+     * Relayed in-memory only — never persisted.
+     */
+    private String replyToId;
+
     /** Message type */
     private MessageType messageType;
 

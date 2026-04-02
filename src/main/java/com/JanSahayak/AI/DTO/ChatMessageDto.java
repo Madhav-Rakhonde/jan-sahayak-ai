@@ -20,6 +20,7 @@ public class ChatMessageDto {
     private String  content;        // null for media messages
     private String  messageType;    // ChatMessage.MessageType.name()
     private Instant timestamp;
+    private String  replyToId;      // optional: reference to another messageId
 
     // ── Media fields (null / 0 / false for text / system messages) ────────────
 

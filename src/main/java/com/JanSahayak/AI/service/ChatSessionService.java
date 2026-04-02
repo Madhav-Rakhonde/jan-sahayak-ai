@@ -140,7 +140,7 @@ public class ChatSessionService {
 
     // ── Text message ──────────────────────────────────────────────────────────
 
-    public ChatMessage addMessage(String sessionId, Long senderId, String content) {
+    public ChatMessage addMessage(String sessionId, Long senderId, String content, String replyToId) {
         ChatSession session = getSession(sessionId);
         if (session == null)            throw new RuntimeException("Session not found: " + sessionId);
         if (!session.hasUser(senderId)) throw new RuntimeException("User not part of this session");
@@ -148,6 +148,7 @@ public class ChatSessionService {
 
         String senderAnonymousId = session.getUserAnonymousId(senderId);
         ChatMessage message = ChatMessage.userMessage(sessionId, senderAnonymousId, content);
+        message.setReplyToId(replyToId);
         session.addMessage(message);
 
         // FIX MEMORY LEAK #1 — trim message list to cap so it never grows unbounded
@@ -200,7 +201,8 @@ public class ChatSessionService {
             String mimeType,
             String mediaName,
             int viewTimer,
-            boolean viewOnce) {
+            boolean viewOnce,
+            String replyToId) {
 
         ChatSession session = getSession(sessionId);
         if (session == null)            throw new RuntimeException("Session not found: " + sessionId);
@@ -218,6 +220,7 @@ public class ChatSessionService {
                 sessionId, senderAnonymousId, type,
                 mediaPayload, mimeType, mediaName,
                 viewTimer, viewOnce);
+        message.setReplyToId(replyToId);
 
         // Touch lastActivityAt so the session doesn't time out during media exchange
         session.setLastActivityAt(Instant.now());

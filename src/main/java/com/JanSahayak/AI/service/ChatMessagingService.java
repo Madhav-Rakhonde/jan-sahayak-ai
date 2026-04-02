@@ -77,6 +77,7 @@ public class ChatMessagingService {
                 .content(storedMessage.getContent())
                 .messageType(storedMessage.getMessageType().name())
                 .timestamp(storedMessage.getTimestamp())
+                .replyToId(storedMessage.getReplyToId())
                 .build();
 
         sendToUser(session.getUser1Id(), dto);
@@ -124,6 +125,7 @@ public class ChatMessagingService {
                 // ── Telegram-style timer/view-once ────────────────────────────
                 .viewTimer(mediaMessage.getViewTimer())
                 .viewOnce(mediaMessage.isViewOnce())
+                .replyToId(mediaMessage.getReplyToId())
                 .build();
 
         sendToUser(session.getUser1Id(), dto);
