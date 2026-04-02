@@ -289,10 +289,10 @@ public class InterestProfileService {
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
-    void applySignal(Long userId, SocialPost post, double baseWeight,
+    public void applySignal(Long userId, SocialPost post, double baseWeight,
                      Map<String, Double> topics, boolean isPositive) {
         if (topics.isEmpty()) return;
-        applySignalWithTopics(userId, baseWeight, topics, isPositive);
+        self.applySignalWithTopics(userId, baseWeight, topics, isPositive);
     }
 
     /**
@@ -314,22 +314,22 @@ public class InterestProfileService {
      * reduced to 1,000,000 — an 80% reduction in DB write load.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
-    void applySignalWithTopics(Long userId, double baseWeight,
+    public void applySignalWithTopics(Long userId, double baseWeight,
                                Map<String, Double> topics, boolean isPositive) {
         if (topics.isEmpty()) return;
         int sigDelta = isPositive ? 1 : 0;
 
-        // Build arrays for the batch upsert
-        String[] topicArr = topics.keySet().toArray(new String[0]);
-        double[] deltaArr = new double[topicArr.length];
-        for (int i = 0; i < topicArr.length; i++) {
-            double strength = topics.get(topicArr[i]);
-            double delta    = baseWeight * strength;
-            deltaArr[i]     = isPositive ? delta : -Math.abs(delta);
-        }
-
-        // Single batch upsert for all topics
-        repo.batchUpsertWeights(userId, topicArr, deltaArr, sigDelta);
+        // Execute sequentially to avoid Spring Data JPA native query array-binding exceptions
+        topics.forEach((topic, strength) -> {
+            double delta = baseWeight * strength;
+            double finalDelta = isPositive ? delta : -Math.abs(delta);
+            try {
+                repo.upsertWeight(userId, topic, finalDelta, sigDelta);
+            } catch (Exception e) {
+                log.warn("[HLIG] Failed to upsert topic '{}' for user {}: {}", topic, userId, e.getMessage());
+            }
+        });
+        
         evictProfileCache(userId);
     }
 

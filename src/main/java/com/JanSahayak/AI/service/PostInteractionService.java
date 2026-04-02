@@ -1,5 +1,6 @@
 package com.JanSahayak.AI.service;
 
+import com.JanSahayak.AI.DTO.*;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.exception.ResourceNotFoundException;
 import com.JanSahayak.AI.exception.ServiceException;
@@ -561,34 +562,52 @@ public class PostInteractionService {
     // ── Saved post listing ────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public Page<SavedPost> getSavedPostsForUser(User user, int page, int size) {
+    public Page<SavedPostDto> getSavedPostsForUser(User user, int page, int size) {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
-        return savedPostRepo.findByUserOrderBySavedAtDesc(user, pageable);
+        return savedPostRepo.findByUserOrderBySavedAtDesc(user, pageable)
+                .map(this::convertToDto);
     }
 
     @Transactional(readOnly = true)
-    public Page<SavedPost> getSavedPostsForUserWithCursor(User user, Long beforeId, int size) {
+    public Page<SavedPostDto> getSavedSocialPostsForUser(User user, int page, int size) {
         validateUser(user);
-        Pageable pageable = PageRequest.of(0, Math.min(size, 100));
-        if (beforeId == null || beforeId <= 0) {
-            return savedPostRepo.findByUserOrderBySavedAtDesc(user, pageable);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
+        return savedPostRepo.findSocialPostSavesByUserOrderBySavedAtDesc(user, pageable)
+                .map(this::convertToDto);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<SavedPostDto> getSavedBroadcastPostsForUser(User user, int page, int size) {
+        validateUser(user);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
+        return savedPostRepo.findBroadcastPostSavesByUserOrderBySavedAtDesc(user, pageable)
+                .map(this::convertToDto);
+    }
+
+    private SavedPostDto convertToDto(SavedPost sp) {
+        if (sp == null) return null;
+        
+        String content = "";
+        String type = "unknown";
+        
+        if (sp.isSocialPostSave() && sp.getSocialPost() != null) {
+            content = sp.getSocialPost().getContent();
+            type = "social";
+        } else if (sp.isBroadcastPostSave() && sp.getPost() != null) {
+            content = sp.getPost().getContent();
+            type = "issue";
         }
-        return savedPostRepo.findByUserAndIdLessThanOrderBySavedAtDesc(user, beforeId, pageable);
-    }
 
-    @Transactional(readOnly = true)
-    public Page<SavedPost> getSavedSocialPostsForUser(User user, int page, int size) {
-        validateUser(user);
-        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
-        return savedPostRepo.findSocialPostSavesByUserOrderBySavedAtDesc(user, pageable);
-    }
-
-    @Transactional(readOnly = true)
-    public Page<SavedPost> getSavedBroadcastPostsForUser(User user, int page, int size) {
-        validateUser(user);
-        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
-        return savedPostRepo.findBroadcastPostSavesByUserOrderBySavedAtDesc(user, pageable);
+        return SavedPostDto.builder()
+                .id(sp.getId())
+                .userId(sp.getUserId())
+                .socialPostId(sp.getSocialPostId())
+                .postId(sp.getPostId())
+                .savedAt(sp.getSavedAt())
+                .content(content)
+                .type(type)
+                .build();
     }
 
     // ── Save counts ───────────────────────────────────────────────────────────

@@ -293,21 +293,24 @@ public class SocialPostService {
         int validLimit = PaginationUtils.validateLimit(limit);
 
         try {
-            Page<SavedPost> page;
-            if (beforeId != null && beforeId > 0) {
-                page = postInteractionService.getSavedPostsForUserWithCursor(
-                        user, beforeId, validLimit);
-            } else {
-                page = postInteractionService.getSavedPostsForUser(user, 0, validLimit);
-            }
+            // PostInteractionService.getSavedPostsForUser returns Page<SavedPostDto>
+            Page<com.JanSahayak.AI.DTO.SavedPostDto> page =
+                    postInteractionService.getSavedPostsForUser(user, 0, validLimit);
 
-            List<SocialPostDto> dtos = page.getContent().stream()
-                    .filter(SavedPost::isSocialPostSave)
-                    .map(SavedPost::getSocialPost)
-                    .filter(Objects::nonNull)
-                    .map(sp -> convertToDto(sp, user))
+            // Collect social post IDs from the DTO page
+            List<Long> socialPostIds = page.getContent().stream()
+                    .filter(dto -> dto.getSocialPostId() != null)
+                    .map(com.JanSahayak.AI.DTO.SavedPostDto::getSocialPostId)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
+
+            // Batch-fetch the actual SocialPost entities and convert to DTOs
+            List<SocialPostDto> dtos = socialPostIds.isEmpty()
+                    ? new java.util.ArrayList<>()
+                    : socialPostRepository.findAllById(socialPostIds).stream()
+                            .map(sp -> convertToDto(sp, user))
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList());
 
             boolean hasMore    = page.hasNext();
             Long    nextCursor = hasMore && !dtos.isEmpty()

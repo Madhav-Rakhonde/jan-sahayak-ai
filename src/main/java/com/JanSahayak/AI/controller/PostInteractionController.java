@@ -1,5 +1,6 @@
 package com.JanSahayak.AI.controller;
 
+import com.JanSahayak.AI.DTO.*;
 import com.JanSahayak.AI.config.Constant;
 
 import com.JanSahayak.AI.exception.ApiResponse;
@@ -193,7 +194,7 @@ public class PostInteractionController {
 
     @GetMapping("/saved")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Page<SavedPost>>> getSavedPosts(
+    public ResponseEntity<ApiResponse<Page<SavedPostDto>>> getSavedPosts(
             @CurrentUser User currentUser,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -207,25 +208,9 @@ public class PostInteractionController {
         }
     }
 
-    @GetMapping("/saved/cursor")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Page<SavedPost>>> getSavedPostsCursor(
-            @CurrentUser User currentUser,
-            @RequestParam(required = false) Long beforeId,
-            @RequestParam(defaultValue = "20") int size) {
-
-        try {
-            return ok("Saved posts retrieved",
-                    interactionService.getSavedPostsForUserWithCursor(currentUser, beforeId, size));
-        } catch (Exception e) {
-            log.error("[Save] getSavedPostsCursor failed for user={}", currentUser.getActualUsername(), e);
-            return err("Failed to retrieve saved posts", e.getMessage());
-        }
-    }
-
     @GetMapping("/saved/social-posts")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Page<SavedPost>>> getSavedSocialPosts(
+    public ResponseEntity<ApiResponse<Page<SavedPostDto>>> getSavedSocialPosts(
             @CurrentUser User currentUser,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -241,7 +226,7 @@ public class PostInteractionController {
 
     @GetMapping("/saved/posts")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<Page<SavedPost>>> getSavedBroadcastPosts(
+    public ResponseEntity<ApiResponse<Page<SavedPostDto>>> getSavedBroadcastPosts(
             @CurrentUser User currentUser,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
