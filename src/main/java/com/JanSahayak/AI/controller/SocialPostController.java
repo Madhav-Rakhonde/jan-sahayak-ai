@@ -321,4 +321,38 @@ public class SocialPostController {
                     .body(ApiResponse.error("Failed to delete social post", e.getMessage()));
         }
     }
+
+    /**
+     * Get total count of social posts by a specific user
+     * GET /api/social-posts/count/user/{userId}
+     */
+    @GetMapping("/count/user/{userId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Long>> getSocialPostsCountByUser(@PathVariable Long userId) {
+        try {
+            Long count = socialPostService.countSocialPostsByUserId(userId);
+            return ResponseEntity.ok(ApiResponse.success("User social posts count retrieved", count));
+        } catch (Exception e) {
+            log.error("Failed to count social posts for user: {}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to count social posts", e.getMessage()));
+        }
+    }
+
+    /**
+     * Get total count of social posts by the current user
+     * GET /api/social-posts/count/my-posts
+     */
+    @GetMapping("/count/my-posts")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Long>> getMySocialPostsCount(@CurrentUser User currentUser) {
+        try {
+            Long count = socialPostService.countSocialPostsByUserId(currentUser.getId());
+            return ResponseEntity.ok(ApiResponse.success("Your social posts count retrieved", count));
+        } catch (Exception e) {
+            log.error("Failed to count social posts for current user", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to count your social posts", e.getMessage()));
+        }
+    }
 }

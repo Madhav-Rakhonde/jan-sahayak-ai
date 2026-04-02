@@ -1051,6 +1051,10 @@ public class PostService {
     public boolean isVideoFile(String fileName)      { return PostUtility.isVideoFile(fileName); }
     public String getMediaType(String fileName)      { return PostUtility.getMediaType(fileName); }
     public Map<String, Object> getMediaConstraints() { return PostUtility.createMediaConstraints(maxImageSize, maxVideoSize); }
+    
+    public Long countPostsByUser(User user) {
+        return postRepository.countByUser(user);
+    }
 
     // =========================================================================
     // DELETE

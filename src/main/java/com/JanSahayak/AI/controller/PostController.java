@@ -976,6 +976,37 @@ public class PostController {
         }
     }
 
+    @GetMapping("/count/user/{userId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<Long>> getPostsCountByUser(@PathVariable Long userId) {
+        try {
+            User user = userService.findById(userId);
+            Long count = postService.countPostsByUser(user);
+            return ResponseEntity.ok(ApiResponse.success("User posts count retrieved successfully", count));
+        } catch (UserNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("User not found", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to count posts for user: {}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to count posts", "Internal server error"));
+        }
+    }
+
+    @GetMapping("/count/my-posts")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<Long>> getMyPostsCount(@CurrentUser User user) {
+        try {
+            Long count = postService.countPostsByUser(user);
+            return ResponseEntity.ok(ApiResponse.success("Your posts count retrieved successfully", count));
+        } catch (Exception e) {
+            log.error("Failed to count posts for current user", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to count your posts", "Internal server error"));
+        }
+    }
+
     @PostMapping("/cleanup/files")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<String>> processFileCleanupQueue() {

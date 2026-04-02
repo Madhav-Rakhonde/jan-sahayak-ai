@@ -68,6 +68,14 @@ public class SocialPostService {
     private HLIGFeedService hligFeedService;
 
     // =========================================================================
+    // COUNT
+    // =========================================================================
+
+    public Long countSocialPostsByUserId(Long userId) {
+        return socialPostRepository.countByUserId(userId);
+    }
+
+    // =========================================================================
     // CREATE
     // =========================================================================
 
