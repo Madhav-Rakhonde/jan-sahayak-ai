@@ -471,6 +471,7 @@ public class ChatController {
                 .mediaName(message.getMediaName())
                 .viewTimer(message.getViewTimer())
                 .viewOnce(message.isViewOnce())
+                .replyToId(message.getReplyToId())
                 .build();
     }
 
