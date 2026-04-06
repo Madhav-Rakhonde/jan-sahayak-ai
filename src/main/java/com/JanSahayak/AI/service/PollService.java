@@ -82,26 +82,37 @@ public class PollService {
             throw new IllegalStateException("This poll is closed.");
         }
 
-        boolean alreadyVoted = pollVoteRepository.existsByPollIdAndUserId(pollId, voter.getId());
-        if (alreadyVoted) {
-            throw new IllegalStateException("You have already voted in this poll.");
+        // Check for existing votes (for re-voting/un-voting)
+        List<PollVote> existingVotes = pollVoteRepository.findByPollIdAndUserId(pollId, voter.getId());
+        if (!existingVotes.isEmpty()) {
+            for (PollVote vote : existingVotes) {
+                PollOption opt = vote.getPollOption();
+                opt.decrementVoteCount();
+                poll.decrementTotalVotes();
+            }
+            pollVoteRepository.deleteAll(existingVotes);
+            pollOptionRepository.saveAll(existingVotes.stream()
+                .map(PollVote::getPollOption)
+                .collect(Collectors.toList()));
+        }
+
+        // If optionIds is empty, we consider it an "un-vote" and return early
+        if (optionIds == null || optionIds.isEmpty()) {
+            Poll updatedPoll = pollRepository.save(poll);
+            return PollResponse.from(updatedPoll, false, true, List.of());
         }
 
         if (!Boolean.TRUE.equals(poll.getAllowMultipleVotes()) && optionIds.size() > 1) {
             throw new IllegalArgumentException("This poll only allows one choice.");
         }
 
-        // FIX: Load all options in one batch query instead of 1 SELECT per option in a loop.
-        // The old code called pollOptionRepository.findById(optionId) inside a for-loop,
-        // causing N individual SELECTs for N option IDs. findAllById() issues a single
-        // SELECT ... WHERE id IN (...) regardless of how many IDs are provided.
-        List<PollOption> options = pollOptionRepository.findAllById(optionIds);
-        if (options.size() != optionIds.size()) {
+        List<PollOption> newOptions = pollOptionRepository.findAllById(optionIds);
+        if (newOptions.size() != optionIds.size()) {
             throw new RuntimeException("One or more poll options not found.");
         }
 
         List<PollVote> votes = new ArrayList<>();
-        for (PollOption option : options) {
+        for (PollOption option : newOptions) {
             if (!option.getPoll().getId().equals(pollId)) {
                 throw new IllegalArgumentException("Option " + option.getId() + " does not belong to this poll.");
             }
@@ -114,15 +125,12 @@ public class PollService {
             poll.incrementTotalVotes();
         }
 
-        // FIX: Batch INSERT for all votes (was 1 INSERT per vote in a loop).
         pollVoteRepository.saveAll(votes);
-
-        // FIX: Batch UPDATE for all option vote counts (was 1 UPDATE per option in a loop).
-        pollOptionRepository.saveAll(options);
+        pollOptionRepository.saveAll(newOptions);
 
         Poll updatedPoll = pollRepository.save(poll);
         List<Long> votedIds = pollVoteRepository.findOptionIdsByPollIdAndUserId(pollId, voter.getId());
-        return PollResponse.from(updatedPoll, true, true, votedIds);
+        return PollResponse.from(updatedPoll, !votedIds.isEmpty(), true, votedIds);
     }
 
 

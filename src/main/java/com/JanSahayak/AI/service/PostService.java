@@ -250,8 +250,8 @@ public class PostService {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllBroadcastPosts", beforeId, limit);
             List<Post> posts = setup.hasCursor()
-                    ? postRepository.findByBroadcastScopeIsNotNullAndIdLessThanOrderByCreatedAtDesc(setup.getSanitizedCursor(), setup.toPageable())
-                    : postRepository.findByBroadcastScopeIsNotNullOrderByCreatedAtDesc(setup.toPageable());
+                    ? postRepository.findByBroadcastScopeIsNotNullAndStatusAndIdLessThanOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeIsNotNullAndStatusOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllBroadcastPosts", posts, response.isHasMore(), response.getNextCursor());
             return response;
@@ -281,8 +281,8 @@ public class PostService {
             PostUtility.validateBroadcastScope(scope);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getBroadcastPostsByScope", beforeId, limit);
             List<Post> posts = setup.hasCursor()
-                    ? postRepository.findByBroadcastScopeAndIdLessThanOrderByCreatedAtDesc(scope, setup.getSanitizedCursor(), setup.toPageable())
-                    : postRepository.findByBroadcastScopeOrderByCreatedAtDesc(scope, setup.toPageable());
+                    ? postRepository.findByBroadcastScopeAndStatusAndIdLessThanOrderByCreatedAtDesc(scope, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeAndStatusOrderByCreatedAtDesc(scope, PostStatus.ACTIVE, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getBroadcastPostsByScope", posts, response.isHasMore(), response.getNextCursor());
             return response;
@@ -334,8 +334,8 @@ public class PostService {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllCountryWideBroadcasts", beforeId, limit);
             List<Post> posts = setup.hasCursor()
-                    ? postRepository.findByBroadcastScopeAndTargetCountryAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY, setup.getSanitizedCursor(), setup.toPageable())
-                    : postRepository.findByBroadcastScopeAndTargetCountryOrderByCreatedAtDesc(BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY, setup.toPageable());
+                    ? postRepository.findByBroadcastScopeAndStatusAndTargetCountryAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.COUNTRY, PostStatus.ACTIVE, Constant.DEFAULT_TARGET_COUNTRY, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeAndStatusAndTargetCountryOrderByCreatedAtDesc(BroadcastScope.COUNTRY, PostStatus.ACTIVE, Constant.DEFAULT_TARGET_COUNTRY, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllCountryWideBroadcasts", posts, response.isHasMore(), response.getNextCursor());
             return response;
@@ -373,10 +373,9 @@ public class PostService {
             String statePrefix = statePrefixes.get(0);
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeAndTargetStatesContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.STATE, statePrefix, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByBroadcastScopeAndStatusAndTargetStatesContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.STATE, PostStatus.ACTIVE, statePrefix, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByBroadcastScopeAndTargetStatesContainingOrderByCreatedAtDesc(BroadcastScope.STATE, statePrefix);
-                posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
+                posts = postRepository.findByBroadcastScopeAndStatusAndTargetStatesContainingOrderByCreatedAtDesc(BroadcastScope.STATE, PostStatus.ACTIVE, statePrefix, setup.toPageable());
             }
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getStateLevelBroadcasts", posts, response.isHasMore(), response.getNextCursor());
@@ -396,8 +395,8 @@ public class PostService {
             List<Post> allDistrictPosts = new ArrayList<>();
             for (String prefix : districtPrefixes) {
                 List<Post> posts = setup.hasCursor()
-                        ? postRepository.findByBroadcastScopeAndTargetDistrictsContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.DISTRICT, prefix, setup.getSanitizedCursor(), setup.toPageable())
-                        : postRepository.findByBroadcastScopeAndTargetDistrictsContainingOrderByCreatedAtDesc(BroadcastScope.DISTRICT, prefix);
+                        ? postRepository.findByBroadcastScopeAndStatusAndTargetDistrictsContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.DISTRICT, PostStatus.ACTIVE, prefix, setup.getSanitizedCursor(), setup.toPageable())
+                        : postRepository.findByBroadcastScopeAndStatusAndTargetDistrictsContainingOrderByCreatedAtDesc(BroadcastScope.DISTRICT, PostStatus.ACTIVE, prefix, setup.toPageable());
                 if (posts != null) allDistrictPosts.addAll(posts);
             }
             List<Post> distinctPosts = allDistrictPosts.stream().distinct().limit(setup.getValidatedLimit()).collect(Collectors.toList());
@@ -416,10 +415,9 @@ public class PostService {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAreaLevelBroadcasts", beforeId, limit);
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByBroadcastScopeAndTargetPincodesContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.AREA, pincode, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingAndIdLessThanOrderByCreatedAtDesc(BroadcastScope.AREA, PostStatus.ACTIVE, pincode, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByBroadcastScopeAndTargetPincodesContainingOrderByCreatedAtDesc(BroadcastScope.AREA, pincode);
-                posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
+                posts = postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(BroadcastScope.AREA, PostStatus.ACTIVE, pincode, setup.toPageable());
             }
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAreaLevelBroadcasts", posts, response.isHasMore(), response.getNextCursor());
@@ -766,6 +764,11 @@ public class PostService {
     public PostResponse getPostByIdForUser(Long postId, User currentUser) {
         try {
             Post post = findById(postId);
+            if (post.getStatus() == PostStatus.DELETED || post.getStatus() == PostStatus.FLAGGED) {
+                log.debug("[Access] Deleted/Flagged post={} denied for user={}",
+                        postId, currentUser != null ? currentUser.getActualUsername() : "anonymous");
+                throw new PostNotFoundException("Post not found with ID: " + postId);
+            }
             if (post.getStatus() == PostStatus.RESOLVED && !canViewResolvedPost(post, currentUser)) {
                 log.debug("[Access] Resolved post={} denied for user={}",
                         postId, currentUser != null ? currentUser.getActualUsername() : "anonymous");
@@ -804,8 +807,8 @@ public class PostService {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllPosts", beforeId, limit);
             List<Post> posts = setup.hasCursor()
-                    ? postRepository.findByIdLessThanOrderByCreatedAtDesc(setup.getSanitizedCursor(), setup.toPageable())
-                    : postRepository.findAllOrderByCreatedAtDesc(setup.toPageable());
+                    ? postRepository.findByStatusAndIdLessThanOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByStatusOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllPosts", posts, response.isHasMore(), response.getNextCursor());
             return response;
@@ -849,12 +852,13 @@ public class PostService {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsByUser", beforeId, limit);
+            List<PostStatus> visibleStatuses = Arrays.asList(PostStatus.ACTIVE, PostStatus.RESOLVED);
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByUserWithUserAndIdLessThanOrderByCreatedAtDesc(
-                        user, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByUserWithUserAndStatusInAndIdLessThanOrderByCreatedAtDesc(
+                        user, visibleStatuses, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByUserWithUserOrderByCreatedAtDesc(user);
+                posts = postRepository.findByUserWithUserAndStatusInOrderByCreatedAtDesc(user, visibleStatuses);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
@@ -939,9 +943,9 @@ public class PostService {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsWithMultipleUserTags", beforeId, limit);
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findPostsWithMultipleUserTagsAndIdLessThan(setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findPostsWithMultipleUserTagsAndIdLessThan(PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findPostsWithMultipleUserTags();
+                posts = postRepository.findPostsWithMultipleUserTags(PostStatus.ACTIVE);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
@@ -959,8 +963,8 @@ public class PostService {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getTrendingPosts", beforeId, limit, Constant.DEFAULT_FEED_LIMIT, 1000);
             LocalDateTime startDate = LocalDateTime.now().minus(days, ChronoUnit.DAYS);
             List<Post> posts = setup.hasCursor()
-                    ? postRepository.findTrendingPostsWithCursor(Timestamp.valueOf(startDate), setup.getSanitizedCursor(), setup.toPageable())
-                    : postRepository.findTrendingPosts(Timestamp.valueOf(startDate), setup.toPageable());
+                    ? postRepository.findTrendingPostsWithCursor(Timestamp.valueOf(startDate), PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findTrendingPosts(Timestamp.valueOf(startDate), PostStatus.ACTIVE, setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getTrendingPosts", posts, response.isHasMore(), response.getNextCursor());
             return response;
@@ -1192,6 +1196,7 @@ public class PostService {
                     .canComment(post.getStatus() == PostStatus.ACTIVE)
                     .canShare(post.getStatus() == PostStatus.ACTIVE)
                     .canSave(post.isGovernmentBroadcast() && post.getStatus() == PostStatus.ACTIVE)
+                    .canDelete(currentUser != null && (PostUtility.isPostOwner(post, currentUser) || PostUtility.isAdmin(currentUser)))
 
                     .timeAgo(PostUtility.calculateTimeAgo(post.getCreatedAt()))
                     .isVisibleToCurrentUser(currentUser != null && PostUtility.isPostVisibleToUser(post, currentUser));

@@ -76,6 +76,7 @@ public class SocialPostDto implements Serializable {
     private Boolean isLikedByCurrentUser;
     private Boolean isSavedByCurrentUser;
     private Boolean isViewedByCurrentUser;
+    private Boolean canDelete;
 
     // Timestamps
     private Date lastEngagedAt;

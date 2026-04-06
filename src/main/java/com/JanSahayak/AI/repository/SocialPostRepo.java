@@ -20,10 +20,11 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // BASIC QUERIES
     // =========================================================================
 
-    List<SocialPost> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+    List<SocialPost> findByUserIdAndStatusInOrderByCreatedAtDesc(
+            Long userId, List<PostStatus> statuses, Pageable pageable);
 
-    List<SocialPost> findByUserIdAndIdLessThanOrderByCreatedAtDesc(
-            Long userId, Long id, Pageable pageable);
+    List<SocialPost> findByUserIdAndStatusInAndIdLessThanOrderByCreatedAtDesc(
+            Long userId, List<PostStatus> statuses, Long id, Pageable pageable);
 
     List<SocialPost> findByStatusOrderByCreatedAtDesc(PostStatus status, Pageable pageable);
 

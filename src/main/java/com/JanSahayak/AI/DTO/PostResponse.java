@@ -163,6 +163,12 @@ public class PostResponse {
     private Boolean canShare;
 
     /**
+     * NEW — true when the post can be deleted by the requesting user.
+     * Only true if the user is the owner, department, or admin.
+     */
+    private Boolean canDelete;
+
+    /**
      * NEW — true when the post can be bookmarked by the requesting user.
      * Only government broadcast posts (isGovernmentBroadcast == true) are saveable.
      * Issue posts always have canSave = false.
@@ -247,6 +253,10 @@ public class PostResponse {
     /** True when this post can be bookmarked (broadcast posts only). */
     public boolean getCanSave() {
         return canSave != null && canSave;
+    }
+
+    public boolean getCanDelete() {
+        return canDelete != null && canDelete;
     }
 
     public int getLikeCount() {

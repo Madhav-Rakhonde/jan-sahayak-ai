@@ -36,38 +36,39 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.status = :status ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullAndStatusOrderByCreatedAtDesc(@Param("status") PostStatus status);
 
-    List<Post> findByBroadcastScopeOrderByCreatedAtDesc(BroadcastScope scope);
+    List<Post> findByBroadcastScopeAndStatusOrderByCreatedAtDesc(
+            BroadcastScope broadcastScope, PostStatus status);
 
     List<Post> findByBroadcastScopeAndStatusOrderByCreatedAtDesc(
             BroadcastScope broadcastScope, PostStatus status, Pageable pageable);
 
     // ===== Pincode Prefix Broadcasting Query Methods =====
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
             "p.targetStates LIKE CONCAT('%,', :prefix) OR " +
             "p.targetStates = :prefix) " +
             "ORDER BY p.createdAt DESC")
-    List<Post> findByBroadcastScopeAndTargetStatesContainingOrderByCreatedAtDesc(
-            @Param("scope") BroadcastScope scope, @Param("prefix") String prefix);
+    List<Post> findByBroadcastScopeAndStatusAndTargetStatesContainingOrderByCreatedAtDesc(
+            @Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT('%,', :prefix) OR " +
             "p.targetDistricts = :prefix) " +
             "ORDER BY p.createdAt DESC")
-    List<Post> findByBroadcastScopeAndTargetDistrictsContainingOrderByCreatedAtDesc(
-            @Param("scope") BroadcastScope scope, @Param("prefix") String prefix);
+    List<Post> findByBroadcastScopeAndStatusAndTargetDistrictsContainingOrderByCreatedAtDesc(
+            @Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT('%,', :pincode) OR " +
             "p.targetPincodes = :pincode) " +
             "ORDER BY p.createdAt DESC")
-    List<Post> findByBroadcastScopeAndTargetPincodesContainingOrderByCreatedAtDesc(
-            @Param("scope") BroadcastScope scope, @Param("pincode") String pincode);
+    List<Post> findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(
+            @Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("pincode") String pincode);
 
     // ===== Efficient User Visibility Query Methods =====
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
@@ -143,8 +144,14 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findAllOrderByCreatedAtDesc(Pageable pageable);
 
     // ===== User Tagging Query Methods =====
-    @Query("SELECT p FROM Post p WHERE SIZE(p.userTags) > 1")
-    List<Post> findPostsWithMultipleUserTags();
+    @Query("SELECT p FROM Post p WHERE SIZE(p.userTags) > 1 AND p.status = :status")
+    List<Post> findPostsWithMultipleUserTags(@Param("status") PostStatus status);
+
+    @Query("SELECT p FROM Post p WHERE SIZE(p.userTags) > 1 AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
+    List<Post> findPostsWithMultipleUserTagsAndIdLessThan(
+            @Param("status") PostStatus status,
+            @Param("beforeId") Long beforeId,
+            Pageable pageable);
 
     @Query("SELECT DISTINCT p FROM Post p " +
             "JOIN p.userTags ut " +
@@ -154,9 +161,17 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findPostsTaggedWithUser(@Param("user") User user);
 
     // ===== Trending and Analytics Methods =====
-    @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate " +
+    @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate AND p.status = :status " +
             "ORDER BY (p.likeCount + p.commentCount + p.viewCount) DESC")
-    List<Post> findTrendingPosts(@Param("startDate") Timestamp startDate, Pageable pageable);
+    List<Post> findTrendingPosts(@Param("startDate") Timestamp startDate, @Param("status") PostStatus status, Pageable pageable);
+
+    @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate AND p.status = :status AND p.id < :beforeId " +
+            "ORDER BY (p.likeCount + p.commentCount + p.viewCount) DESC")
+    List<Post> findTrendingPostsWithCursor(
+            @Param("startDate") Timestamp startDate,
+            @Param("status") PostStatus status,
+            @Param("beforeId") Long beforeId,
+            Pageable pageable);
 
     @Query("SELECT " +
             "SUM(CASE WHEN p.userTags IS NOT EMPTY THEN 1 ELSE 0 END), " +
@@ -169,12 +184,8 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     // ===== Search Methods for PostSearchService =====
     List<Post> findByStatusAndContentContainingIgnoreCaseOrderByCreatedAtDesc(PostStatus status, String content);
     List<Post> findByUserInAndStatusOrderByCreatedAtDesc(List<User> users, PostStatus status);
-    List<Post> findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(
-            BroadcastScope broadcastScope, PostStatus status, String pincode);
-    List<Post> findByBroadcastScopeAndStatusAndTargetStatesContainingOrderByCreatedAtDesc(
-            BroadcastScope broadcastScope, PostStatus status, String statePrefix);
-    List<Post> findByBroadcastScopeAndStatusAndTargetDistrictsContainingOrderByCreatedAtDesc(
-            BroadcastScope broadcastScope, PostStatus status, String districtPrefix);
+    // Note: The 3-param versions of findByBroadcastScopeAndStatus*Containing* are defined
+    // with @Query above (lines 46‑71). No un-annotated duplicates here.
     List<Post> findByStatusAndCreatedAtAfterOrderByCreatedAtDesc(PostStatus status, Date fromDate);
     List<Post> findByStatusOrderByCreatedAtDesc(PostStatus status);
     List<Post> findByUserInOrderByCreatedAtDesc(List<User> users);
@@ -367,6 +378,15 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findByBroadcastScopeIsNotNullAndStatusOrderByCreatedAtDesc(
             @Param("status") PostStatus status, Pageable pageable);
 
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role " +
+            "WHERE p.broadcastScope = :scope AND p.status = :status AND p.id < :beforeId " +
+            "ORDER BY p.createdAt DESC")
+    List<Post> findByBroadcastScopeAndStatusAndIdLessThanOrderByCreatedAtDesc(
+            @Param("scope") BroadcastScope scope,
+            @Param("status") PostStatus status,
+            @Param("beforeId") Long beforeId,
+            Pageable pageable);
+
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeAndIdLessThanOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope,
@@ -443,8 +463,9 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
-    @Query("SELECT p FROM Post p WHERE SIZE(p.userTags) > 1 AND p.id < :beforeId ORDER BY p.createdAt DESC")
-    List<Post> findPostsWithMultipleUserTagsAndIdLessThan(
+    @Query("SELECT p FROM Post p WHERE SIZE(p.userTags) > 1 AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
+    List<Post> findPostsWithMultipleUserTagsAndIdLessThanLegacy(
+            @Param("status") PostStatus status,
             @Param("beforeId") Long beforeId, Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.user = :user AND p.broadcastScope IS NOT NULL AND p.id < :beforeId ORDER BY p.createdAt DESC")
@@ -469,10 +490,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
-    @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate AND p.id < :beforeId " +
+    @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate AND p.status = :status AND p.id < :beforeId " +
             "ORDER BY (p.likeCount + p.commentCount + p.viewCount) DESC")
-    List<Post> findTrendingPostsWithCursor(
+    List<Post> findTrendingPostsWithCursorLegacy(
             @Param("startDate") Timestamp startDate,
+            @Param("status") PostStatus status,
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
@@ -921,4 +943,16 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("status") PostStatus status,
             @Param("beforeId") Long beforeId,
             Pageable pageable);
+
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u WHERE p.user = :user AND p.status IN :statuses AND p.id < :beforeId ORDER BY p.createdAt DESC")
+    List<Post> findByUserWithUserAndStatusInAndIdLessThanOrderByCreatedAtDesc(
+            @Param("user") User user,
+            @Param("statuses") List<PostStatus> statuses,
+            @Param("beforeId") Long beforeId,
+            Pageable pageable);
+
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u WHERE p.user = :user AND p.status IN :statuses ORDER BY p.createdAt DESC")
+    List<Post> findByUserWithUserAndStatusInOrderByCreatedAtDesc(
+            @Param("user") User user,
+            @Param("statuses") List<PostStatus> statuses);
 }

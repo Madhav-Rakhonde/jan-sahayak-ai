@@ -726,6 +726,28 @@ public class PostController {
         }
     }
 
+    @DeleteMapping("/{postId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deletePost(
+            @PathVariable Long postId,
+            @CurrentUser User user) {
+        try {
+            log.info("Deleting post: {} by user: {}", postId, user.getActualUsername());
+            postService.softDeletePost(postId, user);
+            return ResponseEntity.ok(ApiResponse.success("Post deleted successfully", null));
+        } catch (PostNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Post not found", e.getMessage()));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("Access denied", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to delete post: {}", postId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to delete post", "Internal server error"));
+        }
+    }
+
     @PutMapping("/{postId}/resolution")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PostResponse>> updatePostResolution(

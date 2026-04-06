@@ -251,6 +251,10 @@ public class SocialPostService {
         try {
             SocialPostUtility.validateSocialPostId(postId);
             SocialPost socialPost = findById(postId);
+            if (socialPost.getStatus() == PostStatus.DELETED || socialPost.getStatus() == PostStatus.FLAGGED) {
+                log.debug("[Access] Social post={} is {} — access denied", postId, socialPost.getStatus());
+                throw new PostNotFoundException("Social post not found with ID: " + postId);
+            }
 
             if (user != null && !SocialPostUtility.isSocialPostVisibleToUser(socialPost, user)) {
                 throw new SecurityException(
@@ -308,6 +312,7 @@ public class SocialPostService {
             List<SocialPostDto> dtos = socialPostIds.isEmpty()
                     ? new java.util.ArrayList<>()
                     : socialPostRepository.findAllById(socialPostIds).stream()
+                            .filter(sp -> sp.getStatus() == PostStatus.ACTIVE)
                             .map(sp -> convertToDto(sp, user))
                             .filter(Objects::nonNull)
                             .collect(Collectors.toList());
@@ -446,9 +451,7 @@ public class SocialPostService {
             List<SocialPost> posts = fetchUserPosts(userId, setup);
 
             List<SocialPostDto> postDtos = posts.stream()
-                    .filter(post -> post.getStatus() == PostStatus.ACTIVE ||
-                            (currentUser != null &&
-                                    SocialPostUtility.isSocialPostOwner(post, currentUser)))
+                    .filter(post -> post.getStatus() == PostStatus.ACTIVE)
                     .map(post -> currentUser != null
                             ? convertToDto(post, currentUser)
                             : SocialPostDto.fromSocialPost(post))
@@ -712,8 +715,12 @@ public class SocialPostService {
                         List<Long> votedIds = hasVoted
                                 ? fvo.getOrDefault(poll.getId(), List.of())
                                 : List.of();
-                        return SocialPostDto.fromSocialPostWithInteractions(
+                        SocialPostDto dto = SocialPostDto.fromSocialPostWithInteractions(
                                 post, isLiked, isSaved, isViewed, poll, hasVoted, votedIds);
+                        if (dto != null) {
+                            dto.setCanDelete(SocialPostUtility.canUserDeleteSocialPost(post, user));
+                        }
+                        return dto;
                     } catch (Exception e) {
                         log.warn("Failed to convert post {} to DTO: {}", post.getId(), e.getMessage());
                         return null;
@@ -895,11 +902,12 @@ public class SocialPostService {
     }
 
     private List<SocialPost> fetchUserPosts(Long userId, PaginationUtils.PaginationSetup setup) {
+        List<PostStatus> visibleStatuses = List.of(PostStatus.ACTIVE);
         return setup.hasCursor()
-                ? socialPostRepository.findByUserIdAndIdLessThanOrderByCreatedAtDesc(
-                userId, setup.getSanitizedCursor(), setup.toPageable())
-                : socialPostRepository.findByUserIdOrderByCreatedAtDesc(
-                userId, setup.toPageable());
+                ? socialPostRepository.findByUserIdAndStatusInAndIdLessThanOrderByCreatedAtDesc(
+                userId, visibleStatuses, setup.getSanitizedCursor(), setup.toPageable())
+                : socialPostRepository.findByUserIdAndStatusInOrderByCreatedAtDesc(
+                userId, visibleStatuses, setup.toPageable());
     }
 
     private List<SocialPost> fetchPostsByHashtag(

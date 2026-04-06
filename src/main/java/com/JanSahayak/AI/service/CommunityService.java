@@ -498,8 +498,13 @@ public class CommunityService {
         List<SocialPost> raw = socialPostRepo.findCommunityPostsCursor(
                 communityId, setup.getSanitizedCursor(), pageable);
 
+        List<Long> postIds = raw.stream().map(SocialPost::getId).collect(Collectors.toList());
+        Set<Long> likedPostIds = (requesterId != null && !postIds.isEmpty()) 
+                ? new java.util.HashSet<>(postLikeRepo.findLikedSocialPostIdsByUser(requesterId, postIds))
+                : java.util.Collections.emptySet();
+
         List<CommunityPostResponse> mapped = raw.stream()
-                .map(p -> toPostResponse(p, requesterId))
+                .map(p -> toPostResponse(p, requesterId, likedPostIds.contains(p.getId())))
                 .collect(Collectors.toList());
 
         return PaginationUtils.createIdBasedResponse(
@@ -532,8 +537,13 @@ public class CommunityService {
                 cursorScore != null ? cursorScore : Double.MAX_VALUE,
                 pageable);
 
+        List<Long> postIds = raw.stream().map(SocialPost::getId).collect(Collectors.toList());
+        Set<Long> likedPostIds = (requesterId != null && !postIds.isEmpty()) 
+                ? new java.util.HashSet<>(postLikeRepo.findLikedSocialPostIdsByUser(requesterId, postIds))
+                : java.util.Collections.emptySet();
+
         List<CommunityPostResponse> mapped = raw.stream()
-                .map(p -> toPostResponse(p, requesterId))
+                .map(p -> toPostResponse(p, requesterId, likedPostIds.contains(p.getId())))
                 .collect(Collectors.toList());
 
         return PaginationUtils.createIdBasedResponse(
@@ -771,7 +781,7 @@ public class CommunityService {
      * @param post        the entity fetched from the database
      * @param requesterId the authenticated caller's user-id (null for anonymous visitors)
      */
-    private CommunityPostResponse toPostResponse(SocialPost post, Long requesterId) {
+    private CommunityPostResponse toPostResponse(SocialPost post, Long requesterId, boolean isLiked) {
         User author = post.getUser();
 
         // Build the lightweight community attribution badge
@@ -807,7 +817,7 @@ public class CommunityService {
                 .commentCount(post.getCommentCount() != null ? post.getCommentCount() : 0)
                 .shareCount(post.getShareCount() != null ? post.getShareCount() : 0)
                 // Viewer-context
-                .isLikedByMe(false)
+                .isLikedByMe(isLiked)
                 .isPendingApproval(false)
                 .isMyPost(requesterId != null
                         && author != null && requesterId.equals(author.getId()))
