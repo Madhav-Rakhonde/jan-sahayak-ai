@@ -12,7 +12,7 @@ import com.JanSahayak.AI.service.SocialPostService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import com.JanSahayak.AI.security.CurrentUser;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -99,7 +99,7 @@ public class FeedController {
      */
     @GetMapping("/for-you")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getForYouFeed(
-            @AuthenticationPrincipal            User     user,
+            @CurrentUser            User     user,
             @RequestParam(defaultValue = "HOT") FeedSort sort,
             @RequestParam(required = false)     Long     lastPostId,
             @RequestParam(defaultValue = "20")  int      size) {
@@ -125,7 +125,7 @@ public class FeedController {
      */
     @GetMapping("/location")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getLocationFeed(
-            @AuthenticationPrincipal            User     user,
+            @CurrentUser            User     user,
             @RequestParam(defaultValue = "HOT") FeedSort sort,
             @RequestParam(required = false)     Long     lastPostId,
             @RequestParam(defaultValue = "20")  int      size) {
@@ -151,7 +151,7 @@ public class FeedController {
      */
     @GetMapping("/following")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getFollowingFeed(
-            @AuthenticationPrincipal            User     user,
+            @CurrentUser            User     user,
             @RequestParam(defaultValue = "HOT") FeedSort sort,
             @RequestParam(required = false)     Long     lastPostId,
             @RequestParam(defaultValue = "20")  int      size) {
@@ -175,7 +175,7 @@ public class FeedController {
     @GetMapping("/user/{userId}")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getUserFeed(
             @PathVariable                   Long userId,
-            @AuthenticationPrincipal        User currentUser,
+            @CurrentUser                    User currentUser,
             @RequestParam(required = false)  Long beforeId,
             @RequestParam(defaultValue = "20") int limit) {
 
@@ -192,7 +192,7 @@ public class FeedController {
     @GetMapping("/hashtag/{hashtag}")
     public ResponseEntity<PaginatedResponse<SocialPostDto>> getHashtagFeed(
             @PathVariable                   String hashtag,
-            @AuthenticationPrincipal        User   user,
+            @CurrentUser                    User   user,
             @RequestParam(required = false)  Long   beforeId,
             @RequestParam(defaultValue = "20") int  limit) {
 
@@ -211,7 +211,7 @@ public class FeedController {
      */
     @GetMapping("/local")
     public ResponseEntity<PaginatedResponse<PostResponse>> getLocalFeed(
-            @AuthenticationPrincipal        User user,
+            @CurrentUser        User user,
             @RequestParam(required = false)  Long beforeId,
             @RequestParam(defaultValue = "20") int limit) {
 
@@ -228,7 +228,7 @@ public class FeedController {
      */
     @GetMapping("/official")
     public ResponseEntity<PaginatedResponse<PostResponse>> getOfficialFeed(
-            @AuthenticationPrincipal        User user,
+            @CurrentUser        User user,
             @RequestParam(required = false)  Long beforeId,
             @RequestParam(defaultValue = "20") int limit) {
 
@@ -251,7 +251,7 @@ public class FeedController {
      */
     @PostMapping("/signal/scroll-past")
     public ResponseEntity<Void> recordScrolledPast(
-            @AuthenticationPrincipal User              user,
+            @CurrentUser User              user,
             @RequestBody             Map<String, Long> body) {
 
         Long postId = body.get("postId");
@@ -271,7 +271,7 @@ public class FeedController {
      */
     @PostMapping("/signal/not-interested")
     public ResponseEntity<Map<String, Object>> recordNotInterested(
-            @AuthenticationPrincipal User              user,
+            @CurrentUser User              user,
             @RequestBody             Map<String, Long> body) {
 
         Long postId = body.get("postId");
