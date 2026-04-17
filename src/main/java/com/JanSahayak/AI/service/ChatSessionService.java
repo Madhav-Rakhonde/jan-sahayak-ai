@@ -417,6 +417,35 @@ public class ChatSessionService {
         if (!toExpire.isEmpty()) log.info("Expired {} inactive sessions", toExpire.size());
     }
 
+    /**
+     * Admin emergency kill switch — force-ends ALL active and disconnected sessions.
+     * Called by AdminController.forceEndAllChatSessions().
+     *
+     * @return the number of sessions that were terminated
+     */
+    public int forceEndAllSessions() {
+        List<String> toEnd = new ArrayList<>(activeSessions.keySet());
+        int count = 0;
+        for (String sid : toEnd) {
+            ChatSession session = activeSessions.get(sid);
+            if (session != null) {
+                try {
+                    session.end();
+                } catch (Exception e) {
+                    log.warn("Error ending session {} during force-end-all", sid, e);
+                }
+                userSessionMap.remove(session.getUser1Id());
+                userSessionMap.remove(session.getUser2Id());
+                emailCache.remove(session.getUser1Id());
+                emailCache.remove(session.getUser2Id());
+                activeSessions.remove(sid);
+                count++;
+            }
+        }
+        log.warn("Force-ended ALL chat sessions — {} sessions terminated", count);
+        return count;
+    }
+
     public void cleanupEndedSessions() {
         List<String> toRemove = new ArrayList<>();
         Instant cutoff = Instant.now().minusSeconds(60);

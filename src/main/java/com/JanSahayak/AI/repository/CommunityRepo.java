@@ -127,6 +127,10 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
     @Query("UPDATE Community c SET c.newMembersLast7d = 0, c.postsLast7d = 0, c.activePostersLast7d = 0 WHERE c.status = com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE")
     void resetWeeklyCounters();
 
+    // ── Admin stats ──────────────────────────────────────────────────────────
+    @Query("SELECT COUNT(c) FROM Community c WHERE c.status = :status")
+    long countByStatus(@Param("status") Community.CommunityStatus status);
+
     // ==========================================================================
     // ===== UNIFIED SEARCH — CURSOR-BASED (used by SearchService) ==============
     // ==========================================================================

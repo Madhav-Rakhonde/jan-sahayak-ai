@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -288,6 +289,13 @@ public interface UserRepo extends JpaRepository<User, Long> {
 
     @Query("SELECT COUNT(u) FROM User u WHERE u.isActive = true")
     long countActiveUsers();
+
+    @Query("SELECT COUNT(u) FROM User u JOIN u.role r WHERE r.name = :roleName AND u.isActive = true")
+    long countActiveByRoleName(@Param("roleName") String roleName);
+
+    @Query("SELECT COUNT(u) FROM User u JOIN u.role r WHERE r.name = :roleName AND u.isActive = true " +
+           "AND (u.updatedAt >= :since OR u.createdAt >= :since)")
+    long countActiveByRoleNameAndActiveSince(@Param("roleName") String roleName, @Param("since") Date since);
 
     @Query("SELECT COUNT(u) FROM User u WHERE u.createdAt > :since")
     long countUsersCreatedAfter(@Param("since") Timestamp since);

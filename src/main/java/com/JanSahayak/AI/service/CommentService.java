@@ -603,14 +603,17 @@ public class CommentService {
             }
             // ─────────────────────────────────────────────────────────────────
 
+            int totalCommentsToDelete = 1 + countDescendants(comment);
+
             // ── Decrement parent entity's comment counter ─────────────────────
             if (comment.getPost() != null) {
                 Post post = comment.getPost();
-                post.decrementCommentCount();
+                post.setCommentCount(Math.max(0, post.getCommentCount() - totalCommentsToDelete));
                 postRepository.save(post);
             } else if (comment.getSocialPost() != null) {
                 SocialPost socialPost = comment.getSocialPost();
-                socialPost.decrementCommentCount();
+                socialPost.setCommentCount(Math.max(0, socialPost.getCommentCount() - totalCommentsToDelete));
+                socialPost.recalculateEngagementScore();
                 socialPostRepository.save(socialPost);
             }
             // ─────────────────────────────────────────────────────────────────
@@ -627,6 +630,17 @@ public class CommentService {
             log.error("Unexpected error while deleting comment: {}", commentId, ex);
             throw new ServiceException("Failed to delete comment", ex);
         }
+    }
+
+    private int countDescendants(Comment comment) {
+        if (comment.getReplies() == null || comment.getReplies().isEmpty()) {
+            return 0;
+        }
+        int count = comment.getReplies().size();
+        for (Comment reply : comment.getReplies()) {
+            count += countDescendants(reply);
+        }
+        return count;
     }
 
     @Transactional(rollbackFor = Exception.class)
