@@ -124,6 +124,24 @@ public class SocialPostService {
             if (savedPost.getCommunityId() != null) {
                 try {
                     communityService.onPostPublished(savedPost, savedPost.getCommunityId());
+                    
+                    try {
+                        String communityName = communityService.findCommunityForPost(savedPost.getCommunityId(), user)
+                                .map(com.JanSahayak.AI.model.Community::getName)
+                                .orElse("your community");
+                                
+                        List<Long> memberUserIds = communityMemberRepo.findActiveMemberUserIds(savedPost.getCommunityId());
+                        List<Long> targetUserIds = memberUserIds.stream()
+                                .filter(id -> !id.equals(user.getId()))
+                                .collect(Collectors.toList());
+                                
+                        if (!targetUserIds.isEmpty()) {
+                            notificationService.notifyCommunityNewPost(savedPost, targetUserIds, communityName);
+                        }
+                    } catch (Exception ne) {
+                        log.warn("Failed to schedule community new post notifications for post={}: {}", savedPost.getId(), ne.getMessage());
+                    }
+                    
                 } catch (Exception e) {
                     log.warn("[Community] onPostPublished failed for post={} community={}: {}",
                             savedPost.getId(), savedPost.getCommunityId(), e.getMessage());

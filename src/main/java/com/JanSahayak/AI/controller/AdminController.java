@@ -13,7 +13,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -66,7 +65,6 @@ public class AdminController {
      * landing page stat cards.
      */
     @GetMapping("/dashboard/overview")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Object>>> getDashboardOverview() {
         try {
             Map<String, Object> stats = new LinkedHashMap<>();
@@ -127,7 +125,6 @@ public class AdminController {
      * Uses cursor-based pagination.
      */
     @GetMapping("/departments")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getDepartments(
             @RequestParam(required = false) String state,
             @RequestParam(required = false) String district,
@@ -173,7 +170,6 @@ public class AdminController {
      * Does not cascade-delete posts/comments — they remain for audit trail.
      */
     @DeleteMapping("/users/{userId}")
-    @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> deleteUser(@PathVariable Long userId) {
         try {
             // Prevent self-deletion
@@ -340,7 +336,6 @@ public class AdminController {
      * this endpoint only returns citizen chat metrics.
      */
     @GetMapping("/chat/daily-active-users")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Object>>> getDailyActiveUsers() {
         try {
             Map<String, Object> dau = new LinkedHashMap<>();
@@ -381,7 +376,6 @@ public class AdminController {
      * as a reasonable proxy for the monthly eligible chat demographic.
      */
     @GetMapping("/chat/monthly-active-users")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Object>>> getMonthlyActiveUsers() {
         try {
             Map<String, Object> mau = new LinkedHashMap<>();
@@ -416,7 +410,6 @@ public class AdminController {
      * Each service is pinged via a lightweight check (count query, method call, etc.)
      */
     @GetMapping("/system/health")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Object>>> getSystemHealth() {
         try {
             Map<String, Object> health = new LinkedHashMap<>();
@@ -476,7 +469,6 @@ public class AdminController {
      *  - File cleanup runs
      */
     @GetMapping("/activity/recent")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getRecentActivity() {
         try {
             // Placeholder — returns an empty list until audit infrastructure is built
@@ -501,7 +493,6 @@ public class AdminController {
      * Returns aggregate community statistics for the admin Communities page.
      */
     @GetMapping("/communities/stats")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Object>>> getCommunityStats() {
         try {
             Map<String, Object> stats = new LinkedHashMap<>();
@@ -568,7 +559,6 @@ public class AdminController {
      * This is normally handled by CommunityHealthScoreService's scheduled task.
      */
     @PostMapping("/communities/reset-counters")
-    @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> resetCommunityCounters() {
         try {
             long communitiesReset = communityRepository.countByStatus(

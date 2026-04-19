@@ -9,6 +9,7 @@ import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.payload.PostUtility;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,24 +41,11 @@ public class PinCodeLookupService {
 
         log.debug("Finding all pincodes with cursor: {}, limit: {}", beforePincode, setup.getValidatedLimit());
 
-        List<PincodeLookup> pincodes;
-        if (beforePincode != null) {
-            // Repository method needed: findByPincodeLessThanOrderByPincodeDesc
-            // pincodes = pincodeLookupRepository.findByPincodeLessThanOrderByPincodeDesc(beforePincode, PageRequest.of(0, validatedLimit));
-            pincodes = pincodeLookupRepository.findAll();
-            pincodes = pincodes.stream()
-                    .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
-                    .collect(Collectors.toList());
-        } else {
-            // Repository method needed: findAllByOrderByPincodeDesc
-            // pincodes = pincodeLookupRepository.findAllByOrderByPincodeDesc(PageRequest.of(0, validatedLimit));
-            pincodes = pincodeLookupRepository.findAll().stream()
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
-                    .collect(Collectors.toList());
-        }
+        // FIX: Use DB-level cursor pagination instead of loading all rows into heap.
+        List<PincodeLookup> pincodes = pincodeLookupRepository.findCursorPage(
+                beforePincode,
+                PageRequest.of(0, (int) setup.getValidatedLimit())
+        );
 
         return PaginationUtils.createIdBasedResponse(pincodes, setup.getValidatedLimit(),
                 pincode -> Long.valueOf(pincode.getPincode()));
@@ -69,24 +57,12 @@ public class PinCodeLookupService {
 
         log.debug("Finding active pincodes with cursor: {}, limit: {}", beforePincode, setup.getValidatedLimit());
 
-        List<PincodeLookup> pincodes;
-        if (beforePincode != null) {
-            // Repository method needed: findByIsActiveTrueAndPincodeLessThanOrderByPincodeDesc
-            // pincodes = pincodeLookupRepository.findByIsActiveTrueAndPincodeLessThanOrderByPincodeDesc(beforePincode, PageRequest.of(0, validatedLimit));
-            pincodes = pincodeLookupRepository.findByIsActiveTrue();
-            pincodes = pincodes.stream()
-                    .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
-                    .collect(Collectors.toList());
-        } else {
-            // Repository method needed: findByIsActiveTrueOrderByPincodeDesc
-            // pincodes = pincodeLookupRepository.findByIsActiveTrueOrderByPincodeDesc(PageRequest.of(0, validatedLimit));
-            pincodes = pincodeLookupRepository.findByIsActiveTrue().stream()
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
-                    .collect(Collectors.toList());
-        }
+        // FIX: Use paginated DB query, then stream-filter for isActive = true (active pincode share is high).
+        List<PincodeLookup> pincodes = pincodeLookupRepository
+                .findByIsActiveTrue(PageRequest.of(0, (int) setup.getValidatedLimit()))
+                .stream()
+                .filter(p -> beforePincode == null || p.getPincode().compareTo(beforePincode) < 0)
+                .collect(Collectors.toList());
 
         return PaginationUtils.createIdBasedResponse(pincodes, setup.getValidatedLimit(),
                 pincode -> Long.valueOf(pincode.getPincode()));
@@ -107,18 +83,19 @@ public class PinCodeLookupService {
 
         List<PincodeLookup> pincodes;
         if (beforePincode != null) {
-            // Repository method needed: findByAreaNameContainingIgnoreCaseAndIsActiveTrueAndPincodeLessThanOrderByPincodeDesc
-            pincodes = pincodeLookupRepository.findByAreaNameContainingIgnoreCaseAndIsActiveTrue(searchTerm);
-            pincodes = pincodes.stream()
+            pincodes = pincodeLookupRepository
+                    .findByAreaNameContainingIgnoreCaseAndIsActiveTrue(searchTerm,
+                            PageRequest.of(0, (int) setup.getValidatedLimit() * 2))
+                    .stream()
                     .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         } else {
-            pincodes = pincodeLookupRepository.findByAreaNameContainingIgnoreCaseAndIsActiveTrue(searchTerm)
+            pincodes = pincodeLookupRepository
+                    .findByAreaNameContainingIgnoreCaseAndIsActiveTrue(searchTerm,
+                            PageRequest.of(0, (int) setup.getValidatedLimit()))
                     .stream()
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         }
 
@@ -139,17 +116,19 @@ public class PinCodeLookupService {
 
         List<PincodeLookup> pincodes;
         if (beforePincode != null) {
-            pincodes = pincodeLookupRepository.findByCityContainingIgnoreCaseAndIsActiveTrue(searchTerm);
-            pincodes = pincodes.stream()
+            pincodes = pincodeLookupRepository
+                    .findByCityContainingIgnoreCaseAndIsActiveTrue(searchTerm,
+                            PageRequest.of(0, (int) setup.getValidatedLimit() * 2))
+                    .stream()
                     .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         } else {
-            pincodes = pincodeLookupRepository.findByCityContainingIgnoreCaseAndIsActiveTrue(searchTerm)
+            pincodes = pincodeLookupRepository
+                    .findByCityContainingIgnoreCaseAndIsActiveTrue(searchTerm,
+                            PageRequest.of(0, (int) setup.getValidatedLimit()))
                     .stream()
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         }
 
@@ -170,17 +149,19 @@ public class PinCodeLookupService {
 
         List<PincodeLookup> pincodes;
         if (beforePincode != null) {
-            pincodes = pincodeLookupRepository.findByDistrictIgnoreCaseAndIsActiveTrue(searchTerm);
-            pincodes = pincodes.stream()
+            pincodes = pincodeLookupRepository
+                    .findByDistrictIgnoreCaseAndIsActiveTrue(searchTerm,
+                            PageRequest.of(0, (int) setup.getValidatedLimit() * 2))
+                    .stream()
                     .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         } else {
-            pincodes = pincodeLookupRepository.findByDistrictIgnoreCaseAndIsActiveTrue(searchTerm)
+            pincodes = pincodeLookupRepository
+                    .findByDistrictIgnoreCaseAndIsActiveTrue(searchTerm,
+                            PageRequest.of(0, (int) setup.getValidatedLimit()))
                     .stream()
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         }
 
@@ -201,17 +182,19 @@ public class PinCodeLookupService {
 
         List<PincodeLookup> pincodes;
         if (beforePincode != null) {
-            pincodes = pincodeLookupRepository.findByStateIgnoreCaseAndIsActiveTrue(searchTerm);
-            pincodes = pincodes.stream()
+            pincodes = pincodeLookupRepository
+                    .findByStateIgnoreCaseAndIsActiveTrue(searchTerm,
+                            PageRequest.of(0, (int) setup.getValidatedLimit() * 2))
+                    .stream()
                     .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         } else {
-            pincodes = pincodeLookupRepository.findByStateIgnoreCaseAndIsActiveTrue(searchTerm)
+            pincodes = pincodeLookupRepository
+                    .findByStateIgnoreCaseAndIsActiveTrue(searchTerm,
+                            PageRequest.of(0, (int) setup.getValidatedLimit()))
                     .stream()
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         }
 
@@ -296,12 +279,12 @@ public class PinCodeLookupService {
         // This reduces heap usage from O(ALL_PINCODES) to O(DISTRICT_PINCODES).
         String districtPrefix = pincode.length() >= 3 ? pincode.substring(0, 3) : pincode;
         List<PincodeLookup> candidates = pincodeLookupRepository
-                .findByPincodeStartingWithAndIsActiveTrue(districtPrefix);
+                .findByPincodeStartingWithAndIsActiveTrue(districtPrefix, PageRequest.of(0, 500));
 
         // If the district slice is too small (rural area) widen to state prefix
         if (candidates.size() < setup.getValidatedLimit()) {
             String statePrefix = pincode.length() >= 2 ? pincode.substring(0, 2) : pincode;
-            candidates = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(statePrefix);
+            candidates = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(statePrefix, PageRequest.of(0, 2000));
         }
 
         List<PincodeLookup> nearbyPincodes = candidates.stream()
@@ -314,6 +297,22 @@ public class PinCodeLookupService {
 
         return PaginationUtils.createIdBasedResponse(nearbyPincodes, setup.getValidatedLimit(),
                 pincodeObj -> Long.valueOf(pincodeObj.getPincode()));
+    }
+
+    /**
+     * Specialized version of nearby search for matchmaking.
+     * Returns a flat Set of 6-digit pincode strings within the radius.
+     * Uses a fixed 20km radius and caps at 100 results for speed.
+     */
+    public java.util.Set<String> getNearbyPincodeStrings(String pincode) {
+        if (pincode == null) return java.util.Collections.emptySet();
+        
+        // Find nearby pincodes with a 20km radius, capped at 100 candidates
+        List<PincodeLookup> nearby = findNearbyPincodes(pincode, 20.0, null, 100).getData();
+        
+        return nearby.stream()
+                .map(PincodeLookup::getPincode)
+                .collect(Collectors.toSet());
     }
 
     public PaginatedResponse<PincodeLookup> findByStateAndDistrict(String state, String district, String beforePincode, Integer limit) {
@@ -331,19 +330,19 @@ public class PinCodeLookupService {
 
         List<PincodeLookup> pincodes;
         if (beforePincode != null) {
-            pincodes = pincodeLookupRepository.findByStateIgnoreCaseAndDistrictIgnoreCaseAndIsActiveTrue(
-                    stateSearch, districtSearch);
-            pincodes = pincodes.stream()
+            pincodes = pincodeLookupRepository
+                    .findByStateIgnoreCaseAndDistrictIgnoreCaseAndIsActiveTrue(stateSearch, districtSearch,
+                            PageRequest.of(0, (int) setup.getValidatedLimit() * 2))
+                    .stream()
                     .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
-                    .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         } else {
-            pincodes = pincodeLookupRepository.findByStateIgnoreCaseAndDistrictIgnoreCaseAndIsActiveTrue(
-                            stateSearch, districtSearch)
+            pincodes = pincodeLookupRepository
+                    .findByStateIgnoreCaseAndDistrictIgnoreCaseAndIsActiveTrue(stateSearch, districtSearch,
+                            PageRequest.of(0, (int) setup.getValidatedLimit()))
                     .stream()
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                    .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         }
 
@@ -365,14 +364,14 @@ public class PinCodeLookupService {
 
         List<PincodeLookup> pincodes;
         if (beforePincode != null) {
-            pincodes = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(statePrefix);
+            pincodes = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(statePrefix, PageRequest.of(0, (int) setup.getValidatedLimit() * 2));
             pincodes = pincodes.stream()
                     .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         } else {
-            pincodes = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(statePrefix)
+            pincodes = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(statePrefix, PageRequest.of(0, (int) setup.getValidatedLimit()))
                     .stream()
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
@@ -395,14 +394,14 @@ public class PinCodeLookupService {
 
         List<PincodeLookup> pincodes;
         if (beforePincode != null) {
-            pincodes = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(districtPrefix);
+            pincodes = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(districtPrefix, PageRequest.of(0, (int) setup.getValidatedLimit() * 2));
             pincodes = pincodes.stream()
                     .filter(p -> p.getPincode().compareTo(beforePincode) < 0)
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
         } else {
-            pincodes = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(districtPrefix)
+            pincodes = pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(districtPrefix, PageRequest.of(0, (int) setup.getValidatedLimit()))
                     .stream()
                     .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
                     .limit(setup.getValidatedLimit())
@@ -423,13 +422,28 @@ public class PinCodeLookupService {
 
         log.debug("Finding by pincode prefixes: {}, cursor: {}, limit: {}", prefixes, beforePincode, setup.getValidatedLimit());
 
-        List<PincodeLookup> allPincodes = prefixes.stream()
-                .filter(prefix -> prefix != null && prefix.matches("\\d{2,6}"))
-                .flatMap(prefix -> pincodeLookupRepository.findByPincodeStartingWithAndIsActiveTrue(prefix).stream())
+        // FIX: Issue a single DB query with OR-prefix matching instead of N sequential calls.
+        // Take up to 3 distinct prefixes (degenerate input guard).
+        List<String> validPrefixes = prefixes.stream()
+                .filter(p -> p != null && p.matches("\\d{2,6}"))
                 .distinct()
+                .limit(3)
+                .collect(Collectors.toList());
+
+        if (validPrefixes.isEmpty()) {
+            return PaginationUtils.createCustomResponse(List.of(), false, null, 0);
+        }
+
+        // Pad to exactly 3 params (findByAnyPrefixAndIsActiveTrue always needs 3)
+        String p1 = validPrefixes.get(0);
+        String p2 = validPrefixes.size() > 1 ? validPrefixes.get(1) : null;
+        String p3 = validPrefixes.size() > 2 ? validPrefixes.get(2) : null;
+
+        List<PincodeLookup> allPincodes = pincodeLookupRepository.findByAnyPrefixAndIsActiveTrue(
+                p1, p2, p3,
+                PageRequest.of(0, (int) setup.getValidatedLimit()))
+                .stream()
                 .filter(p -> beforePincode == null || p.getPincode().compareTo(beforePincode) < 0)
-                .sorted((p1, p2) -> p2.getPincode().compareTo(p1.getPincode()))
-                .limit(setup.getValidatedLimit())
                 .collect(Collectors.toList());
 
         return PaginationUtils.createIdBasedResponse(allPincodes, setup.getValidatedLimit(),
@@ -437,37 +451,40 @@ public class PinCodeLookupService {
     }
 
     // ===== Statistics and Analytics =====
-
     public PincodeStatsDto getStatistics() {
-        // FIX MEMORY LEAK #5 — previously loaded ALL pincodes into heap twice (findAll()
-        // + two group-by stream passes).  We still need a full scan for aggregate stats,
-        // but we now avoid creating intermediate lists: a single stream pass over the
-        // lazy-loaded Iterable collects all aggregates at once.
-        // For very large datasets (>500k rows) this should be replaced with native DB
-        // COUNT/GROUP BY queries on the repository instead.
-        List<PincodeLookup> allPincodes = pincodeLookupRepository.findAll();
-        long activeCount = 0L;
-        Map<String, Long> byState    = new LinkedHashMap<>();
-        Map<String, Long> byDistrict = new LinkedHashMap<>();
+        // FIX MEMORY LEAK #5 (final fix) — replaced findAll() + Java-stream aggregation
+        // with native DB COUNT and GROUP BY queries. Zero rows are loaded into Java heap;
+        // all math happens inside PostgreSQL.
+        long activeCount   = pincodeLookupRepository.countActivePincodes();
+        long inactiveCount = pincodeLookupRepository.countInactivePincodes();
+        long totalCount    = activeCount + inactiveCount;
 
-        for (PincodeLookup p : allPincodes) {
-            if (Boolean.TRUE.equals(p.getIsActive())) {
-                activeCount++;
-                byState.merge(p.getState(), 1L, Long::sum);
-                byDistrict.merge(p.getState() + " - " + p.getDistrict(), 1L, Long::sum);
-            }
+        // Build state map from DB GROUP BY
+        List<Object[]> byStateRows = pincodeLookupRepository.countActivePincodesByState();
+        Map<String, Long> byState = new LinkedHashMap<>();
+        for (Object[] row : byStateRows) {
+            byState.put((String) row[0], (Long) row[1]);
+        }
+
+        // Build district map from DB GROUP BY (key: "State - District")
+        List<Object[]> byDistrictRows = pincodeLookupRepository.countActivePincodesByDistrict();
+        Map<String, Long> byDistrict = new LinkedHashMap<>();
+        for (Object[] row : byDistrictRows) {
+            String key = row[0] + " - " + row[1];
+            byDistrict.put(key, (Long) row[2]);
         }
 
         return PincodeStatsDto.builder()
-                .totalPincodes((long) allPincodes.size())
+                .totalPincodes(totalCount)
                 .activePincodes(activeCount)
-                .inactivePincodes(allPincodes.size() - activeCount)
+                .inactivePincodes(inactiveCount)
                 .pincodesByState(byState)
                 .pincodesByDistrict(byDistrict)
                 .totalStates((long) byState.size())
                 .totalDistricts((long) byDistrict.size())
                 .build();
     }
+
 
     public List<String> getAllStates() {
         // Note: State/district lists don't need pagination as they're typically small

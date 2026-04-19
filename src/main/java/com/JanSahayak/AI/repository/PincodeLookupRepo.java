@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.repository;
 
 import com.JanSahayak.AI.model.PincodeLookup;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -41,38 +42,38 @@ public interface PincodeLookupRepo extends JpaRepository<PincodeLookup, String> 
     // ACTIVE / INACTIVE
     // =========================================================================
 
-    List<PincodeLookup> findByIsActiveTrue();
+    List<PincodeLookup> findByIsActiveTrue(Pageable pageable);
 
-    List<PincodeLookup> findByIsActiveFalse();
+    List<PincodeLookup> findByIsActiveFalse(Pageable pageable);
 
     // =========================================================================
     // AREA NAME
     // =========================================================================
 
-    List<PincodeLookup> findByAreaNameContainingIgnoreCaseAndIsActiveTrue(String areaName);
+    List<PincodeLookup> findByAreaNameContainingIgnoreCaseAndIsActiveTrue(String areaName, Pageable pageable);
 
     // =========================================================================
     // CITY
     // =========================================================================
 
     /** Exact city match (case-insensitive), active only. */
-    List<PincodeLookup> findByCityAndIsActiveTrueOrderByAreaNameAsc(String city);
+    List<PincodeLookup> findByCityAndIsActiveTrueOrderByAreaNameAsc(String city, Pageable pageable);
 
     /** Partial city match (case-insensitive), active only. */
-    List<PincodeLookup> findByCityContainingIgnoreCaseAndIsActiveTrue(String city);
+    List<PincodeLookup> findByCityContainingIgnoreCaseAndIsActiveTrue(String city, Pageable pageable);
 
     // =========================================================================
     // DISTRICT
     // =========================================================================
 
     /** Exact district match (case-insensitive), active only. */
-    List<PincodeLookup> findByDistrictIgnoreCaseAndIsActiveTrue(String district);
+    List<PincodeLookup> findByDistrictIgnoreCaseAndIsActiveTrue(String district, Pageable pageable);
 
     /**
      * Exact district match ordered by area name.
      * Used to build district-level community seeding.
      */
-    List<PincodeLookup> findByDistrictAndIsActiveTrueOrderByAreaNameAsc(String district);
+    List<PincodeLookup> findByDistrictAndIsActiveTrueOrderByAreaNameAsc(String district, Pageable pageable);
 
     /** Count distinct active pincodes in a district. */
     @Query("SELECT COUNT(p) FROM PincodeLookup p WHERE p.district = :district AND p.isActive = true")
@@ -83,10 +84,10 @@ public interface PincodeLookupRepo extends JpaRepository<PincodeLookup, String> 
     // =========================================================================
 
     /** Exact state match (case-insensitive), active only. */
-    List<PincodeLookup> findByStateIgnoreCaseAndIsActiveTrue(String state);
+    List<PincodeLookup> findByStateIgnoreCaseAndIsActiveTrue(String state, Pageable pageable);
 
     /** Exact state match ordered by district then area name. */
-    List<PincodeLookup> findByStateAndIsActiveTrueOrderByDistrictAscAreaNameAsc(String state);
+    List<PincodeLookup> findByStateAndIsActiveTrueOrderByDistrictAscAreaNameAsc(String state, Pageable pageable);
 
     /** Count distinct active pincodes in a state. */
     @Query("SELECT COUNT(p) FROM PincodeLookup p WHERE p.state = :state AND p.isActive = true")
@@ -96,7 +97,7 @@ public interface PincodeLookupRepo extends JpaRepository<PincodeLookup, String> 
     // COMBINED STATE + DISTRICT
     // =========================================================================
 
-    List<PincodeLookup> findByStateIgnoreCaseAndDistrictIgnoreCaseAndIsActiveTrue(String state, String district);
+    List<PincodeLookup> findByStateIgnoreCaseAndDistrictIgnoreCaseAndIsActiveTrue(String state, String district, Pageable pageable);
 
     // =========================================================================
     // PINCODE PREFIX
@@ -106,7 +107,27 @@ public interface PincodeLookupRepo extends JpaRepository<PincodeLookup, String> 
      * Find pincodes starting with a given prefix.
      * Used for state/district prefix-based community scoping.
      */
-    List<PincodeLookup> findByPincodeStartingWithAndIsActiveTrue(String prefix);
+    List<PincodeLookup> findByPincodeStartingWithAndIsActiveTrue(String prefix, Pageable pageable);
+
+    /**
+     * Multi-prefix OR batch query — replaces N sequential prefix calls in findByPincodePrefixes().
+     * Filters active pincodes that start with any of the provided prefixes in one round-trip.
+     */
+    @Query("""
+            SELECT p FROM PincodeLookup p
+            WHERE p.isActive = true
+              AND (
+                 (:prefix1 IS NOT NULL AND p.pincode LIKE CONCAT(:prefix1, '%')) OR
+                 (:prefix2 IS NOT NULL AND p.pincode LIKE CONCAT(:prefix2, '%')) OR
+                 (:prefix3 IS NOT NULL AND p.pincode LIKE CONCAT(:prefix3, '%'))
+              )
+            ORDER BY p.pincode DESC
+            """)
+    List<PincodeLookup> findByAnyPrefixAndIsActiveTrue(
+            @Param("prefix1") String prefix1,
+            @Param("prefix2") String prefix2,
+            @Param("prefix3") String prefix3,
+            Pageable pageable);
 
     // =========================================================================
     // GENERAL TEXT SEARCH
@@ -228,4 +249,23 @@ public interface PincodeLookupRepo extends JpaRepository<PincodeLookup, String> 
             """)
     List<String> findDistinctPrefixesByDistrictIgnoreCase(@Param("district") String district,
                                                           @Param("prefixLength") int prefixLength);
+
+    // =========================================================================
+    // MEMORY-SAFE AGGREGATION & PAGINATION
+    // =========================================================================
+
+    @Query("SELECT COUNT(p) FROM PincodeLookup p WHERE p.isActive = true")
+    long countActivePincodes();
+
+    @Query("SELECT COUNT(p) FROM PincodeLookup p WHERE p.isActive = false")
+    long countInactivePincodes();
+
+    @Query("SELECT p.state, COUNT(p) FROM PincodeLookup p WHERE p.isActive = true GROUP BY p.state")
+    List<Object[]> countActivePincodesByState();
+
+    @Query("SELECT p.state, p.district, COUNT(p) FROM PincodeLookup p WHERE p.isActive = true GROUP BY p.state, p.district")
+    List<Object[]> countActivePincodesByDistrict();
+
+    @Query("SELECT p FROM PincodeLookup p WHERE (:beforePincode IS NULL OR p.pincode < :beforePincode) ORDER BY p.pincode DESC")
+    List<PincodeLookup> findCursorPage(@Param("beforePincode") String beforePincode, org.springframework.data.domain.Pageable pageable);
 }

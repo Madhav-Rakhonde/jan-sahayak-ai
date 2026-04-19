@@ -28,6 +28,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class MatchmakingService {
 
     private final ChatSessionService chatSessionService;
+    private final PinCodeLookupService pinCodeLookupService;
 
     private final Queue<QueueEntry>      waitingQueue   = new ConcurrentLinkedQueue<>();
     private final Map<Long, QueueEntry>  searchingUsers = new ConcurrentHashMap<>();
@@ -69,10 +70,13 @@ public class MatchmakingService {
         // ── 3 & 4. Normal matchmaking ─────────────────────────────────────────
         matchmakingLock.lock();
         try {
-            QueueEntry partner = pollAvailablePartner(userId);
+            // Pre-calculate locality metadata for the joining user to speed up matching
+            LocalityMetadata requesterLocality = extractLocality(user);
+            QueueEntry partner = findBestPartner(userId, requesterLocality);
 
             if (partner != null) {
-                log.info("Match found: user {} paired with user {}", userId, partner.getUserId());
+                log.info("Match found (Tier {}): user {} paired with user {} | partnerPincode={}", 
+                        partner.lastMatchTier, userId, partner.getUserId(), partner.pincode);
                 // MEMORY LEAK FIX: wrap createSession() in try/finally so BOTH users are
                 // always removed from searchingUsers even when createSession() throws
                 // (e.g. race condition where one user is already in a session).
@@ -87,8 +91,8 @@ public class MatchmakingService {
                     removeFromSearch(partner.getUserId());
                 }
             } else {
-                addToQueue(userId);
-                log.info("User {} added to queue — waiting for partner", userId);
+                addToQueue(userId, requesterLocality);
+                log.info("User {} added to queue — waiting for partner | pincode={}", userId, user.getPincode());
                 return null;
             }
         } finally {
@@ -144,38 +148,90 @@ public class MatchmakingService {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private QueueEntry pollAvailablePartner(Long userId) {
-        while (!waitingQueue.isEmpty()) {
-            QueueEntry partner = waitingQueue.poll();
-            if (partner == null) break;
+    /**
+     * Tiered Search: Pincode -> Nearby -> District -> Nearby District -> State -> Nearby State -> Global.
+     * Iterates the queue once and picks the candidate with the highest matching tier.
+     */
+    private QueueEntry findBestPartner(Long userId, LocalityMetadata a) {
+        QueueEntry bestCandidate = null;
+        int bestTier = 8; // Start below the lowest priority (Global is 7)
 
-            if (partner.hasExpired()) {
-                removeFromSearch(partner.getUserId());
-                continue;
+        for (QueueEntry b : waitingQueue) {
+            if (b.getUserId().equals(userId)) continue; // Self-match check
+            if (b.hasExpired()) continue; // Skip expired (cleaned up elsewhere)
+
+            int tier = calculateMatchTier(a, b);
+            
+            // Tier 1 is highest priority.
+            if (tier < bestTier) {
+                bestTier = tier;
+                bestCandidate = b;
+                // Optimization: Short-circuit if we find an exact Pincode match (Tier 1)
+                if (bestTier == 1) break;
             }
-            if (partner.getUserId().equals(userId)) {
-                log.warn("Prevented self-match for user {}", userId);
-                waitingQueue.offer(partner);
-                continue;
-            }
-            return partner;
         }
+
+        if (bestCandidate != null) {
+            bestCandidate.lastMatchTier = bestTier;
+            waitingQueue.remove(bestCandidate);
+            return bestCandidate;
+        }
+
         return null;
     }
 
-    private void addToQueue(Long userId) {
-        // FIX MEMORY LEAK #3 — guard against duplicate queue entries.
-        // Without this guard a race condition between two concurrent findMatch()
-        // calls for the same userId could add two QueueEntry objects, causing the
-        // queue to grow without the second entry ever being removed.
+    private int calculateMatchTier(LocalityMetadata a, QueueEntry b) {
+        // Tier 1: Same Pincode
+        if (Objects.equals(a.pincode, b.pincode)) return 1;
+
+        // Tier 2: Nearby Pincode (radius 20km)
+        if (a.nearbyPincodes.contains(b.pincode)) return 2;
+
+        // Tier 3: Same District (3-digit prefix)
+        if (Objects.equals(a.districtPrefix, b.districtPrefix)) return 3;
+
+        // Tier 4: Nearby District (Same State prefix but different district)
+        if (Objects.equals(a.statePrefix, b.statePrefix)) return 4;
+
+        // Tier 5: Same State (Should be caught by Tier 4, but added for safety if prefix logic varies)
+        // (In India, 2-digit prefix is Circle which corresponds to State)
+        if (Objects.equals(a.statePrefix, b.statePrefix)) return 5;
+
+        // Tier 6: Nearby State (Same Region prefix - 1 digit)
+        if (Objects.equals(a.regionPrefix, b.regionPrefix)) return 6;
+
+        // Tier 7: Global Fallback
+        return 7;
+    }
+
+    private void addToQueue(Long userId, LocalityMetadata locality) {
         if (searchingUsers.containsKey(userId)) {
             log.debug("addToQueue: userId={} already in searchingUsers — skipping duplicate add", userId);
             return;
         }
-        QueueEntry entry = new QueueEntry(userId);
+        QueueEntry entry = new QueueEntry(userId, locality);
         waitingQueue.offer(entry);
         searchingUsers.put(userId, entry);
     }
+
+    private LocalityMetadata extractLocality(User user) {
+        String pc = user.getPincode();
+        return new LocalityMetadata(
+                pc,
+                pc != null && pc.length() >= 3 ? pc.substring(0, 3) : null,
+                pc != null && pc.length() >= 2 ? pc.substring(0, 2) : null,
+                pc != null && pc.length() >= 1 ? pc.substring(0, 1) : null,
+                pinCodeLookupService.getNearbyPincodeStrings(pc)
+        );
+    }
+
+    private record LocalityMetadata(
+            String pincode,
+            String districtPrefix,
+            String statePrefix,
+            String regionPrefix,
+            Set<String> nearbyPincodes
+    ) {}
 
     private void removeFromQueue(Long userId) {
         waitingQueue.removeIf(e -> e.getUserId().equals(userId));
@@ -191,9 +247,24 @@ public class MatchmakingService {
         private final Long    userId;
         private final Instant joinedAt;
 
-        QueueEntry(Long userId) {
-            this.userId   = userId;
-            this.joinedAt = Instant.now();
+        // Locality metadata
+        private final String  pincode;
+        private final String  districtPrefix;
+        private final String  statePrefix;
+        private final String  regionPrefix;
+        private final Set<String> nearbyPincodes;
+
+        // Transient match tracking
+        private int lastMatchTier = 7;
+
+        QueueEntry(Long userId, LocalityMetadata meta) {
+            this.userId         = userId;
+            this.joinedAt       = Instant.now();
+            this.pincode        = meta.pincode();
+            this.districtPrefix = meta.districtPrefix();
+            this.statePrefix    = meta.statePrefix();
+            this.regionPrefix   = meta.regionPrefix();
+            this.nearbyPincodes = meta.nearbyPincodes();
         }
 
         Long getUserId() { return userId; }

@@ -52,24 +52,28 @@ public class NotificationService {
                 return;
             }
 
+            // Re-fetch users to avoid Hibernate Closed Statement / LazyInit issues
+            User targetUser = userRepository.findById(post.getUser().getId()).orElse(post.getUser());
+            User actionUser = userRepository.findById(likedBy.getId()).orElse(likedBy);
+
             // Don't notify if user liked their own post
-            if (post.getUser().getId().equals(likedBy.getId())) {
+            if (targetUser.getId().equals(actionUser.getId())) {
                 return;
             }
 
             String title = "New Like on Your Post";
-            String message = String.format("%s liked your post", likedBy.getActualUsername());
+            String message = String.format("%s liked your post", actionUser.getActualUsername());
             String actionUrl = "/posts/" + post.getId();
 
             Notification notification = createNotification(
-                    post.getUser(),
+                    targetUser,
                     NotificationType.POST_LIKE,
                     title,
                     message,
                     post.getId(),
                     "POST",
                     actionUrl,
-                    likedBy
+                    actionUser
             );
 
             sendRealtimeNotification(notification);
@@ -94,24 +98,27 @@ public class NotificationService {
                 return;
             }
 
+            User targetUser = userRepository.findById(socialPost.getUser().getId()).orElse(socialPost.getUser());
+            User actionUser = userRepository.findById(likedBy.getId()).orElse(likedBy);
+
             // Don't notify if user liked their own post
-            if (socialPost.getUser().getId().equals(likedBy.getId())) {
+            if (targetUser.getId().equals(actionUser.getId())) {
                 return;
             }
 
             String title = "New Like on Your Post";
-            String message = String.format("%s liked your social post", likedBy.getActualUsername());
+            String message = String.format("%s liked your social post", actionUser.getActualUsername());
             String actionUrl = "/social-posts/" + socialPost.getId();
 
             Notification notification = createNotification(
-                    socialPost.getUser(),
+                    targetUser,
                     NotificationType.POST_LIKE,
                     title,
                     message,
                     socialPost.getId(),
                     "SOCIAL_POST",
                     actionUrl,
-                    likedBy
+                    actionUser
             );
 
             sendRealtimeNotification(notification);
@@ -136,26 +143,29 @@ public class NotificationService {
                 return;
             }
 
+            User targetUser = userRepository.findById(post.getUser().getId()).orElse(post.getUser());
+            User actionUser = userRepository.findById(commentedBy.getId()).orElse(commentedBy);
+
             // Don't notify if user commented on their own post
-            if (post.getUser().getId().equals(commentedBy.getId())) {
+            if (targetUser.getId().equals(actionUser.getId())) {
                 return;
             }
 
             String title = "New Comment on Your Post";
             String message = String.format("%s commented: \"%s\"",
-                    commentedBy.getActualUsername(),
+                    actionUser.getActualUsername(),
                     truncateText(comment.getText(), 50));
             String actionUrl = "/posts/" + post.getId() + "#comment-" + comment.getId();
 
             Notification notification = createNotification(
-                    post.getUser(),
+                    targetUser,
                     NotificationType.POST_COMMENT,
                     title,
                     message,
                     post.getId(),
                     "POST",
                     actionUrl,
-                    commentedBy
+                    actionUser
             );
 
             sendRealtimeNotification(notification);
@@ -180,26 +190,29 @@ public class NotificationService {
                 return;
             }
 
+            User targetUser = userRepository.findById(socialPost.getUser().getId()).orElse(socialPost.getUser());
+            User actionUser = userRepository.findById(commentedBy.getId()).orElse(commentedBy);
+
             // Don't notify if user commented on their own post
-            if (socialPost.getUser().getId().equals(commentedBy.getId())) {
+            if (targetUser.getId().equals(actionUser.getId())) {
                 return;
             }
 
             String title = "New Comment on Your Post";
             String message = String.format("%s commented: \"%s\"",
-                    commentedBy.getActualUsername(),
+                    actionUser.getActualUsername(),
                     truncateText(comment.getText(), 50));
             String actionUrl = "/social-posts/" + socialPost.getId() + "#comment-" + comment.getId();
 
             Notification notification = createNotification(
-                    socialPost.getUser(),
+                    targetUser,
                     NotificationType.POST_COMMENT,
                     title,
                     message,
                     socialPost.getId(),
                     "SOCIAL_POST",
                     actionUrl,
-                    commentedBy
+                    actionUser
             );
 
             sendRealtimeNotification(notification);
@@ -224,14 +237,17 @@ public class NotificationService {
                 return;
             }
 
+            User targetUser = userRepository.findById(originalComment.getUser().getId()).orElse(originalComment.getUser());
+            User actionUser = userRepository.findById(repliedBy.getId()).orElse(repliedBy);
+
             // Don't notify if user replied to their own comment
-            if (originalComment.getUser().getId().equals(repliedBy.getId())) {
+            if (targetUser.getId().equals(actionUser.getId())) {
                 return;
             }
 
             String title = "New Reply to Your Comment";
             String message = String.format("%s replied: \"%s\"",
-                    repliedBy.getActualUsername(),
+                    actionUser.getActualUsername(),
                     truncateText(reply.getText(), 50));
 
             // Determine action URL based on whether it's a post or social post comment
@@ -249,14 +265,14 @@ public class NotificationService {
             }
 
             Notification notification = createNotification(
-                    originalComment.getUser(),
+                    targetUser,
                     NotificationType.COMMENT_REPLY,
                     title,
                     message,
                     referenceId,
                     "COMMENT",
                     actionUrl,
-                    repliedBy
+                    actionUser
             );
 
             sendRealtimeNotification(notification);
@@ -283,24 +299,27 @@ public class NotificationService {
                 return;
             }
 
+            User targetUser = userRepository.findById(taggedUser.getId()).orElse(taggedUser);
+            User actionUser = userRepository.findById(taggedBy.getId()).orElse(taggedBy);
+
             // Don't notify if user tagged themselves
-            if (taggedUser.getId().equals(taggedBy.getId())) {
+            if (targetUser.getId().equals(actionUser.getId())) {
                 return;
             }
 
             String title = "You Were Tagged in a Post";
-            String message = String.format("%s tagged you in their post", taggedBy.getActualUsername());
+            String message = String.format("%s tagged you in their post", actionUser.getActualUsername());
             String actionUrl = "/posts/" + post.getId();
 
             Notification notification = createNotification(
-                    taggedUser,
+                    targetUser,
                     NotificationType.POST_TAGGED,
                     title,
                     message,
                     post.getId(),
                     "POST",
                     actionUrl,
-                    taggedBy
+                    actionUser
             );
 
             sendRealtimeNotification(notification);
@@ -349,21 +368,24 @@ public class NotificationService {
                 return;
             }
 
+            User targetUser = userRepository.findById(post.getUser().getId()).orElse(post.getUser());
+            User actionUser = resolvedBy != null ? userRepository.findById(resolvedBy.getId()).orElse(resolvedBy) : null;
+
             String title = "Your Post Was Resolved";
-            String message = resolvedBy != null
-                    ? String.format("Your post was marked as resolved by %s", resolvedBy.getActualUsername())
+            String message = actionUser != null
+                    ? String.format("Your post was marked as resolved by %s", actionUser.getActualUsername())
                     : "Your post was marked as resolved";
             String actionUrl = "/posts/" + post.getId();
 
             Notification notification = createNotification(
-                    post.getUser(),
+                    targetUser,
                     NotificationType.POST_RESOLVED,
                     title,
                     message,
                     post.getId(),
                     "POST",
                     actionUrl,
-                    resolvedBy
+                    actionUser
             );
 
             sendRealtimeNotification(notification);
@@ -389,10 +411,12 @@ public class NotificationService {
                 return;
             }
 
+            User actionUser = userRepository.findById(broadcastPost.getUser().getId()).orElse(broadcastPost.getUser());
+
             NotificationType notificationType = determineBroadcastNotificationType(broadcastPost);
             String title = getBroadcastTitle(broadcastPost);
             String message = String.format("New broadcast from %s: %s",
-                    broadcastPost.getUser().getActualUsername(),
+                    actionUser.getActualUsername(),
                     truncateText(broadcastPost.getContent(), 100));
             String actionUrl = "/posts/" + broadcastPost.getId();
 
@@ -406,7 +430,7 @@ public class NotificationService {
             int totalSent = 0;
 
             for (User user : targetUsers) {
-                if (user.getId().equals(broadcastPost.getUser().getId())) continue;
+                if (user.getId().equals(actionUser.getId())) continue;
 
                 Notification notification = Notification.builder()
                         .user(user)
@@ -416,7 +440,7 @@ public class NotificationService {
                         .referenceId(broadcastPost.getId())
                         .referenceType("BROADCAST_POST")
                         .actionUrl(actionUrl)
-                        .triggeredBy(broadcastPost.getUser())
+                        .triggeredBy(actionUser)
                         .isRead(false)
                         .createdAt(new Date())
                         .build();
@@ -569,17 +593,20 @@ public class NotificationService {
                 return;
             }
 
+            User targetUser = userRepository.findById(user.getId()).orElse(user);
+            User actionUser = sentBy != null ? userRepository.findById(sentBy.getId()).orElse(sentBy) : null;
+
             String title = String.format("Message from %s", departmentName);
 
             Notification notification = createNotification(
-                    user,
+                    targetUser,
                     NotificationType.DEPARTMENT_MESSAGE,
                     title,
                     message,
                     null,
                     "DEPARTMENT",
                     null,
-                    sentBy
+                    actionUser
             );
 
             sendRealtimeNotification(notification);
@@ -602,12 +629,14 @@ public class NotificationService {
                 return;
             }
 
+            User targetUser = userRepository.findById(notifyUser.getId()).orElse(notifyUser);
+
             String title = "Post Requires Attention";
             String message = String.format("A post requires your attention. Reason: %s", reason);
             String actionUrl = "/posts/" + post.getId();
 
             Notification notification = createNotification(
-                    notifyUser,
+                    targetUser,
                     NotificationType.POST_ATTENTION_REQUIRED,
                     title,
                     message,
@@ -679,6 +708,64 @@ public class NotificationService {
                     managedInviter != null ? managedInviter.getActualUsername() : "null");
         } catch (Exception ex) {
             log.error("Failed to execute notifyCommunityInvite due to exception:", ex);
+        }
+    }
+
+    /**
+     * Send notification to community members when a new post is created.
+     */
+    @Async
+    @Transactional
+    public void notifyCommunityNewPost(SocialPost socialPost, List<Long> targetUserIds, String communityName) {
+        try {
+            if (socialPost == null || socialPost.getUser() == null || targetUserIds == null || targetUserIds.isEmpty()) {
+                return;
+            }
+
+            User actionUser = userRepository.findById(socialPost.getUser().getId()).orElse(socialPost.getUser());
+
+            String title = "New post in " + communityName;
+            String message = String.format("%s posted: \"%s\"",
+                    actionUser.getActualUsername(),
+                    truncateText(socialPost.getContent(), 50));
+            String actionUrl = "/social-posts/" + socialPost.getId();
+
+            final int BATCH_SIZE = 500;
+            int totalSent = 0;
+
+            for (int i = 0; i < targetUserIds.size(); i += BATCH_SIZE) {
+                int end = Math.min(i + BATCH_SIZE, targetUserIds.size());
+                List<Long> batchIds = targetUserIds.subList(i, end);
+                
+                List<User> batchUsers = userRepository.findAllById(batchIds);
+                List<Notification> batchNotifications = new ArrayList<>(batchUsers.size());
+                
+                for (User targetUser : batchUsers) {
+                    Notification notification = Notification.builder()
+                            .user(targetUser)
+                            .notificationType(NotificationType.COMMUNITY_NEW_POST)
+                            .title(title)
+                            .message(message)
+                            .referenceId(socialPost.getId())
+                            .referenceType("SOCIAL_POST")
+                            .actionUrl(actionUrl)
+                            .triggeredBy(actionUser)
+                            .isRead(false)
+                            .createdAt(new Date())
+                            .build();
+
+                    batchNotifications.add(notification);
+                }
+                
+                List<Notification> saved = notificationRepository.saveAll(batchNotifications);
+                saved.forEach(this::sendRealtimeNotification);
+                totalSent += saved.size();
+            }
+
+            log.info("Sent {} community new post notifications for post: {}", totalSent, socialPost.getId());
+
+        } catch (Exception e) {
+            log.error("Failed to send community new post notifications", e);
         }
     }
 

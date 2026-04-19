@@ -77,9 +77,9 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // PINCODE — EXACT & PREFIX
     // =========================================================================
 
-    List<User> findByPincodeAndIsActiveTrue(String pincode);
+    List<User> findByPincodeAndIsActiveTrue(String pincode, Pageable pageable);
 
-    List<User> findByPincodeStartingWithAndIsActiveTrue(String pincodePrefix);
+    List<User> findByPincodeStartingWithAndIsActiveTrue(String pincodePrefix, Pageable pageable);
 
     @Query("SELECT COUNT(u) FROM User u WHERE u.pincode = :pincode AND u.isActive = true")
     long countActiveUsersByPincode(@Param("pincode") String pincode);
@@ -96,13 +96,13 @@ public interface UserRepo extends JpaRepository<User, Long> {
             "AND u.pincode IS NOT NULL " +
             "AND LENGTH(u.pincode) = 6 " +
             "AND SUBSTRING(u.pincode, 1, 2) = :statePrefix")
-    List<User> findByStatePrefixAndIsActiveTrue(@Param("statePrefix") String statePrefix);
+    List<User> findByStatePrefixAndIsActiveTrue(@Param("statePrefix") String statePrefix, Pageable pageable);
 
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
             "AND u.pincode IS NOT NULL " +
             "AND LENGTH(u.pincode) = 6 " +
             "AND SUBSTRING(u.pincode, 1, 3) = :districtPrefix")
-    List<User> findByDistrictPrefixAndIsActiveTrue(@Param("districtPrefix") String districtPrefix);
+    List<User> findByDistrictPrefixAndIsActiveTrue(@Param("districtPrefix") String districtPrefix, Pageable pageable);
 
     // =========================================================================
     // ROLE-BASED QUERIES

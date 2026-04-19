@@ -10,6 +10,7 @@ import jakarta.annotation.PostConstruct;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -39,8 +40,9 @@ public class BadWordService {
     // Better performance than synchronized for read-heavy operations
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
-    // Cached patterns for efficient regex matching
-    private volatile Set<Pattern> badWordPatterns = new HashSet<>();
+    // Cached patterns — always an unmodifiable snapshot; swapped atomically on reload.
+    // volatile guarantees the latest reference is visible to all reader threads.
+    private volatile Set<Pattern> badWordPatterns = Collections.emptySet();
 
     // Configuration
 
@@ -114,8 +116,9 @@ public class BadWordService {
             patterns.add(pattern);
         }
 
-        // Volatile ensures visibility across threads
-        this.badWordPatterns = patterns;
+        // Wrap in unmodifiableSet before the volatile write so no caller can ever
+        // mutate the live pattern set directly (enforces copy-on-replace immutability).
+        this.badWordPatterns = Collections.unmodifiableSet(patterns);
 
         log.debug("Compiled {} regex patterns for bad word matching", patterns.size());
     }
@@ -233,7 +236,8 @@ public class BadWordService {
             // completes inside the lock before any reader can observe it.
             badWords.clear();
             badWords.addAll(newWords);
-            badWordPatterns = newPatterns; // volatile write — immediately visible
+            // Wrap in unmodifiableSet — same immutability guarantee as initial load.
+            badWordPatterns = Collections.unmodifiableSet(newPatterns); // volatile write — immediately visible
         } finally {
             lock.writeLock().unlock();
         }

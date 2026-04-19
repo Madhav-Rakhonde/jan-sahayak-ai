@@ -16,7 +16,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
@@ -44,7 +43,6 @@ public class UserController {
      */
     @GetMapping("/me")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<User>> getCurrentUserProfile() {
         try {
             User user = getCurrentUser();
@@ -63,7 +61,6 @@ public class UserController {
 
     @GetMapping("/username/{username}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<User>> findByUsername(
             @PathVariable @Size(min = 4, max = 100, message = "Username must be between 4 and 100 characters") String username) {
 
@@ -88,7 +85,6 @@ public class UserController {
 
     @GetMapping("/{userId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<User>> findById(
             @PathVariable @Min(value = 1, message = "User ID must be positive") Long userId) {
 
@@ -115,7 +111,6 @@ public class UserController {
 
     @GetMapping("/departments/by-pincode/{pincode}")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByPincode(
             @PathVariable @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format") String pincode,
             @RequestParam(required = false) Long beforeId,
@@ -142,7 +137,6 @@ public class UserController {
 
     @GetMapping("/departments/by-state/{state}")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByState(
             @PathVariable @Size(min = 2, max = 50, message = "State name must be between 2 and 50 characters") String state,
             @RequestParam(required = false) Long beforeId,
@@ -169,7 +163,6 @@ public class UserController {
 
     @GetMapping("/departments/by-district")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> findDepartmentUsersByDistrict(
             @RequestParam @Size(min = 2, max = 50, message = "State name must be between 2 and 50 characters") String state,
             @RequestParam @Size(min = 2, max = 50, message = "District name must be between 2 and 50 characters") String district,
@@ -197,7 +190,6 @@ public class UserController {
 
     @GetMapping("/search")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<UserTagSuggestionDto>>> searchUsers(
             @RequestParam @Size(min = 2, max = 50, message = "Query must be between 2 and 50 characters") String query,
             @RequestParam(required = false) Long beforeId,
@@ -221,7 +213,6 @@ public class UserController {
 
     @GetMapping("/search/tagging")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<UserTagSuggestionDto>>> searchUsersForTagging(
             @RequestParam @Size(min = 2, max = 50, message = "Query must be between 2 and 50 characters") String query,
             @RequestParam(required = false) Long beforeId,
@@ -249,7 +240,6 @@ public class UserController {
 
     @GetMapping("/distribution/by-pincode")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Long>>> getUserDistributionByPincode() {
         try {
             Map<String, Long> distribution = userService.getUserDistributionByPincode();
@@ -269,7 +259,6 @@ public class UserController {
 
     @GetMapping("/distribution/by-state")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Long>>> getUserDistributionByState() {
         try {
             Map<String, Long> distribution = userService.getUserDistributionByState();
@@ -291,7 +280,6 @@ public class UserController {
 
     @GetMapping("/permissions/resolve-posts/{pincode}")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Boolean>> canUserResolvePostsInPincode(
             @PathVariable @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format") String pincode) {
 
@@ -385,7 +373,6 @@ public class UserController {
 
     @GetMapping("/active")
     @PreAuthorize("hasAnyRole('ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getAllActiveUsers(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {
@@ -410,7 +397,6 @@ public class UserController {
 
     @GetMapping("/by-role/{roleName}")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getUsersByRole(
             @PathVariable @Size(min = 3, max = 20, message = "Role name must be between 3 and 20 characters") String roleName,
             @RequestParam(required = false) Long beforeId,
@@ -436,7 +422,6 @@ public class UserController {
 
     @GetMapping("/recent")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<User>>> getRecentlyCreatedUsers(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) @Min(value = 1, message = "Limit must be at least 1") Integer limit) {

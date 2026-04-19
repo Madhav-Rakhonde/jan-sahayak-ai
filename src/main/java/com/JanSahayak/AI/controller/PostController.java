@@ -16,7 +16,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -368,7 +367,6 @@ public class PostController {
 
     @GetMapping("/broadcast")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllBroadcastPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -386,7 +384,6 @@ public class PostController {
 
     @GetMapping("/broadcast/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getActiveBroadcastPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -404,7 +401,6 @@ public class PostController {
 
     @GetMapping("/broadcast/scope/{scope}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getBroadcastPostsByScope(
             @PathVariable BroadcastScope scope,
             @RequestParam(required = false) Long beforeId,
@@ -423,7 +419,6 @@ public class PostController {
 
     @GetMapping("/visible")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getVisiblePostsForUser(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -441,7 +436,6 @@ public class PostController {
 
     @GetMapping("/broadcast/visible")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getBroadcastPostsVisibleToUser(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -459,7 +453,6 @@ public class PostController {
 
     @GetMapping("/broadcast/country/all")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllCountryWideBroadcasts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -477,7 +470,6 @@ public class PostController {
 
     @GetMapping("/broadcast/country/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getActiveCountryWideBroadcasts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -495,7 +487,6 @@ public class PostController {
 
     @GetMapping("/broadcast/country")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getCountryWideBroadcasts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -512,7 +503,6 @@ public class PostController {
     }
 
     @GetMapping("/broadcast/state/{state}")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getStateLevelBroadcasts(
             @PathVariable String state,
             @RequestParam(required = false) Long beforeId,
@@ -532,7 +522,6 @@ public class PostController {
     }
 
     @GetMapping("/broadcast/district/{district}")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getDistrictLevelBroadcasts(
             @PathVariable String district,
             @RequestParam(required = false) Long beforeId,
@@ -552,7 +541,6 @@ public class PostController {
     }
 
     @GetMapping("/broadcast/area/{pincode}")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAreaLevelBroadcasts(
             @PathVariable String pincode,
             @RequestParam(required = false) Long beforeId,
@@ -575,7 +563,6 @@ public class PostController {
 
     @GetMapping("/broadcast/statistics")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Long>>> getBroadcastStatistics() {
         try {
             Map<String, Long> statistics = postService.getBroadcastStatistics();
@@ -589,7 +576,6 @@ public class PostController {
 
     @GetMapping("/broadcast/analytics")
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Object>>> getBroadcastAnalytics(
             @RequestParam(defaultValue = "30") int days,
             @CurrentUser User user) {
@@ -774,7 +760,6 @@ public class PostController {
 
     @GetMapping("/tagged-with-user/{userId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getPostsTaggedWithUser(
             @PathVariable Long userId,
             @RequestParam(required = false) Long beforeId,
@@ -795,7 +780,6 @@ public class PostController {
 
     @GetMapping("/{postId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PostResponse>> getPostById(
             @PathVariable Long postId,
             @CurrentUser User user) {
@@ -813,7 +797,6 @@ public class PostController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -831,7 +814,6 @@ public class PostController {
 
     @GetMapping("/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllActivePosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -849,7 +831,6 @@ public class PostController {
 
     @GetMapping("/resolved")
     @PreAuthorize("hasRole('ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getAllResolvedPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -875,7 +856,6 @@ public class PostController {
      */
     @GetMapping("/user/{userId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getPostsByUser(
             @PathVariable Long userId,
             @RequestParam(required = false) Long beforeId,
@@ -898,7 +878,6 @@ public class PostController {
 
     @GetMapping("/my-posts")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getMyPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -916,7 +895,6 @@ public class PostController {
 
     @GetMapping("/my-posts/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getMyActivePosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -934,7 +912,6 @@ public class PostController {
 
     @GetMapping("/my-posts/resolved")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getMyResolvedPosts(
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
@@ -954,7 +931,6 @@ public class PostController {
 
     @GetMapping("/feed/issue")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<PaginatedResponse<PostResponse>>> getIssuePostFeed(
             @RequestParam(required = false) Integer limit,
             @CurrentUser User user) {
@@ -972,7 +948,6 @@ public class PostController {
 
     @GetMapping("/count/active")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Long>> countActivePosts() {
         try {
             Long count = postService.countActivePosts();
@@ -986,7 +961,6 @@ public class PostController {
 
     @GetMapping("/count/resolved")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Long>> countResolvedPosts() {
         try {
             Long count = postService.countResolvedPosts();
@@ -1000,7 +974,6 @@ public class PostController {
 
     @GetMapping("/count/user/{userId}")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Long>> getPostsCountByUser(@PathVariable Long userId) {
         try {
             User user = userService.findById(userId);
@@ -1017,7 +990,6 @@ public class PostController {
 
     @GetMapping("/count/my-posts")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Long>> getMyPostsCount(@CurrentUser User user) {
         try {
             Long count = postService.countPostsByUser(user);

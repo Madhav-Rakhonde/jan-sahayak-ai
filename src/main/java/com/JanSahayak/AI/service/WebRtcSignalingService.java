@@ -4,8 +4,11 @@ import com.JanSahayak.AI.model.ChatMessage;
 import com.JanSahayak.AI.model.ChatSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -161,6 +164,22 @@ public class WebRtcSignalingService {
         }
     }
 
+    /**
+     * Safety net: sweep zombie CallRecords left behind by abrupt
+     * network drops where CALL_ENDED was never sent.
+     * Runs every 2 minutes; evicts any call older than 30 minutes.
+     */
+    @Scheduled(fixedRate = 120_000)
+    public void sweepStaleCalls() {
+        Instant threshold = Instant.now().minus(Duration.ofMinutes(30));
+        int before = activeCalls.size();
+        activeCalls.entrySet().removeIf(e -> e.getValue().startedAt.isBefore(threshold));
+        int removed = before - activeCalls.size();
+        if (removed > 0) {
+            log.info("sweepStaleCalls: evicted {} zombie call record(s)", removed);
+        }
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private void validateSession(ChatSession session, String sessionId, Long userId) {
@@ -175,11 +194,13 @@ public class WebRtcSignalingService {
         final String   sessionId;
         final Long     initiatorId;
         final CallType callType;
+        final Instant  startedAt;
 
         CallRecord(String sessionId, Long initiatorId, CallType callType) {
             this.sessionId   = sessionId;
             this.initiatorId = initiatorId;
             this.callType    = callType;
+            this.startedAt   = Instant.now();
         }
     }
 }
