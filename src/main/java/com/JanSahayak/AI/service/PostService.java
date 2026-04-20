@@ -1170,8 +1170,8 @@ public class PostService {
                     .isGovernmentBroadcast(post.isGovernmentBroadcast())
                     .countryWideBroadcast(post.isCountryWideBroadcast())
                     .targetCountry(post.getTargetCountry())
-                    .targetStates(post.getTargetStatesList())
-                    .targetDistricts(post.getTargetDistrictsList())
+                    .targetStates(PostUtility.resolvePrefixesToStateNames(post.getTargetStates()))
+                    .targetDistricts(PostUtility.resolvePrefixesToDistrictNames(post.getTargetDistricts(), pinCodeLookupService))
                     .targetPincodes(post.getTargetPincodesList())
 
                     .likeCount(post.getLikeCount())
@@ -1379,35 +1379,55 @@ public class PostService {
 
             int validLimit = Math.max(1, Math.min(limit, 50));
 
-            // Prep location data
+            // Resolve user's pincode
             String userPincode = user.getPincode();
-            String districtPrefix = (userPincode != null && userPincode.length() >= 3) ? userPincode.substring(0, 3) : null;
-            String statePrefix    = (userPincode != null && userPincode.length() >= 2) ? userPincode.substring(0, 2) : null;
+
+            // Resolved prefixes (for matching against target_districts and target_states)
+            String districtPrefix = (userPincode != null && userPincode.length() >= 3)
+                    ? userPincode.substring(0, 3) : null;
+            String statePrefix    = (userPincode != null && userPincode.length() >= 2)
+                    ? userPincode.substring(0, 2) : null;
+
+            log.debug("[OfficialFeed] userId={} pincode={} districtPrefix={} statePrefix={}",
+                    user.getId(), userPincode, districtPrefix, statePrefix);
 
             Map<Long, Post> merged = new LinkedHashMap<>();
 
-            // 1. Area Level (Pincode) - Only if user has pincode
+            // 1. Area Level (Pincode match) — Only if user has pincode
             if (userPincode != null) {
-                List<Post> areaGov = postRepository.findOfficialAreaBroadcasts(BroadcastScope.AREA, PostStatus.ACTIVE, userPincode);
+                List<Post> areaGov = postRepository.findOfficialAreaBroadcasts(
+                        BroadcastScope.AREA, PostStatus.ACTIVE, userPincode);
                 areaGov.forEach(p -> merged.put(p.getId(), p));
             }
 
-            // 2. District Level
+            // 2. District Level — match by 3-digit district prefix (e.g. "411")
             if (merged.size() < validLimit && districtPrefix != null) {
-                List<Post> districtGov = postRepository.findOfficialDistrictBroadcasts(BroadcastScope.DISTRICT, PostStatus.ACTIVE, districtPrefix);
+                List<Post> districtGov = postRepository.findOfficialDistrictBroadcasts(
+                        BroadcastScope.DISTRICT, PostStatus.ACTIVE, districtPrefix);
                 districtGov.forEach(p -> merged.putIfAbsent(p.getId(), p));
             }
 
-            // 3. State Level
+            // 3. State Level — match by 2-digit state prefix (e.g. "40")
             if (merged.size() < validLimit && statePrefix != null) {
-                List<Post> stateGov = postRepository.findOfficialStateBroadcasts(BroadcastScope.STATE, PostStatus.ACTIVE, statePrefix);
+                List<Post> stateGov = postRepository.findOfficialStateBroadcasts(
+                        BroadcastScope.STATE, PostStatus.ACTIVE, statePrefix);
                 stateGov.forEach(p -> merged.putIfAbsent(p.getId(), p));
             }
 
             // 4. National Level
             if (merged.size() < validLimit) {
-                List<Post> nationalGov = postRepository.findOfficialCountryBroadcasts(BroadcastScope.COUNTRY, PostStatus.ACTIVE);
+                List<Post> nationalGov = postRepository.findOfficialCountryBroadcasts(
+                        BroadcastScope.COUNTRY, PostStatus.ACTIVE);
                 nationalGov.forEach(p -> merged.putIfAbsent(p.getId(), p));
+            }
+
+            // 5. Absolute fallback — ALL department/admin broadcasts (catches posts with
+            //    null targetCountry or non-standard broadcastScope configurations)
+            if (merged.isEmpty()) {
+                log.debug("[OfficialFeed] All geo-tiers empty — loading all official broadcasts for userId={}", user.getId());
+                postRepository.findAllOfficialBroadcasts(
+                        PostStatus.ACTIVE, PageRequest.of(0, validLimit * 2)
+                ).forEach(p -> merged.putIfAbsent(p.getId(), p));
             }
 
             // Filter by cursor, sort by ID desc, and limit
@@ -1417,14 +1437,14 @@ public class PostService {
                     .limit(validLimit)
                     .collect(Collectors.toList());
 
-                List<PostResponse> responses = finalPosts.stream()
-                        .map(p -> convertToPostResponse(p, user))
-                        .filter(Objects::nonNull)
-                        .collect(Collectors.toList());
+            List<PostResponse> responses = finalPosts.stream()
+                    .map(p -> convertToPostResponse(p, user))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
 
-                boolean hasMore = responses.size() == validLimit;
-                Long nextCursor = hasMore ? responses.get(responses.size() - 1).getId() : null;
-                return PaginatedResponse.of(responses, hasMore, nextCursor, validLimit);
+            boolean hasMore = responses.size() == validLimit;
+            Long nextCursor = hasMore ? responses.get(responses.size() - 1).getId() : null;
+            return PaginatedResponse.of(responses, hasMore, nextCursor, validLimit);
 
         } catch (Exception e) {
             log.error("[OfficialFeed] Failed for user={}", user != null ? user.getActualUsername() : "null", e);

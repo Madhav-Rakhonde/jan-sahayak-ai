@@ -290,25 +290,40 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT('%,', :pincode) OR p.targetPincodes = :pincode) AND " +
-            "p.user.role.name = 'ROLE_DEPARTMENT' ORDER BY p.createdAt DESC")
+            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialAreaBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("pincode") String pincode);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT('%,', :prefix) OR p.targetDistricts = :prefix) AND " +
-            "p.user.role.name = 'ROLE_DEPARTMENT' ORDER BY p.createdAt DESC")
+            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialDistrictBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
             "p.targetStates LIKE CONCAT('%,', :prefix) OR p.targetStates = :prefix) AND " +
-            "p.user.role.name = 'ROLE_DEPARTMENT' ORDER BY p.createdAt DESC")
+            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialStateBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
-            "p.targetCountry = 'IN' AND p.user.role.name = 'ROLE_DEPARTMENT' " +
+            "p.targetCountry = 'IN' AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') " +
             "ORDER BY p.createdAt DESC")
     List<Post> findOfficialCountryBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status);
+
+    /**
+     * Absolute fallback — ALL active broadcasts from departments/admins regardless of geo-targeting.
+     * Used when all 4 geo tiers return empty (e.g. targetCountry is null, or scope is not set).
+     */
+    @Query("""
+            SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r
+            WHERE p.status = :status
+              AND p.broadcastScope IS NOT NULL
+              AND r.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN')
+            ORDER BY p.createdAt DESC
+            """)
+    List<Post> findAllOfficialBroadcasts(
+            @Param("status") PostStatus status,
+            Pageable pageable);
 
 
 

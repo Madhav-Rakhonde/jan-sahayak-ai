@@ -467,22 +467,23 @@ public class PostUtility {
             return new ArrayList<>();
         }
 
-        List<String> prefixes = districtNames.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(district -> !district.isEmpty())
-                .collect(Collectors.toList());
-
-        // Check if they're already 3-digit prefixes
-        boolean areAlreadyPrefixes = prefixes.stream()
-                .allMatch(district -> district.matches("\\d{3}"));
-
-        if (areAlreadyPrefixes) {
-            return prefixes;
+        Set<String> prefixes = new HashSet<>();
+        for (String district : districtNames) {
+            if (district == null || district.trim().isEmpty()) continue;
+            
+            // Get sample 3-digit prefixes for this district
+            List<String> districtPrefixes = pinCodeLookupService.getDistinctPrefixesByDistrict(district.trim(), 3);
+            if (districtPrefixes != null) {
+                prefixes.addAll(districtPrefixes);
+            }
         }
 
-        log.warn("District name to prefix conversion not fully implemented. Using districts as-is: {}", districtNames);
-        return prefixes;
+        if (prefixes.isEmpty()) {
+            log.warn("Could not find any pincode prefixes for districts: {}. Storing names as fallback.", districtNames);
+            return districtNames;
+        }
+
+        return new ArrayList<>(prefixes);
     }
 
     /**
@@ -563,6 +564,34 @@ public class PostUtility {
         }
 
         return prefixes.stream()
+                .map(PostUtility::getStateFromPincodePrefix)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Resolve stored comma-separated prefixes to readable district names.
+     */
+    public static List<String> resolvePrefixesToDistrictNames(String prefixesStr, PinCodeLookupService service) {
+        if (prefixesStr == null || prefixesStr.isEmpty()) return new ArrayList<>();
+        
+        return Arrays.stream(prefixesStr.split(","))
+                .map(String::trim)
+                .map(service::getDistrictNameByPrefix)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Resolve stored comma-separated prefixes to readable state names.
+     */
+    public static List<String> resolvePrefixesToStateNames(String prefixesStr) {
+        if (prefixesStr == null || prefixesStr.isEmpty()) return new ArrayList<>();
+        
+        return Arrays.stream(prefixesStr.split(","))
+                .map(String::trim)
                 .map(PostUtility::getStateFromPincodePrefix)
                 .filter(Objects::nonNull)
                 .distinct()

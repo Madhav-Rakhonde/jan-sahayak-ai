@@ -591,6 +591,33 @@ public class PinCodeLookupService {
         return findByPincodePrefixes(prefixes, null, 50).getData();
     }
 
+    public List<String> getDistinctPrefixesByState(String state, int prefixLength) {
+        if (state == null || state.trim().isEmpty()) return List.of();
+        return pincodeLookupRepository.findDistinctPrefixesByStateIgnoreCase(state.trim(), prefixLength);
+    }
+
+    public List<String> getDistinctPrefixesByDistrict(String district, int prefixLength) {
+        if (district == null || district.trim().isEmpty()) return List.of();
+        return pincodeLookupRepository.findDistinctPrefixesByDistrictIgnoreCase(district.trim(), prefixLength);
+    }
+
+    public String getDistrictNameByPrefix(String prefix) {
+        if (prefix == null || prefix.trim().isEmpty()) return null;
+        List<PincodeLookup> matches = pincodeLookupRepository.findCursorPage(prefix, PageRequest.of(0, 1));
+        if (matches != null && !matches.isEmpty()) {
+            PincodeLookup p = matches.get(0);
+            if (p.getPincode().startsWith(prefix)) {
+                return p.getDistrict();
+            }
+        }
+        return null;
+    }
+
+    public String getStateNameByPrefix(String prefix) {
+        if (prefix == null || prefix.length() < 2) return null;
+        return PostUtility.getStateFromPincodePrefix(prefix);
+    }
+
     // ===== Private Helper Methods =====
 
     private void validateAdminPermission(User user) {
