@@ -170,16 +170,46 @@ public class PostService {
             post.setStatus(PostStatus.ACTIVE);
             post.setCreatedAt(new Date());
             post.setBroadcastScope(broadcastScope);
-            post.setTargetCountry(Constant.DEFAULT_TARGET_COUNTRY);
 
-            if (targetStates != null && !targetStates.isEmpty()) {
-                post.setTargetStates(PostUtility.convertStatesToTargetString(targetStates));
+            // targetCountry is no longer used for geographic targeting - relying strictly on broadcastScope
+            post.setTargetCountry(null);
+
+            // Fallback geographic targeting from PostCreateDto if explicit lists are empty
+            List<String> states = targetStates;
+            if ((states == null || states.isEmpty()) && postDto.getTargetStates() != null && !postDto.getTargetStates().isBlank()) {
+                states = java.util.Arrays.asList(postDto.getTargetStates().split(","));
             }
-            if (targetDistricts != null && !targetDistricts.isEmpty()) {
-                post.setTargetDistricts(PostUtility.convertDistrictsToTargetString(targetDistricts, pinCodeLookupService));
+
+            List<String> districts = targetDistricts;
+            if ((districts == null || districts.isEmpty()) && postDto.getTargetDistricts() != null && !postDto.getTargetDistricts().isBlank()) {
+                districts = java.util.Arrays.asList(postDto.getTargetDistricts().split(","));
             }
-            if (targetPincodes != null && !targetPincodes.isEmpty()) {
-                post.setTargetPincodes(PostUtility.convertPincodesToTargetString(targetPincodes));
+
+            List<String> pincodes = targetPincodes;
+            if (pincodes == null || pincodes.isEmpty()) {
+                if (postDto.getTargetPincodes() != null && !postDto.getTargetPincodes().isBlank()) {
+                    pincodes = java.util.Arrays.asList(postDto.getTargetPincodes().split(","));
+                } else if (postDto.getTargetPincode() != null && !postDto.getTargetPincode().isBlank()) {
+                    pincodes = java.util.Collections.singletonList(postDto.getTargetPincode());
+                }
+            }
+
+            if (states != null && !states.isEmpty()) {
+                post.setTargetStates(PostUtility.convertStatesToTargetString(states, pinCodeLookupService));
+            }
+            if (districts != null && !districts.isEmpty()) {
+                post.setTargetDistricts(PostUtility.convertDistrictsToTargetString(districts, pinCodeLookupService));
+            }
+            if (pincodes != null && !pincodes.isEmpty()) {
+                post.setTargetPincodes(PostUtility.convertPincodesToTargetString(pincodes));
+            }
+
+            // Ensure targetCountry is 'IN' only for COUNTRY-wide broadcasts.
+            // For specific geographic scopes, set to NULL to ensure the Waterfall Strategy filters them correctly.
+            if (broadcastScope == BroadcastScope.COUNTRY) {
+                post.setTargetCountry("IN");
+            } else {
+                post.setTargetCountry(null);
             }
 
             post = postRepository.save(post);
@@ -219,7 +249,7 @@ public class PostService {
                                           List<String> targetStates, MultipartFile mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         PostUtility.validateTargetStates(targetStates);
-        return createBroadcastPost(postDto, user, BroadcastScope.STATE, Constant.DEFAULT_TARGET_COUNTRY,
+        return createBroadcastPost(postDto, user, BroadcastScope.STATE, null,
                 targetStates, null, null, mediaFile);
     }
 
@@ -229,7 +259,7 @@ public class PostService {
                                              MultipartFile mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         PostUtility.validateTargetDistricts(targetDistricts);
-        return createBroadcastPost(postDto, user, BroadcastScope.DISTRICT, Constant.DEFAULT_TARGET_COUNTRY,
+        return createBroadcastPost(postDto, user, BroadcastScope.DISTRICT, null,
                 targetStates, targetDistricts, null, mediaFile);
     }
 
@@ -238,7 +268,7 @@ public class PostService {
                                          List<String> targetPincodes, MultipartFile mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         PostUtility.validateTargetPincodesWithLookup(targetPincodes, pinCodeLookupService);
-        return createBroadcastPost(postDto, user, BroadcastScope.AREA, Constant.DEFAULT_TARGET_COUNTRY,
+        return createBroadcastPost(postDto, user, BroadcastScope.AREA, null,
                 null, null, targetPincodes, mediaFile);
     }
 
@@ -368,7 +398,7 @@ public class PostService {
         try {
             if (state == null || state.trim().isEmpty()) throw new ValidationException("State cannot be empty");
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getStateLevelBroadcasts", beforeId, limit);
-            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(Arrays.asList(state.trim()));
+            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(Arrays.asList(state.trim()), pinCodeLookupService);
             if (statePrefixes.isEmpty()) return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             String statePrefix = statePrefixes.get(0);
             List<Post> posts;
@@ -500,10 +530,17 @@ public class PostService {
             }
             PostUtility.validateBroadcastScope(newScope, Constant.DEFAULT_TARGET_COUNTRY, targetStates, targetDistricts, targetPincodes);
             post.setBroadcastScope(newScope);
-            post.setTargetStates(PostUtility.convertStatesToTargetString(targetStates));
+            post.setTargetStates(PostUtility.convertStatesToTargetString(targetStates, pinCodeLookupService));
             post.setTargetDistricts(PostUtility.convertDistrictsToTargetString(targetDistricts, pinCodeLookupService));
             post.setTargetPincodes(PostUtility.convertPincodesToTargetString(targetPincodes));
-            post.setTargetCountry(Constant.DEFAULT_TARGET_COUNTRY);
+            
+            // Set targetCountry based on scope
+            if (newScope == BroadcastScope.COUNTRY) {
+                post.setTargetCountry(Constant.DEFAULT_TARGET_COUNTRY);
+            } else {
+                post.setTargetCountry(null);
+            }
+            
             post.setUpdatedAt(new Date());
             Post updatedPost = postRepository.save(post);
             if (PostUtility.isAllIndiaGovernmentBroadcast(updatedPost)) {

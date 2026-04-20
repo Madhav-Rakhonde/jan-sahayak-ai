@@ -56,10 +56,12 @@ public class Post {
     @Column(name = "image_name", length = 500)
     private String imageName;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PostStatus status = PostStatus.ACTIVE;
 
+    @Builder.Default
     @Column(name = "created_at", nullable = false, updatable = false)
     @Temporal(TemporalType.TIMESTAMP)
     private Date createdAt = new Date();
@@ -70,6 +72,7 @@ public class Post {
 
     // ── Resolution ────────────────────────────────────────────────────────────
 
+    @Builder.Default
     @Column(name = "is_resolved", nullable = false)
     private boolean isResolved = false;
 
@@ -100,21 +103,27 @@ public class Post {
 
     // ── Counters (denormalized for fast reads) ────────────────────────────────
 
+    @Builder.Default
     @Column(name = "like_count", nullable = false)
     private int likeCount = 0;
 
+    @Builder.Default
     @Column(name = "dislike_count", nullable = false)
     private int dislikeCount = 0;
 
+    @Builder.Default
     @Column(name = "comment_count", nullable = false)
     private int commentCount = 0;
 
+    @Builder.Default
     @Column(name = "view_count", nullable = false)
     private int viewCount = 0;
 
+    @Builder.Default
     @Column(name = "share_count", nullable = false)
     private int shareCount = 0;
 
+    @Builder.Default
     @Column(name = "save_count", nullable = false)
     private int saveCount = 0;
 
@@ -245,33 +254,29 @@ public class Post {
         // Country-wide broadcast: visible to everyone in India
         if (BroadcastScope.COUNTRY.equals(broadcastScope)) return true;
 
-        // State-level: user's pincode must start with one of the target state prefixes
+        // State-level: matching on 2-digit state prefix
         if (BroadcastScope.STATE.equals(broadcastScope)) {
             if (targetStates == null || targetStates.isBlank()) return false;
             if (!user.hasPincode()) return false;
-            String userState = user.getPincode().length() >= 2
-                    ? user.getPincode().substring(0, 2) : null;
-            if (userState == null) return false;
+            String userState = user.getPincode().substring(0, 2);
             for (String prefix : targetStates.split(",")) {
                 if (userState.equals(prefix.trim())) return true;
             }
             return false;
         }
 
-        // District-level: user's pincode must start with one of the target district prefixes
+        // District-level: matching on 3-digit district prefix
         if (BroadcastScope.DISTRICT.equals(broadcastScope)) {
             if (targetDistricts == null || targetDistricts.isBlank()) return false;
             if (!user.hasPincode()) return false;
-            String userDistrict = user.getPincode().length() >= 3
-                    ? user.getPincode().substring(0, 3) : null;
-            if (userDistrict == null) return false;
+            String userDistrict = user.getPincode().substring(0, 3);
             for (String prefix : targetDistricts.split(",")) {
                 if (userDistrict.equals(prefix.trim())) return true;
             }
             return false;
         }
 
-        // Area-level: user's pincode must be in the target pincodes list
+        // Area-level: matching on full 6-digit pincode
         if (BroadcastScope.AREA.equals(broadcastScope)) {
             if (targetPincodes == null || targetPincodes.isBlank()) return false;
             if (!user.hasPincode()) return false;
@@ -312,6 +317,6 @@ public class Post {
     private void prePersist() {
         if (createdAt == null) createdAt = new Date();
         if (status    == null) status    = PostStatus.ACTIVE;
-        if (targetCountry == null) targetCountry = "IN";
+        // Remove targetCountry default logic - rely strictly on broadcastScope
     }
 }

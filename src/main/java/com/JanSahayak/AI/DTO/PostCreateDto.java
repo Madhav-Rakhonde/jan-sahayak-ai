@@ -36,4 +36,7 @@ public class PostCreateDto {
 
     @Size(max = 6, min = 6, message = "Target pincode must be exactly 6 digits")
     private String targetPincode;
+
+    @Size(max = 2000, message = "Target pincodes must not exceed 2000 characters")
+    private String targetPincodes;
 }

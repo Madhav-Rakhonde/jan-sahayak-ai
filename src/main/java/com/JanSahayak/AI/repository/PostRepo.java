@@ -226,7 +226,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
             "(p.broadcastScope IS NULL OR " +
-            "(p.broadcastScope = :countryScope AND p.targetCountry = 'IN') OR " +
+            "(p.broadcastScope = :countryScope) OR " +
             "(p.broadcastScope = :stateScope AND p.targetStates LIKE CONCAT('%', :statePrefix, '%')) OR " +
             "(p.broadcastScope = :districtScope AND p.targetDistricts LIKE CONCAT('%', :districtPrefix, '%')) OR " +
             "(p.broadcastScope = :areaScope AND p.targetPincodes LIKE CONCAT('%', :pincode, '%'))) " +
@@ -288,25 +288,22 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findGovernmentCountryBroadcasts(@Param("countryScope") BroadcastScope countryScope);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
-            "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
-            "p.targetPincodes LIKE CONCAT('%,', :pincode) OR p.targetPincodes = :pincode) AND " +
+            "p.targetPincodes LIKE CONCAT('%', :pincode, '%') AND " +
             "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialAreaBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("pincode") String pincode);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
-            "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
-            "p.targetDistricts LIKE CONCAT('%,', :prefix) OR p.targetDistricts = :prefix) AND " +
+            "p.targetDistricts LIKE CONCAT('%', :prefix, '%') AND " +
             "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialDistrictBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
-            "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
-            "p.targetStates LIKE CONCAT('%,', :prefix) OR p.targetStates = :prefix) AND " +
+            "p.targetStates LIKE CONCAT('%', :prefix, '%') AND " +
             "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialStateBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
-            "p.targetCountry = 'IN' AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') " +
+            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') " +
             "ORDER BY p.createdAt DESC")
     List<Post> findOfficialCountryBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status);
 
@@ -328,7 +325,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
 
     @Query("SELECT COUNT(p) FROM Post p WHERE p.broadcastScope = :countryScope AND " +
-            "p.targetCountry = 'IN' AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     Long countGovernmentCountryBroadcasts(@Param("countryScope") BroadcastScope countryScope);
 
     List<Post> findByTargetCountry(String targetCountry);
@@ -517,7 +514,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
             "(p.broadcastScope IS NULL OR " +
-            "(p.broadcastScope = :countryScope AND p.targetCountry = 'IN') OR " +
+            "(p.broadcastScope = :countryScope) OR " +
             "(p.broadcastScope = :stateScope AND p.targetStates LIKE CONCAT('%', :statePrefix, '%')) OR " +
             "(p.broadcastScope = :districtScope AND p.targetDistricts LIKE CONCAT('%', :districtPrefix, '%')) OR " +
             "(p.broadcastScope = :areaScope AND p.targetPincodes LIKE CONCAT('%', :pincode, '%'))) " +
@@ -555,7 +552,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :countryScope AND " +
-            "p.targetCountry = 'IN' AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') AND p.id < :beforeId " +
+            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
     List<Post> findGovernmentCountryBroadcastsAndIdLessThan(
             @Param("countryScope") BroadcastScope countryScope,
@@ -563,12 +560,12 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND " +
-            "p.targetCountry = 'IN' AND p.id < :beforeId ORDER BY p.createdAt DESC")
+            "p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findAllIndiaBroadcastPostsAndIdLessThan(
             @Param("beforeId") Long beforeId, Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND " +
-            "p.targetCountry = 'IN' AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
+            "p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findActiveIndiaBroadcastPostsAndIdLessThan(
             @Param("status") PostStatus status,
             @Param("beforeId") Long beforeId,

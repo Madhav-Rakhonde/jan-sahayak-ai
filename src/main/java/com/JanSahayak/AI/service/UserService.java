@@ -155,7 +155,7 @@ public class UserService implements UserDetailsService {
                 return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
-            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()));
+            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()), pincodeLookupService);
             if (statePrefixes.isEmpty()) {
                 return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
@@ -225,7 +225,7 @@ public class UserService implements UserDetailsService {
                 }
             }
 
-            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()));
+            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()), pincodeLookupService);
             if (!statePrefixes.isEmpty()) {
                 String statePrefix = statePrefixes.get(0);
                 departmentUsers = departmentUsers.stream()

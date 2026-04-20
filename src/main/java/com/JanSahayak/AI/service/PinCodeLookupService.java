@@ -541,7 +541,7 @@ public class PinCodeLookupService {
     // ===== Pincode Prefix Conversion Methods =====
 
     public List<String> convertStatesToPrefixes(List<String> stateNames) {
-        return PostUtility.convertStatesToPincodePrefixes(stateNames);
+        return PostUtility.convertStatesToPincodePrefixes(stateNames, this);
     }
 
     public List<String> convertDistrictsToPrefixes(List<String> districtNames) {

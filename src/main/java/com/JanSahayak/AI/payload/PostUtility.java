@@ -441,21 +441,42 @@ public class PostUtility {
     /**
      * Convert list of state names to pincode prefixes
      */
-    public static List<String> convertStatesToPincodePrefixes(List<String> stateNames) {
+    public static List<String> convertStatesToPincodePrefixes(List<String> stateNames,
+                                                               PinCodeLookupService pinCodeLookupService) {
         if (stateNames == null || stateNames.isEmpty()) {
             return new ArrayList<>();
         }
 
-        return stateNames.stream()
+        Set<String> prefixes = new HashSet<>();
+        for (String state : stateNames) {
+            if (state == null || state.trim().isEmpty()) continue;
+            
+            // Get sample 2-digit prefixes for this state from database (case-insensitive)
+            List<String> statePrefixes = pinCodeLookupService.getDistinctPrefixesByState(state.trim(), 2);
+            if (statePrefixes != null) {
+                prefixes.addAll(statePrefixes);
+            }
+        }
+
+        if (prefixes.isEmpty()) {
+            log.warn("Could not find any pincode prefixes for states: {}. Fallback to map resolution.", stateNames);
+            // Optional: Keep map as second fallback if DB is missing data
+            return stateNames.stream()
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(state -> !state.isEmpty())
-                .map(STATE_TO_PINCODE_PREFIX::get)
+                .map(state -> STATE_TO_PINCODE_PREFIX.entrySet().stream()
+                        .filter(entry -> entry.getKey().equalsIgnoreCase(state))
+                        .map(Map.Entry::getValue)
+                        .findFirst().orElse(null))
                 .filter(Objects::nonNull)
-                .flatMap(prefixes -> Arrays.stream(prefixes.split(",")))
+                .flatMap(p -> Arrays.stream(p.split(",")))
                 .map(String::trim)
                 .distinct()
                 .collect(Collectors.toList());
+        }
+
+        return new ArrayList<>(prefixes);
     }
 
     /**
@@ -479,11 +500,11 @@ public class PostUtility {
         }
 
         if (prefixes.isEmpty()) {
-            log.warn("Could not find any pincode prefixes for districts: {}. Storing names as fallback.", districtNames);
-            return districtNames;
+            log.warn("Could not find any 3-digit pincode prefixes for districts: {}", districtNames);
+            return new ArrayList<>();
         }
 
-        return new ArrayList<>(prefixes);
+        return prefixes.stream().sorted().collect(Collectors.toList());
     }
 
     /**
@@ -517,12 +538,13 @@ public class PostUtility {
     /**
      * Convert state names to their corresponding pincode prefixes for broadcasting
      */
-    public static String convertStatesToTargetString(List<String> stateNames) {
+    public static String convertStatesToTargetString(List<String> stateNames,
+                                                     PinCodeLookupService pinCodeLookupService) {
         if (stateNames == null || stateNames.isEmpty()) {
             return null;
         }
 
-        List<String> prefixes = convertStatesToPincodePrefixes(stateNames);
+        List<String> prefixes = convertStatesToPincodePrefixes(stateNames, pinCodeLookupService);
         return prefixes.isEmpty() ? null : String.join(",", prefixes);
     }
 
@@ -550,8 +572,9 @@ public class PostUtility {
         return pincodes.stream()
                 .filter(Objects::nonNull)
                 .map(String::trim)
-                .filter(pincode -> Constant.isValidIndianPincode(pincode))
+                .filter(pincode -> pincode.matches("\\d{6}"))
                 .distinct()
+                .sorted()
                 .collect(Collectors.joining(","));
     }
 
