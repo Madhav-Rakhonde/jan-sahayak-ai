@@ -1267,16 +1267,14 @@ public class PostService {
             pinCodeLookupService.populateUserLocationData(user);
 
             int validLimit = Math.max(1, Math.min(limit, 50));
+            int candidatePool = validLimit * 2; // fetch extra for scoring headroom
 
+            // ─── No pincode → national citizen fallback ──────────────────────
             if (!user.hasPincode()) {
-                log.debug("[LocalFeed] userId={} has no pincode — returning country-wide posts", user.getId());
-                PaginatedResponse<Post> countryPosts = getActiveCountryWideBroadcasts(beforeId, validLimit);
-                if (countryPosts == null || countryPosts.getData() == null || countryPosts.getData().isEmpty()) {
-                    log.debug("[LocalFeed] No country-wide posts — returning all active posts (sparse platform)");
-                    PaginatedResponse<Post> allActive = getAllActivePosts(beforeId, validLimit);
-                    return convertPaginatedPostsToResponses(allActive, user);
-                }
-                return convertPaginatedPostsToResponses(countryPosts, user);
+                log.debug("[LocalFeed] userId={} has no pincode — returning all citizen posts nationally", user.getId());
+                List<Post> allCitizen = postRepository.findAllCitizenPosts(
+                        PostStatus.ACTIVE, PageRequest.of(0, candidatePool));
+                return buildCitizenFeedResponse(allCitizen, user, null, null, null, validLimit, "NATIONAL");
             }
 
             String userPincode    = user.getPincode();
@@ -1285,75 +1283,89 @@ public class PostService {
 
             int enoughThreshold = Math.max(1, validLimit / 2);
 
-            Map<Long, Post> merged    = new LinkedHashMap<>();
-            String          scopeLabel = "AREA";
+            Map<Long, Post> merged = new LinkedHashMap<>();
+            String scopeLabel = "AREA";
 
-            PaginatedResponse<Post> areaPosts = getAreaLevelBroadcasts(userPincode, beforeId, validLimit);
-            if (areaPosts.getData() != null) {
-                areaPosts.getData().forEach(p -> merged.put(p.getId(), p));
+            // ─── Tier 1: EXACT pincode match (same neighbourhood) ────────────
+            postRepository.findCitizenPostsByPincode(
+                    PostStatus.ACTIVE, userPincode, PageRequest.of(0, candidatePool)
+            ).forEach(p -> merged.put(p.getId(), p));
+
+            // ─── Tier 2: DISTRICT (first 3 digits) ──────────────────────────
+            if (merged.size() < enoughThreshold && districtPrefix != null) {
+                scopeLabel = "DISTRICT";
+                postRepository.findCitizenPostsByDistrictPrefix(
+                        PostStatus.ACTIVE, districtPrefix, PageRequest.of(0, candidatePool)
+                ).forEach(p -> merged.putIfAbsent(p.getId(), p));
             }
 
-            if (merged.size() >= enoughThreshold) {
-                scopeLabel = "AREA";
-            } else {
-                if (districtPrefix != null) {
-                    PaginatedResponse<Post> districtPosts = getDistrictLevelBroadcasts(districtPrefix, beforeId, validLimit);
-                    if (districtPosts.getData() != null) {
-                        districtPosts.getData().forEach(p -> merged.putIfAbsent(p.getId(), p));
-                    }
-                }
-                if (merged.size() >= enoughThreshold) {
-                    scopeLabel = "DISTRICT";
-                } else {
-                    if (statePrefix != null) {
-                        PaginatedResponse<Post> statePosts = getStateLevelBroadcasts(statePrefix, beforeId, validLimit);
-                        if (statePosts.getData() != null) {
-                            statePosts.getData().forEach(p -> merged.putIfAbsent(p.getId(), p));
-                        }
-                    }
-                    if (merged.size() >= enoughThreshold) {
-                        scopeLabel = "STATE";
-                    } else {
-                        PaginatedResponse<Post> countryPosts = getActiveCountryWideBroadcasts(beforeId, validLimit);
-                        if (countryPosts.getData() != null) {
-                            countryPosts.getData().forEach(p -> merged.putIfAbsent(p.getId(), p));
-                        }
-                        scopeLabel = merged.isEmpty() ? "EMPTY" : "NATIONAL";
-                    }
-                }
+            // ─── Tier 3: STATE (first 2 digits) ─────────────────────────────
+            if (merged.size() < enoughThreshold && statePrefix != null) {
+                scopeLabel = "STATE";
+                postRepository.findCitizenPostsByStatePrefix(
+                        PostStatus.ACTIVE, statePrefix, PageRequest.of(0, candidatePool)
+                ).forEach(p -> merged.putIfAbsent(p.getId(), p));
+            }
+
+            // ─── Tier 4: NATIONAL fallback ──────────────────────────────────
+            if (merged.size() < enoughThreshold) {
+                scopeLabel = "NATIONAL";
+                postRepository.findAllCitizenPosts(
+                        PostStatus.ACTIVE, PageRequest.of(0, candidatePool)
+                ).forEach(p -> merged.putIfAbsent(p.getId(), p));
+            }
+
+            // ─── Inject user's own posts so they always see their content ───
+            try {
+                postRepository.findByUserWithUserAndStatusOrderByCreatedAtDesc(user, PostStatus.ACTIVE)
+                        .forEach(p -> merged.putIfAbsent(p.getId(), p));
+            } catch (Exception e) {
+                log.warn("[LocalFeed] Own-post injection failed for userId={}: {}", user.getId(), e.getMessage());
             }
 
             if (merged.isEmpty()) {
-                log.info("[LocalFeed] All geo tiers empty (sparse platform) — returning all active posts for userId={}", user.getId());
-                PaginatedResponse<Post> allActive = getAllActivePosts(beforeId, validLimit);
-                return convertPaginatedPostsToResponses(allActive, user);
+                log.info("[LocalFeed] All citizen tiers empty — returning empty for userId={}", user.getId());
+                return PaginationUtils.createEmptyResponse(validLimit);
             }
 
-            final String fp = userPincode, fd = districtPrefix, fs = statePrefix;
-            List<Post> ranked = merged.values().stream()
-                    .filter(p -> p.getStatus() == PostStatus.ACTIVE)
-                    .sorted(Comparator.comparingDouble(
-                            (Post p) -> computeIssueScore(p, fp, fd, fs)).reversed())
-                    .limit(validLimit)
-                    .collect(Collectors.toList());
-
-            log.debug("[LocalFeed] userId={} pincode={} scope={} merged={} returned={}",
-                    user.getId(), userPincode, scopeLabel, merged.size(), ranked.size());
-
-            List<PostResponse> responses = ranked.stream()
-                    .map(p -> convertToPostResponse(p, user))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-
-            boolean hasMore    = responses.size() == validLimit;
-            Long    nextCursor = hasMore ? responses.get(responses.size() - 1).getId() : null;
-            return PaginatedResponse.of(responses, hasMore, nextCursor, validLimit);
+            return buildCitizenFeedResponse(
+                    new ArrayList<>(merged.values()), user,
+                    userPincode, districtPrefix, statePrefix,
+                    validLimit, scopeLabel);
 
         } catch (Exception e) {
             log.error("[LocalFeed] Failed for user={}", user != null ? user.getActualUsername() : "null", e);
             int safe = Math.max(1, Math.min(limit, 50));
             return PaginationUtils.createEmptyResponse(safe);
         }
+    }
+
+    /**
+     * Scores, ranks, and paginates a pool of citizen issue posts for the Location tab.
+     */
+    private PaginatedResponse<PostResponse> buildCitizenFeedResponse(
+            List<Post> pool, User user,
+            String userPincode, String districtPrefix, String statePrefix,
+            int validLimit, String scopeLabel) {
+
+        List<Post> ranked = pool.stream()
+                .filter(p -> p.getStatus() == PostStatus.ACTIVE)
+                .sorted(Comparator.comparingDouble(
+                        (Post p) -> computeIssueScore(p, userPincode, districtPrefix, statePrefix)).reversed())
+                .limit(validLimit)
+                .collect(Collectors.toList());
+
+        log.debug("[LocalFeed] userId={} pincode={} scope={} pool={} returned={}",
+                user.getId(), userPincode, scopeLabel, pool.size(), ranked.size());
+
+        List<PostResponse> responses = ranked.stream()
+                .map(p -> convertToPostResponse(p, user))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        boolean hasMore    = responses.size() == validLimit;
+        Long    nextCursor = hasMore ? responses.get(responses.size() - 1).getId() : null;
+        return PaginatedResponse.of(responses, hasMore, nextCursor, validLimit);
     }
 
     /**

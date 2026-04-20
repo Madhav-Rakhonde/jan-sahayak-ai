@@ -955,4 +955,70 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findByUserWithUserAndStatusInOrderByCreatedAtDesc(
             @Param("user") User user,
             @Param("statuses") List<PostStatus> statuses);
+
+    // ==========================================================================
+    // ===== CITIZEN ISSUE POST — GEOGRAPHIC WATERFALL (Location Tab) ===========
+    // ==========================================================================
+
+    /**
+     * Citizen posts from the EXACT same pincode.
+     * Waterfall tier 1: same neighbourhood.
+     */
+    @Query("""
+            SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r
+            WHERE p.status = :status
+              AND r.name = 'ROLE_USER'
+              AND u.pincode = :pincode
+            ORDER BY p.createdAt DESC
+            """)
+    List<Post> findCitizenPostsByPincode(
+            @Param("status") PostStatus status,
+            @Param("pincode") String pincode,
+            Pageable pageable);
+
+    /**
+     * Citizen posts from the same DISTRICT (first 3 digits of pincode match).
+     * Waterfall tier 2: same district.
+     */
+    @Query("""
+            SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r
+            WHERE p.status = :status
+              AND r.name = 'ROLE_USER'
+              AND u.pincode LIKE CONCAT(:districtPrefix, '%')
+            ORDER BY p.createdAt DESC
+            """)
+    List<Post> findCitizenPostsByDistrictPrefix(
+            @Param("status") PostStatus status,
+            @Param("districtPrefix") String districtPrefix,
+            Pageable pageable);
+
+    /**
+     * Citizen posts from the same STATE (first 2 digits of pincode match).
+     * Waterfall tier 3: same state.
+     */
+    @Query("""
+            SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r
+            WHERE p.status = :status
+              AND r.name = 'ROLE_USER'
+              AND u.pincode LIKE CONCAT(:statePrefix, '%')
+            ORDER BY p.createdAt DESC
+            """)
+    List<Post> findCitizenPostsByStatePrefix(
+            @Param("status") PostStatus status,
+            @Param("statePrefix") String statePrefix,
+            Pageable pageable);
+
+    /**
+     * ALL citizen posts across the platform (national fallback).
+     * Waterfall tier 4: when local/district/state pools are all sparse.
+     */
+    @Query("""
+            SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r
+            WHERE p.status = :status
+              AND r.name = 'ROLE_USER'
+            ORDER BY p.createdAt DESC
+            """)
+    List<Post> findAllCitizenPosts(
+            @Param("status") PostStatus status,
+            Pageable pageable);
 }
