@@ -287,23 +287,23 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             "ORDER BY p.createdAt DESC")
     List<Post> findGovernmentCountryBroadcasts(@Param("countryScope") BroadcastScope countryScope);
 
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "p.targetPincodes LIKE CONCAT('%', :pincode, '%') AND " +
-            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
+            "r.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialAreaBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("pincode") String pincode);
 
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "p.targetDistricts LIKE CONCAT('%', :prefix, '%') AND " +
-            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
+            "r.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialDistrictBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "p.targetStates LIKE CONCAT('%', :prefix, '%') AND " +
-            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
+            "r.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findOfficialStateBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
-            "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') " +
+    @Query("SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+            "r.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') " +
             "ORDER BY p.createdAt DESC")
     List<Post> findOfficialCountryBroadcasts(@Param("scope") BroadcastScope scope, @Param("status") PostStatus status);
 
