@@ -90,6 +90,12 @@ public class ChatSessionService {
     // Bounded by the number of concurrent sessions * 2 users = negligible.
     private final Map<Long, String> emailCache = new ConcurrentHashMap<>();
 
+    // ── Ephemeral Media Caching (Telegram-style) ──────────────────────────────
+    // fileId -> raw bytes
+    private final Map<String, byte[]> mediaCache = new ConcurrentHashMap<>();
+    // sessionId -> list of fileIds
+    private final Map<String, List<String>> sessionMediaMap = new ConcurrentHashMap<>();
+
     // ── Session lifecycle ─────────────────────────────────────────────────────
 
     public ChatSession createSession(Long user1Id, Long user2Id) {
@@ -185,7 +191,7 @@ public class ChatSessionService {
      * @param sessionId    active session
      * @param senderId     userId of the sender
      * @param type         IMAGE | VIDEO | STICKER | VOICE_NOTE
-     * @param mediaPayload base64 data-URI, e.g. "data:image/jpeg;base64,..."
+     * @param mediaBytes   raw binary bytes from MultipartFile
      * @param mimeType     MIME type hint, e.g. "image/jpeg", "video/mp4"
      * @param mediaName    optional display name (may be null)
      * @param viewTimer    0 = no timer; 1–60 = seconds visible after first open
@@ -197,7 +203,7 @@ public class ChatSessionService {
             String sessionId,
             Long senderId,
             ChatMessage.MessageType type,
-            String mediaPayload,
+            byte[] mediaBytes,
             String mimeType,
             String mediaName,
             int viewTimer,
@@ -209,16 +215,23 @@ public class ChatSessionService {
         if (!session.hasUser(senderId)) throw new RuntimeException("User not part of this session");
         if (!session.isActive())        throw new RuntimeException("Session is not active");
 
-        // Guard: reject over-large payloads before they hit the WebSocket send queue
-        // 50 MB base64 string ≈ 37.5 MB raw — generous enough for video clips
-        if (mediaPayload != null && mediaPayload.length() > 50L * 1024 * 1024) {
+        // Guard: reject over-large payloads before they hit the RAM cache
+        // 50 MB limit
+        if (mediaBytes != null && mediaBytes.length > 50L * 1024 * 1024) {
             throw new RuntimeException("Media payload exceeds 50 MB limit");
+        }
+
+        String fileId = UUID.randomUUID().toString();
+        
+        if (mediaBytes != null) {
+            mediaCache.put(fileId, mediaBytes);
+            sessionMediaMap.computeIfAbsent(sessionId, k -> new ArrayList<>()).add(fileId);
         }
 
         String senderAnonymousId = session.getUserAnonymousId(senderId);
         ChatMessage message = ChatMessage.mediaMessage(
                 sessionId, senderAnonymousId, type,
-                mediaPayload, mimeType, mediaName,
+                fileId, mimeType, mediaName,
                 viewTimer, viewOnce);
         message.setReplyToId(replyToId);
 
@@ -229,6 +242,25 @@ public class ChatSessionService {
         log.debug("Media message {} ({}) created in session {} by user {} | timer={}s viewOnce={}",
                 message.getMessageId(), type, sessionId, senderId, viewTimer, viewOnce);
         return message;
+    }
+
+    public byte[] getMedia(String fileId) {
+        return mediaCache.get(fileId);
+    }
+
+    public boolean deleteMedia(String fileId) {
+        if (fileId == null) return false;
+        return mediaCache.remove(fileId) != null;
+    }
+
+    private void cleanupSessionMedia(String sessionId) {
+        List<String> fileIds = sessionMediaMap.remove(sessionId);
+        if (fileIds != null) {
+            for (String fileId : fileIds) {
+                mediaCache.remove(fileId);
+            }
+            log.info("Cleaned up {} media files for session {}", fileIds.size(), sessionId);
+        }
     }
 
     // ── Session end ───────────────────────────────────────────────────────────
@@ -276,6 +308,9 @@ public class ChatSessionService {
         // FIX MEMORY LEAK #2 — evict cached emails for users whose session ended
         emailCache.remove(session.getUser1Id());
         emailCache.remove(session.getUser2Id());
+        
+        // TELEGRAM-STYLE CLEANUP: Wipe all standard media from RAM
+        cleanupSessionMedia(sessionId);
     }
 
     // ── Reconnect flow ────────────────────────────────────────────────────────
@@ -412,6 +447,7 @@ public class ChatSessionService {
                 userSessionMap.remove(s.getUser1Id());
                 userSessionMap.remove(s.getUser2Id());
                 activeSessions.remove(sid);
+                cleanupSessionMedia(sid);
             }
         }
         if (!toExpire.isEmpty()) log.info("Expired {} inactive sessions", toExpire.size());
@@ -439,6 +475,7 @@ public class ChatSessionService {
                 emailCache.remove(session.getUser1Id());
                 emailCache.remove(session.getUser2Id());
                 activeSessions.remove(sid);
+                cleanupSessionMedia(sid);
                 count++;
             }
         }
@@ -462,6 +499,7 @@ public class ChatSessionService {
                 userSessionMap.remove(s.getUser2Id());
                 emailCache.remove(s.getUser1Id());
                 emailCache.remove(s.getUser2Id());
+                cleanupSessionMedia(sid);
             }
         }
         if (!toRemove.isEmpty()) log.info("Removed {} ended sessions from memory", toRemove.size());
@@ -553,6 +591,7 @@ public class ChatSessionService {
             activeSessions.remove(sessionId);
             emailCache.remove(session.getUser1Id());
             emailCache.remove(session.getUser2Id());
+            cleanupSessionMedia(sessionId);
         }
     }
 

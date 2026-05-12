@@ -277,7 +277,7 @@ public class ChatController {
      *   "viewOnce":     false                           // optional: true = view once like Telegram
      * }
      *
-     * Returns: the generated messageId (string).
+     * Returns: the generated messageId and fileId.
      *
      * ── Timer behaviour ──────────────────────────────────────────────────────
      *  viewTimer > 0  → receiver sees a countdown starting from first open;
@@ -291,35 +291,40 @@ public class ChatController {
      * Media is NEVER written to disk, database, or session.recentMessages.
      * It exists only as an in-flight WebSocket frame.
      */
-    @PostMapping("/{sessionId}/media")
+    @PostMapping(value = "/{sessionId}/media", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sendMedia(
             @PathVariable String sessionId,
-            @RequestBody MediaRequest req,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+            @RequestParam("type") String typeRaw,
+            @RequestParam(value = "viewTimer", defaultValue = "0") int viewTimer,
+            @RequestParam(value = "viewOnce", defaultValue = "false") boolean viewOnce,
+            @RequestParam(value = "replyToId", required = false) String replyToId,
             @AuthenticationPrincipal User user) {
         try {
-            ChatMessage.MessageType type = parseMediaType(req.getType());
+            ChatMessage.MessageType type = parseMediaType(typeRaw);
 
             // Clamp timer to valid range (0–60 s)
-            int viewTimer = Math.max(0, Math.min(req.getViewTimer(), 60));
+            viewTimer = Math.max(0, Math.min(viewTimer, 60));
 
             ChatMessage msg = chatSessionService.addMediaMessage(
                     sessionId,
                     user.getId(),
                     type,
-                    req.getMediaPayload(),
-                    req.getMimeType(),
-                    req.getMediaName(),
+                    file.getBytes(),
+                    file.getContentType(),
+                    file.getOriginalFilename(),
                     viewTimer,
-                    req.isViewOnce(),
-                    req.getReplyToId());
+                    viewOnce,
+                    replyToId);
 
             chatMessagingService.sendMediaToSession(sessionId, msg);
 
             Map<String, Object> response = new HashMap<>();
             response.put("messageId", msg.getMessageId());
+            response.put("fileId", msg.getMediaPayload());
             response.put("viewTimer", viewTimer);
-            response.put("viewOnce", req.isViewOnce());
+            response.put("viewOnce", viewOnce);
             return ResponseEntity.ok(ApiResponse.success("Media sent", response));
 
         } catch (RuntimeException e) {
@@ -331,6 +336,43 @@ public class ChatController {
             return ResponseEntity.internalServerError()
                     .body(ApiResponse.<Map<String, Object>>error("Media send failed", "Internal error"));
         }
+    }
+
+    @GetMapping("/{sessionId}/media/{fileId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<byte[]> getMedia(
+            @PathVariable String sessionId,
+            @PathVariable String fileId,
+            @AuthenticationPrincipal User user) {
+        
+        byte[] data = chatSessionService.getMedia(fileId);
+        if (data == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        // Use general octet stream or try to guess MIME type. Browsers generally handle octet stream.
+        return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM)
+                .body(data);
+    }
+
+    @DeleteMapping("/{sessionId}/media/{fileId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteMedia(
+            @PathVariable String sessionId,
+            @PathVariable String fileId,
+            @AuthenticationPrincipal User user) {
+        
+        boolean deleted = chatSessionService.deleteMedia(fileId);
+        if (deleted) {
+            try {
+                // Broadcast to both users that the media has been wiped from RAM
+                chatMessagingService.notifyMediaWiped(sessionId, fileId);
+            } catch (Exception e) {
+                log.error("Failed to notify users that media {} was wiped", fileId, e);
+            }
+        }
+        return ResponseEntity.ok(ApiResponse.success("Media wiped", null));
     }
 
     // ── NEW: WebRTC signaling endpoints ───────────────────────────────────────

@@ -139,6 +139,31 @@ public class ChatMessagingService {
                 mediaMessage.isViewOnce());
     }
 
+    /**
+     * Notify both participants that a media file has been wiped from RAM.
+     * This triggers the frontend to replace the media bubble with a "Flame/Destroyed" icon.
+     */
+    public void notifyMediaWiped(String sessionId, String fileId) {
+        ChatSession session = chatSessionService.getSession(sessionId);
+        if (session == null) {
+            log.warn("notifyMediaWiped: session {} not found", sessionId);
+            return;
+        }
+
+        ChatMessageDto dto = ChatMessageDto.builder()
+                .messageId(UUID.randomUUID().toString())
+                .senderId("SYSTEM")
+                .messageType(ChatMessage.MessageType.MEDIA_WIPED.name())
+                .mediaPayload(fileId) // The fileId that was destroyed
+                .timestamp(Instant.now())
+                .build();
+
+        sendToUser(session.getUser1Id(), dto);
+        sendToUser(session.getUser2Id(), dto);
+
+        log.info("Broadcast MEDIA_WIPED for fileId {} in session {}", fileId, sessionId);
+    }
+
     // ── WebRTC signaling relay ────────────────────────────────────────────────
 
     /**
