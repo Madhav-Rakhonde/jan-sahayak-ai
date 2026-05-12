@@ -53,8 +53,27 @@ public class Post {
             foreignKey = @ForeignKey(name = "fk_post_user"))
     private User user;
 
-    @Column(name = "image_name", length = 500)
+    @Column(name = "image_name", length = 2000)
     private String imageName;
+
+    @Column(name = "media_type", length = 20)
+    private String mediaType;
+
+    public List<String> getMediaUrlsList() {
+        if (imageName == null || imageName.trim().isEmpty()) return new java.util.ArrayList<>();
+        return java.util.Arrays.stream(imageName.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    public void setMediaUrlsList(List<String> urls) {
+        if (urls != null && !urls.isEmpty()) {
+            this.imageName = String.join(",", urls);
+        } else {
+            this.imageName = null;
+        }
+    }
 
     @Builder.Default
     @Enumerated(EnumType.STRING)

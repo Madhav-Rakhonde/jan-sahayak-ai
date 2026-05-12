@@ -66,15 +66,14 @@ public class PostController {
     public ResponseEntity<ApiResponse<PostResponse>> createPostWithMedia(
             @RequestPart("content") String content,
             @RequestPart("targetPincode") String targetPincode,
-            @RequestPart(value = "media", required = false) MultipartFile mediaFile,
+            @RequestPart(value = "media", required = false) List<MultipartFile> mediaFile,
             @CurrentUser User user) {
         try {
             log.info("=== Processing multipart request ===");
             log.info("Received - content: '{}', targetPincode: '{}'", content, targetPincode);
 
-            if (mediaFile != null) {
-                log.info("Media file: {} (size: {} bytes, content-type: {})",
-                        mediaFile.getOriginalFilename(), mediaFile.getSize(), mediaFile.getContentType());
+            if (mediaFile != null && !mediaFile.isEmpty()) {
+                log.info("Media files count: {}", mediaFile.size());
             }
 
             if (content == null || content.trim().isEmpty()) {
@@ -154,7 +153,7 @@ public class PostController {
             @RequestParam(required = false) List<String> targetStates,
             @RequestParam(required = false) List<String> targetDistricts,
             @RequestParam(required = false) List<String> targetPincodes,
-            @RequestParam(value = "media", required = false) MultipartFile mediaFile,
+            @RequestParam(value = "media", required = false) List<MultipartFile> mediaFile,
             @CurrentUser User user) {
         try {
             Post post = postService.createBroadcastPost(postDto, user, broadcastScope, targetCountry,
@@ -200,7 +199,7 @@ public class PostController {
     @PreAuthorize("hasAnyRole('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PostResponse>> createCountryWideBroadcastWithMedia(
             @Valid @ModelAttribute PostCreateDto postDto,
-            @RequestParam(value = "media", required = false) MultipartFile mediaFile,
+            @RequestParam(value = "media", required = false) List<MultipartFile> mediaFile,
             @CurrentUser User user) {
         try {
             Post post = postService.createCountryWideBroadcast(postDto, user, mediaFile);
@@ -247,7 +246,7 @@ public class PostController {
     public ResponseEntity<ApiResponse<PostResponse>> createStateLevelBroadcastWithMedia(
             @Valid @ModelAttribute PostCreateDto postDto,
             @RequestParam List<String> targetStates,
-            @RequestParam(value = "media", required = false) MultipartFile mediaFile,
+            @RequestParam(value = "media", required = false) List<MultipartFile> mediaFile,
             @CurrentUser User user) {
         try {
             Post post = postService.createStateLevelBroadcast(postDto, user, targetStates, mediaFile);
@@ -296,7 +295,7 @@ public class PostController {
             @Valid @ModelAttribute PostCreateDto postDto,
             @RequestParam(required = false) List<String> targetStates,
             @RequestParam List<String> targetDistricts,
-            @RequestParam(value = "media", required = false) MultipartFile mediaFile,
+            @RequestParam(value = "media", required = false) List<MultipartFile> mediaFile,
             @CurrentUser User user) {
         try {
             Post post = postService.createDistrictLevelBroadcast(postDto, user, targetStates, targetDistricts, mediaFile);
@@ -343,7 +342,7 @@ public class PostController {
     public ResponseEntity<ApiResponse<PostResponse>> createAreaLevelBroadcastWithMedia(
             @Valid @ModelAttribute PostCreateDto postDto,
             @RequestParam List<String> targetPincodes,
-            @RequestParam(value = "media", required = false) MultipartFile mediaFile,
+            @RequestParam(value = "media", required = false) List<MultipartFile> mediaFile,
             @CurrentUser User user) {
         try {
             Post post = postService.createAreaLevelBroadcast(postDto, user, targetPincodes, mediaFile);
@@ -627,7 +626,7 @@ public class PostController {
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PostResponse>> updatePostMedia(
             @PathVariable Long postId,
-            @RequestParam(value = "media", required = false) MultipartFile mediaFile,
+            @RequestParam(value = "media", required = false) List<MultipartFile> mediaFile,
             @CurrentUser User user) {
         try {
             Post updatedPost = postService.updatePostMedia(postId, mediaFile, user);

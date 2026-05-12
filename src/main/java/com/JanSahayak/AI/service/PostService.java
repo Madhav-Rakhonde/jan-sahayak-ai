@@ -77,7 +77,7 @@ public class PostService {
     // =========================================================================
 
     @Transactional(rollbackFor = Exception.class)
-    public Post createPost(PostCreateDto postDto, User user, MultipartFile mediaFile) {
+    public Post createPost(PostCreateDto postDto, User user, List<MultipartFile> mediaFile) {
         log.info("Creating post: user={} (id={})", user.getActualUsername(), user.getId());
         try {
             PostUtility.validateUser(user);
@@ -93,7 +93,18 @@ public class PostService {
             // CLOUDINARY: upload returns secure URL; null when no file provided
             String fileName = null;
             if (mediaFile != null && !mediaFile.isEmpty()) {
-                fileName = drivePostMedia.upload(mediaFile, user.getId());
+                if (mediaFile.size() > 2) {
+                    throw new MediaValidationException("Maximum 2 media files are allowed");
+                }
+                List<String> fileNames = new java.util.ArrayList<>();
+                for (MultipartFile mf : mediaFile) {
+                    if (mf != null && !mf.isEmpty()) {
+                        fileNames.add(drivePostMedia.upload(mf, user.getId()));
+                    }
+                }
+                if (!fileNames.isEmpty()) {
+                    fileName = String.join(",", fileNames);
+                }
             }
 
             Post post = new Post();
@@ -148,7 +159,7 @@ public class PostService {
     public Post createBroadcastPost(PostCreateDto postDto, User user, BroadcastScope broadcastScope,
                                     String targetCountry, List<String> targetStates,
                                     List<String> targetDistricts, List<String> targetPincodes,
-                                    MultipartFile mediaFile) {
+                                    List<MultipartFile> mediaFile) {
         log.info("Creating broadcast post: user={} (id={}) scope={}", user.getActualUsername(), user.getId(), broadcastScope);
         try {
             PostUtility.validateUser(user);
@@ -160,7 +171,18 @@ public class PostService {
             // CLOUDINARY: upload returns secure URL
             String fileName = null;
             if (mediaFile != null && !mediaFile.isEmpty()) {
-                fileName = drivePostMedia.upload(mediaFile, user.getId());
+                if (mediaFile.size() > 2) {
+                    throw new MediaValidationException("Maximum 2 media files are allowed");
+                }
+                List<String> fileNames = new java.util.ArrayList<>();
+                for (MultipartFile mf : mediaFile) {
+                    if (mf != null && !mf.isEmpty()) {
+                        fileNames.add(drivePostMedia.upload(mf, user.getId()));
+                    }
+                }
+                if (!fileNames.isEmpty()) {
+                    fileName = String.join(",", fileNames);
+                }
             }
 
             Post post = new Post();
@@ -235,7 +257,7 @@ public class PostService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public Post createCountryWideBroadcast(PostCreateDto postDto, User user, MultipartFile mediaFile) {
+    public Post createCountryWideBroadcast(PostCreateDto postDto, User user, List<MultipartFile> mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         Post post = createBroadcastPost(postDto, user, BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY,
                 null, null, null, mediaFile);
@@ -246,7 +268,7 @@ public class PostService {
 
     @Transactional(rollbackFor = Exception.class)
     public Post createStateLevelBroadcast(PostCreateDto postDto, User user,
-                                          List<String> targetStates, MultipartFile mediaFile) {
+                                          List<String> targetStates, List<MultipartFile> mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         PostUtility.validateTargetStates(targetStates);
         return createBroadcastPost(postDto, user, BroadcastScope.STATE, null,
@@ -256,7 +278,7 @@ public class PostService {
     @Transactional(rollbackFor = Exception.class)
     public Post createDistrictLevelBroadcast(PostCreateDto postDto, User user,
                                              List<String> targetStates, List<String> targetDistricts,
-                                             MultipartFile mediaFile) {
+                                             List<MultipartFile> mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         PostUtility.validateTargetDistricts(targetDistricts);
         return createBroadcastPost(postDto, user, BroadcastScope.DISTRICT, null,
@@ -265,7 +287,7 @@ public class PostService {
 
     @Transactional(rollbackFor = Exception.class)
     public Post createAreaLevelBroadcast(PostCreateDto postDto, User user,
-                                         List<String> targetPincodes, MultipartFile mediaFile) {
+                                         List<String> targetPincodes, List<MultipartFile> mediaFile) {
         PostUtility.validateBroadcastPermission(user);
         PostUtility.validateTargetPincodesWithLookup(targetPincodes, pinCodeLookupService);
         return createBroadcastPost(postDto, user, BroadcastScope.AREA, null,
@@ -593,7 +615,7 @@ public class PostService {
     // =========================================================================
 
     @Transactional(rollbackFor = Exception.class)
-    public Post updatePostMedia(Long postId, MultipartFile mediaFile, User currentUser) {
+    public Post updatePostMedia(Long postId, List<MultipartFile> mediaFile, User currentUser) {
         try {
             PostUtility.validatePostId(postId);
             PostUtility.validateUser(currentUser);
@@ -602,7 +624,21 @@ public class PostService {
             if (!PostUtility.postAllowsUpdates(post)) throw new SecurityException("Cannot update media for posts with status: " + post.getStatus().getDisplayName());
 
             // CLOUDINARY: upload new file, delete old one asynchronously
-            String fileName    = drivePostMedia.upload(mediaFile, currentUser.getId());
+            String fileName = null;
+            if (mediaFile != null && !mediaFile.isEmpty()) {
+                if (mediaFile.size() > 2) {
+                    throw new MediaValidationException("Maximum 2 media files are allowed");
+                }
+                List<String> fileNames = new java.util.ArrayList<>();
+                for (MultipartFile mf : mediaFile) {
+                    if (mf != null && !mf.isEmpty()) {
+                        fileNames.add(drivePostMedia.upload(mf, currentUser.getId()));
+                    }
+                }
+                if (!fileNames.isEmpty()) {
+                    fileName = String.join(",", fileNames);
+                }
+            }
             String oldFileName = post.getImageName();
             post.setImageName(fileName);
             post.setUpdatedAt(new Date());
@@ -611,15 +647,20 @@ public class PostService {
                 // FIX THREAD LEAK: runAsync with no timeout holds a ForkJoin thread
                 // indefinitely if Cloudinary hangs — risks pool exhaustion under load.
                 // orTimeout(10s) interrupts and falls back to the retry cleanup queue.
-                final String urlToDelete = oldFileName;
-                CompletableFuture
-                        .runAsync(() -> drivePostMedia.delete(urlToDelete))
-                        .orTimeout(10, TimeUnit.SECONDS)
-                        .exceptionally(ex -> {
-                            log.warn("[Cloudinary] Async delete timed out/failed url={}: {}", urlToDelete, ex.getMessage());
-                            fileCleanupQueue.offer(urlToDelete);
-                            return null;
-                        });
+                String[] urlsToDelete = oldFileName.split(",");
+                for (String url : urlsToDelete) {
+                    final String urlToDelete = url.trim();
+                    if (!urlToDelete.isEmpty()) {
+                        CompletableFuture
+                                .runAsync(() -> drivePostMedia.delete(urlToDelete))
+                                .orTimeout(10, TimeUnit.SECONDS)
+                                .exceptionally(ex -> {
+                                    log.warn("[Cloudinary] Async delete timed out/failed url={}: {}", urlToDelete, ex.getMessage());
+                                    fileCleanupQueue.offer(urlToDelete);
+                                    return null;
+                                });
+                    }
+                }
             }
             log.info("Media updated: postId={} newMedia={}", post.getId(), fileName != null ? fileName : "removed");
             return updatedPost;
@@ -647,15 +688,20 @@ public class PostService {
             Post updatedPost = postRepository.save(post);
             if (oldFileName != null && !oldFileName.trim().isEmpty()) {
                 // FIX THREAD LEAK: same timeout guard as updatePostMedia (see above)
-                final String urlToDelete = oldFileName;
-                CompletableFuture
-                        .runAsync(() -> drivePostMedia.delete(urlToDelete))
-                        .orTimeout(10, TimeUnit.SECONDS)
-                        .exceptionally(ex -> {
-                            log.warn("[Cloudinary] Async delete timed out/failed url={}: {}", urlToDelete, ex.getMessage());
-                            fileCleanupQueue.offer(urlToDelete);
-                            return null;
-                        });
+                String[] urlsToDelete = oldFileName.split(",");
+                for (String url : urlsToDelete) {
+                    final String urlToDelete = url.trim();
+                    if (!urlToDelete.isEmpty()) {
+                        CompletableFuture
+                                .runAsync(() -> drivePostMedia.delete(urlToDelete))
+                                .orTimeout(10, TimeUnit.SECONDS)
+                                .exceptionally(ex -> {
+                                    log.warn("[Cloudinary] Async delete timed out/failed url={}: {}", urlToDelete, ex.getMessage());
+                                    fileCleanupQueue.offer(urlToDelete);
+                                    return null;
+                                });
+                    }
+                }
             }
             log.info("Media removed from post: id={}", post.getId());
             return updatedPost;

@@ -17,11 +17,11 @@ import java.util.List;
  * Covers both citizen issue posts and government broadcast posts.
  *
  * Fields added vs. previous version (marked NEW):
- *   saveCount              — total bookmarks on the post
- *   isSavedByCurrentUser  — bookmark active-state for the requesting user
- *   isGovernmentBroadcast — true when the post was created by a gov. account
- *   countryWideBroadcast  — true when scope == COUNTRY (convenience flag)
- *   canSave               — true when the post is bookmark-eligible (broadcast only)
+ * saveCount — total bookmarks on the post
+ * isSavedByCurrentUser — bookmark active-state for the requesting user
+ * isGovernmentBroadcast — true when the post was created by a gov. account
+ * countryWideBroadcast — true when scope == COUNTRY (convenience flag)
+ * canSave — true when the post is bookmark-eligible (broadcast only)
  *
  * All fields are populated in PostService.convertToPostResponse().
  */
@@ -77,7 +77,8 @@ public class PostResponse {
     /**
      * NEW — true when the post was created by a government/department/admin account
      * AND has a non-null broadcast scope.
-     * Lets the frontend badge government broadcasts distinctly from citizen issue posts.
+     * Lets the frontend badge government broadcasts distinctly from citizen issue
+     * posts.
      */
     private Boolean isGovernmentBroadcast;
 
@@ -116,7 +117,8 @@ public class PostResponse {
     /**
      * NEW — total number of users who have bookmarked this post.
      * Populated from Post.saveCount (denormalized column).
-     * Only meaningful for government broadcast posts (issue posts are never saveable).
+     * Only meaningful for government broadcast posts (issue posts are never
+     * saveable).
      */
     private Integer saveCount;
 
@@ -131,7 +133,8 @@ public class PostResponse {
 
     /**
      * true when the requesting user has an active DISLIKE on this post.
-     * Mutually exclusive with isLikedByCurrentUser — only one can be true at a time.
+     * Mutually exclusive with isLikedByCurrentUser — only one can be true at a
+     * time.
      */
     private Boolean isDislikedByCurrentUser;
 
