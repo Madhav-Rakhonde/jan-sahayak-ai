@@ -193,6 +193,13 @@ public class PostResponse {
     private Boolean isVisibleToCurrentUser;
 
     // =========================================================================
+    // FEED FILTERING & MODERATION METADATA
+    // =========================================================================
+
+    private Boolean contentHidden;
+    private String hiddenReason;
+
+    // =========================================================================
     // NULL-SAFE HELPER GETTERS
     // Used in Thymeleaf templates, unit tests, and any boolean expression context.
     // =========================================================================

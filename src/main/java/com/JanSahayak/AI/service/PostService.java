@@ -1294,6 +1294,40 @@ public class PostService {
                 builder.taggedUsers(Collections.emptyList());
             }
 
+            // =========================================================================
+            // FEED FILTERING & MODERATION CHECK
+            // =========================================================================
+            boolean hidden = false;
+            String reason = null;
+
+            if (currentUser != null) {
+                // 1. Muted Words Check
+                if (currentUser.getMutedWords() != null && !currentUser.getMutedWords().trim().isEmpty()) {
+                    String[] mutedWords = currentUser.getMutedWords().split(",");
+                    String contentLower = post.getContent().toLowerCase();
+                    for (String word : mutedWords) {
+                        if (contentLower.contains(word.trim().toLowerCase())) {
+                            hidden = true;
+                            reason = "Contains a muted word: " + word.trim();
+                            break;
+                        }
+                    }
+                }
+
+                // 2. Profanity Filter Check
+                if (!hidden && ("STRICT".equalsIgnoreCase(currentUser.getProfanityFilterLevel()) ||
+                                "BLUR".equalsIgnoreCase(currentUser.getProfanityFilterLevel()))) {
+                    BadWordService.BadWordCheckResult profanityResult = contentValidationService.checkContent(post.getContent());
+                    if (!profanityResult.isAllowed()) {
+                        hidden = true;
+                        reason = "Contains potentially sensitive or profane language";
+                    }
+                }
+            }
+
+            builder.contentHidden(hidden)
+                   .hiddenReason(reason);
+
             return builder.build();
 
         } catch (Exception e) {

@@ -30,8 +30,7 @@ public class CloudinaryConfig {
     @Bean
     public Cloudinary cloudinary() {
         if (cloudName == null || cloudName.isBlank()) {
-            throw new IllegalStateException(
-                    "CLOUDINARY_CLOUD_NAME env var is not set. Cannot initialize Cloudinary.");
+            return null;
         }
         return new Cloudinary(Map.of(
                 "cloud_name", cloudName,

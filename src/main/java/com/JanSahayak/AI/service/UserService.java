@@ -59,7 +59,6 @@ public class UserService implements UserDetailsService {
         }
     }
 
-
     public User getUserFromAuthentication(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
             throw new ValidationException("User not authenticated");
@@ -155,7 +154,8 @@ public class UserService implements UserDetailsService {
                 return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
-            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()), pincodeLookupService);
+            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()),
+                    pincodeLookupService);
             if (statePrefixes.isEmpty()) {
                 return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
@@ -165,8 +165,9 @@ public class UserService implements UserDetailsService {
                 Pageable pageable = PaginationUtils.createPageable(setup);
                 List<User> users;
                 if (setup.hasCursor()) {
-                    users = userRepository.findByRoleNameAndPincodeStartingWithAndIsActiveTrueAndIdLessThanOrderByIdDesc(
-                            Constant.ROLE_DEPARTMENT, prefix, setup.getSanitizedCursor(), pageable);
+                    users = userRepository
+                            .findByRoleNameAndPincodeStartingWithAndIsActiveTrueAndIdLessThanOrderByIdDesc(
+                                    Constant.ROLE_DEPARTMENT, prefix, setup.getSanitizedCursor(), pageable);
                 } else {
                     users = userRepository.findByRoleNameAndPincodeStartingWithAndIsActiveTrueOrderByIdDesc(
                             Constant.ROLE_DEPARTMENT, prefix, pageable);
@@ -181,7 +182,8 @@ public class UserService implements UserDetailsService {
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
 
-            PaginatedResponse<User> response = PaginationUtils.createUserResponse(distinctUsers, setup.getValidatedLimit());
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(distinctUsers,
+                    setup.getValidatedLimit());
 
             PaginationUtils.logPaginationResults("findDepartmentUsersByState",
                     response.getData(), response.isHasMore(), response.getNextCursor());
@@ -194,7 +196,8 @@ public class UserService implements UserDetailsService {
         }
     }
 
-    public PaginatedResponse<User> findDepartmentUsersByDistrict(String state, String district, Long beforeId, Integer limit) {
+    public PaginatedResponse<User> findDepartmentUsersByDistrict(String state, String district, Long beforeId,
+            Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupGeographicPagination(
                     "findDepartmentUsersByDistrict", beforeId, limit, "district");
@@ -214,8 +217,9 @@ public class UserService implements UserDetailsService {
                 Pageable pageable = PaginationUtils.createPageable(setup);
                 List<User> users;
                 if (setup.hasCursor()) {
-                    users = userRepository.findByRoleNameAndPincodeStartingWithAndIsActiveTrueAndIdLessThanOrderByIdDesc(
-                            Constant.ROLE_DEPARTMENT, prefix, setup.getSanitizedCursor(), pageable);
+                    users = userRepository
+                            .findByRoleNameAndPincodeStartingWithAndIsActiveTrueAndIdLessThanOrderByIdDesc(
+                                    Constant.ROLE_DEPARTMENT, prefix, setup.getSanitizedCursor(), pageable);
                 } else {
                     users = userRepository.findByRoleNameAndPincodeStartingWithAndIsActiveTrueOrderByIdDesc(
                             Constant.ROLE_DEPARTMENT, prefix, pageable);
@@ -225,7 +229,8 @@ public class UserService implements UserDetailsService {
                 }
             }
 
-            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()), pincodeLookupService);
+            List<String> statePrefixes = PostUtility.convertStatesToPincodePrefixes(List.of(state.trim()),
+                    pincodeLookupService);
             if (!statePrefixes.isEmpty()) {
                 String statePrefix = statePrefixes.get(0);
                 departmentUsers = departmentUsers.stream()
@@ -238,7 +243,8 @@ public class UserService implements UserDetailsService {
                     .limit(setup.getValidatedLimit())
                     .collect(Collectors.toList());
 
-            PaginatedResponse<User> response = PaginationUtils.createUserResponse(distinctUsers, setup.getValidatedLimit());
+            PaginatedResponse<User> response = PaginationUtils.createUserResponse(distinctUsers,
+                    setup.getValidatedLimit());
 
             PaginationUtils.logPaginationResults("findDepartmentUsersByDistrict",
                     response.getData(), response.isHasMore(), response.getNextCursor());
@@ -335,16 +341,18 @@ public class UserService implements UserDetailsService {
 
             for (Map.Entry<String, Long> entry : byPincode.entrySet()) {
                 String pincode = entry.getKey();
-                if (!Constant.isValidIndianPincode(pincode)) continue;
+                if (!Constant.isValidIndianPincode(pincode))
+                    continue;
                 String prefix = pincode.substring(0, 2); // state prefix = first 2 digits
                 prefixCounts.merge(prefix, entry.getValue(), Long::sum);
             }
 
             for (Map.Entry<String, Long> entry : prefixCounts.entrySet()) {
                 String statePrefix = entry.getKey();
-                if (!Constant.isValidIndianStatePrefix(statePrefix)) continue;
-                List<com.JanSahayak.AI.model.PincodeLookup> samplePincodes =
-                        pincodeLookupService.findByStatePrefix(statePrefix);
+                if (!Constant.isValidIndianStatePrefix(statePrefix))
+                    continue;
+                List<com.JanSahayak.AI.model.PincodeLookup> samplePincodes = pincodeLookupService
+                        .findByStatePrefix(statePrefix);
                 String stateName = samplePincodes.isEmpty()
                         ? "State-" + statePrefix
                         : samplePincodes.get(0).getState();
@@ -384,6 +392,20 @@ public class UserService implements UserDetailsService {
                     throw new ValidationException("Indian pincode not found in system: " + user.getPincode());
                 }
                 existingUser.setPincode(user.getPincode());
+            }
+
+            // Map new localization and moderation fields
+            if (user.getPreferredLanguage() != null) {
+                existingUser.setPreferredLanguage(user.getPreferredLanguage());
+            }
+            if (user.getAutoTranslate() != null) {
+                existingUser.setAutoTranslate(user.getAutoTranslate());
+            }
+            if (user.getProfanityFilterLevel() != null) {
+                existingUser.setProfanityFilterLevel(user.getProfanityFilterLevel());
+            }
+            if (user.getMutedWords() != null) {
+                existingUser.setMutedWords(user.getMutedWords());
             }
 
             User updatedUser = userRepository.save(existingUser);
@@ -429,7 +451,8 @@ public class UserService implements UserDetailsService {
         } catch (Exception e) {
             log.error("Failed to get active users with pagination", e);
             return PaginationUtils.handlePaginationError("getAllActiveUsers", e,
-                    PaginationUtils.validateLimit(limit, Constant.DEFAULT_ACTIVE_USER_LIMIT, Constant.MAX_ACTIVE_USER_LIMIT));
+                    PaginationUtils.validateLimit(limit, Constant.DEFAULT_ACTIVE_USER_LIMIT,
+                            Constant.MAX_ACTIVE_USER_LIMIT));
         }
     }
 
@@ -497,6 +520,29 @@ public class UserService implements UserDetailsService {
         }
     }
 
+    // ===== Password Update =====
+
+    @Transactional
+    public void changePassword(Long userId, String oldPassword, String newPassword) {
+        try {
+            User user = findById(userId);
+            if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+                throw new ValidationException("Incorrect current password.");
+            }
+            if (newPassword == null || newPassword.length() < 8) {
+                throw new ValidationException("Password must be at least 8 characters long.");
+            }
+            user.setPassword(passwordEncoder.encode(newPassword));
+            userRepository.save(user);
+            log.info("Password updated successfully for user ID: {}", userId);
+        } catch (ValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to change password for user ID: {}", userId, e);
+            throw new ServiceException("Failed to change password: " + e.getMessage(), e);
+        }
+    }
+
     // ===== Account Deletion =====
 
     /**
@@ -505,7 +551,8 @@ public class UserService implements UserDetailsService {
      * separate admin flow or scheduled job.
      *
      * @param userId      ID of the account to deactivate
-     * @param currentUser authenticated user performing the action (must be self or admin)
+     * @param currentUser authenticated user performing the action (must be self or
+     *                    admin)
      */
     @Transactional
     public void deactivateUser(Long userId, User currentUser) {
@@ -513,7 +560,7 @@ public class UserService implements UserDetailsService {
             PostUtility.validateUserId(userId);
             PostUtility.validateUser(currentUser);
 
-            boolean isSelf  = currentUser.getId().equals(userId);
+            boolean isSelf = currentUser.getId().equals(userId);
             boolean isAdmin = PostUtility.isAdmin(currentUser);
             if (!isSelf && !isAdmin) {
                 throw new SecurityException("Only the account owner or an admin can deactivate this account.");
@@ -610,7 +657,8 @@ public class UserService implements UserDetailsService {
         }
     }
 
-    public PaginatedResponse<User> searchUsersByRoleAndQuery(String roleName, String query, Long beforeId, Integer limit) {
+    public PaginatedResponse<User> searchUsersByRoleAndQuery(String roleName, String query, Long beforeId,
+            Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
                     "searchUsersByRoleAndQuery", beforeId, limit);
@@ -635,6 +683,7 @@ public class UserService implements UserDetailsService {
             throw new ServiceException("Could not retrieve user count.", e);
         }
     }
+
     public PaginatedResponse<UserTagSuggestionDto> searchUsers(String query, Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(

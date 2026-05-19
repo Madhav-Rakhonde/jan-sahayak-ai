@@ -8,15 +8,18 @@ import com.JanSahayak.AI.exception.UserNotFoundException;
 import com.JanSahayak.AI.exception.ValidationException;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.repository.UserRepo;
+import com.JanSahayak.AI.service.CloudinaryStorageService;
 import com.JanSahayak.AI.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -32,6 +35,7 @@ public class UserController {
 
     private final UserService userService;
     private final UserRepo    userRepository;
+    private final CloudinaryStorageService cloudinaryStorageService;
 
     // ===== User Lookup Methods =====
 
@@ -315,6 +319,10 @@ public class UserController {
                     .email(updateRequest.getEmail())
                     .bio(updateRequest.getBio())
                     .pincode(updateRequest.getPincode())
+                    .preferredLanguage(updateRequest.getPreferredLanguage())
+                    .autoTranslate(updateRequest.getAutoTranslate())
+                    .profanityFilterLevel(updateRequest.getProfanityFilterLevel())
+                    .mutedWords(updateRequest.getMutedWords())
                     .build();
 
             User updatedUser = userService.updateUser(userToUpdate);
@@ -331,6 +339,104 @@ public class UserController {
             log.error("Unexpected error in updateUserProfile", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
                     ApiResponse.error("An unexpected error occurred while updating user profile"));
+        }
+    }
+
+    @PutMapping("/change-password")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        try {
+            User currentUser = getCurrentUser();
+            userService.changePassword(currentUser.getId(), request.getOldPassword(), request.getNewPassword());
+            return ResponseEntity.ok(ApiResponse.success("Password updated successfully", null));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in changePassword: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in changePassword: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in changePassword", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while changing password"));
+        }
+    }
+
+    // ===== Profile Image Upload =====
+
+    @PostMapping(value = "/profile-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<String>> uploadProfileImage(@RequestParam("file") MultipartFile file) {
+        try {
+            User currentUser = getCurrentUser();
+
+            // Validate file
+            if (file == null || file.isEmpty()) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("No file provided"));
+            }
+
+            String contentType = file.getContentType();
+            if (contentType == null || !contentType.startsWith("image/")) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("Only image files are allowed"));
+            }
+
+            long maxSize = 5 * 1024 * 1024; // 5 MB
+            if (file.getSize() > maxSize) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("Image must be under 5 MB"));
+            }
+
+            // Delete old profile image from Cloudinary if exists
+            if (currentUser.getProfileImage() != null && !currentUser.getProfileImage().isBlank()) {
+                try {
+                    cloudinaryStorageService.deleteFile(currentUser.getProfileImage());
+                } catch (Exception e) {
+                    log.warn("Failed to delete old profile image for user {}: {}", currentUser.getId(), e.getMessage());
+                }
+            }
+
+            // Upload new image
+            String imageUrl = cloudinaryStorageService.uploadFile(file, currentUser.getId(), "posts");
+
+            // Save URL to user
+            currentUser.setProfileImage(imageUrl);
+            userRepository.save(currentUser);
+
+            log.info("Profile image updated for user: {} (ID: {})", currentUser.getActualUsername(), currentUser.getId());
+            return ResponseEntity.ok(ApiResponse.success("Profile image updated successfully", imageUrl));
+
+        } catch (ServiceException e) {
+            log.error("Service error uploading profile image: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Failed to upload image", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error uploading profile image", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while uploading profile image"));
+        }
+    }
+
+    @DeleteMapping("/me")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteOwnAccount() {
+        try {
+            User currentUser = getCurrentUser();
+            userService.deactivateUser(currentUser.getId(), currentUser);
+            log.info("User {} (ID: {}) deactivated their own account", currentUser.getUsername(), currentUser.getId());
+            return ResponseEntity.ok(ApiResponse.success("Account deactivated successfully", null));
+
+        } catch (ValidationException e) {
+            log.warn("Validation error in deleteOwnAccount: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(ApiResponse.error("Deactivation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in deleteOwnAccount: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in deleteOwnAccount", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while deactivating account"));
         }
     }
 
@@ -500,6 +606,17 @@ public class UserController {
         @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format")
         private String pincode;
 
+        @Size(max = 10, message = "Preferred language cannot exceed 10 characters")
+        private String preferredLanguage;
+
+        private Boolean autoTranslate;
+
+        @Size(max = 20, message = "Profanity filter level cannot exceed 20 characters")
+        private String profanityFilterLevel;
+
+        @Size(max = 1000, message = "Muted words cannot exceed 1000 characters")
+        private String mutedWords;
+
         public String getEmail()   { return email; }
         public void setEmail(String email) { this.email = email; }
 
@@ -508,5 +625,31 @@ public class UserController {
 
         public String getPincode() { return pincode; }
         public void setPincode(String pincode) { this.pincode = pincode; }
+
+        public String getPreferredLanguage() { return preferredLanguage; }
+        public void setPreferredLanguage(String preferredLanguage) { this.preferredLanguage = preferredLanguage; }
+
+        public Boolean getAutoTranslate() { return autoTranslate; }
+        public void setAutoTranslate(Boolean autoTranslate) { this.autoTranslate = autoTranslate; }
+
+        public String getProfanityFilterLevel() { return profanityFilterLevel; }
+        public void setProfanityFilterLevel(String profanityFilterLevel) { this.profanityFilterLevel = profanityFilterLevel; }
+
+        public String getMutedWords() { return mutedWords; }
+        public void setMutedWords(String mutedWords) { this.mutedWords = mutedWords; }
+    }
+
+    public static class ChangePasswordRequest {
+        @jakarta.validation.constraints.NotEmpty(message = "Old password is required")
+        private String oldPassword;
+
+        @jakarta.validation.constraints.Size(min = 8, message = "New password must be at least 8 characters long")
+        private String newPassword;
+
+        public String getOldPassword() { return oldPassword; }
+        public void setOldPassword(String oldPassword) { this.oldPassword = oldPassword; }
+
+        public String getNewPassword() { return newPassword; }
+        public void setNewPassword(String newPassword) { this.newPassword = newPassword; }
     }
 }

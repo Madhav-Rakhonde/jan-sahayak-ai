@@ -79,6 +79,22 @@ public class User implements UserDetails {
     @Size(min = 6, max = 6, message = "Pincode must be exactly 6 digits")
     private String pincode;
 
+    // ===== Localization & Moderation Settings =====
+    @Column(name = "preferred_language", length = 10)
+    @Builder.Default
+    private String preferredLanguage = "en";
+
+    @Column(name = "auto_translate", columnDefinition = "boolean")
+    @Builder.Default
+    private Boolean autoTranslate = false;
+
+    @Column(name = "profanity_filter_level", length = 20)
+    @Builder.Default
+    private String profanityFilterLevel = "STRICT";
+
+    @Column(name = "muted_words", length = 1000)
+    private String mutedWords;
+
     /**
      * FIX: Added columnDefinition = "boolean" to explicitly tell Hibernate/PostgreSQL
      * to treat this column as a native BOOLEAN, not a BIT type.
