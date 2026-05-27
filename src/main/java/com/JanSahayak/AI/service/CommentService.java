@@ -191,7 +191,7 @@ public class CommentService {
     // ===== UPDATE COMMENT (WORKS FOR BOTH POST TYPES) =====
 
     @Transactional(rollbackFor = Exception.class)
-    public Comment updateComment(@NotNull Long commentId, @Valid CommentUpdateDto commentDto, @NotNull User user) {
+    public CommentDto updateComment(@NotNull Long commentId, @Valid CommentUpdateDto commentDto, @NotNull User user) {
         try {
             validateCommentId(commentId);
             validateCommentDto(commentDto);
@@ -219,10 +219,11 @@ public class CommentService {
             contentValidationService.validateContent(commentDto.getText());
 
             comment.setText(commentDto.getText().trim());
+            comment.setUpdatedAt(new Date());
             Comment updatedComment = commentRepository.save(comment);
 
             log.info("Comment updated by user: {}", user.getActualUsername());
-            return updatedComment;
+            return CommentDto.fromComment(updatedComment);
 
         } catch (Exception ex) {
             log.error("Error updating comment {}: {}", commentId, ex.getMessage());
@@ -484,7 +485,8 @@ public class CommentService {
         return comments.stream()
                 .map(comment -> {
                     try {
-                        return CommentDto.fromComment(comment);
+                        int recursiveCount = commentRepository.countRecursiveReplies(comment.getId());
+                        return CommentDto.fromComment(comment, recursiveCount);
                     } catch (Exception e) {
                         log.warn("Failed to convert comment {} to DTO: {}", comment.getId(), e.getMessage());
                         return null;

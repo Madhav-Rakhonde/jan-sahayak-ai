@@ -24,6 +24,8 @@ public interface UserRepo extends JpaRepository<User, Long> {
     boolean existsByUsername(String username);
     boolean existsByEmail(String email);
 
+    Optional<User> findByEmailVerificationToken(String token);
+
     Optional<User> findByUsernameAndIsActiveTrue(String username);
 
     /**
@@ -80,6 +82,9 @@ public interface UserRepo extends JpaRepository<User, Long> {
     List<User> findByPincodeAndIsActiveTrue(String pincode, Pageable pageable);
 
     List<User> findByPincodeStartingWithAndIsActiveTrue(String pincodePrefix, Pageable pageable);
+
+    @Query("SELECT u FROM User u WHERE u.hasInvalidPincode IS NULL AND u.isActive = true")
+    List<User> findUsersWithUnverifiedPincode(Pageable pageable);
 
     @Query("SELECT COUNT(u) FROM User u WHERE u.pincode = :pincode AND u.isActive = true")
     long countActiveUsersByPincode(@Param("pincode") String pincode);

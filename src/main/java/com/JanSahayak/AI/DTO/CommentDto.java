@@ -36,6 +36,7 @@ public class CommentDto implements Serializable {
         dto.setId(comment.getId());
         dto.setText(comment.getText());
         dto.setCreatedAt(comment.getCreatedAt());
+        dto.setUpdatedAt(comment.getUpdatedAt());
 
         // Convert the user to AuthorDto to prevent LazyInitializationException
         dto.setAuthor(AuthorDto.fromUser(comment.getUser()));

@@ -79,6 +79,9 @@ public class User implements UserDetails {
     @Size(min = 6, max = 6, message = "Pincode must be exactly 6 digits")
     private String pincode;
 
+    @Column(name = "has_invalid_pincode", columnDefinition = "boolean")
+    private Boolean hasInvalidPincode;
+
     // ===== Localization & Moderation Settings =====
     @Column(name = "preferred_language", length = 10)
     @Builder.Default
@@ -94,6 +97,21 @@ public class User implements UserDetails {
 
     @Column(name = "muted_words", length = 1000)
     private String mutedWords;
+
+    @Column(name = "is_email_verified", columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean isEmailVerified = false;
+
+    public Boolean getIsEmailVerified() {
+        return isEmailVerified != null && isEmailVerified;
+    }
+
+    @Column(name = "email_verification_token", length = 100)
+    private String emailVerificationToken;
+
+    @Column(name = "email_verification_token_expiry")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date emailVerificationTokenExpiry;
 
     /**
      * FIX: Added columnDefinition = "boolean" to explicitly tell Hibernate/PostgreSQL

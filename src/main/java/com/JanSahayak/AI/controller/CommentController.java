@@ -372,8 +372,7 @@ public class CommentController {
 
         try {
             log.info("[Comment] UPDATE commentId={} user={}", commentId, currentUser.getActualUsername());
-            CommentDto updated = CommentDto.fromComment(
-                    commentService.updateComment(commentId, commentDto, currentUser));
+            CommentDto updated = commentService.updateComment(commentId, commentDto, currentUser);
             return ResponseEntity.ok(ApiResponse.success("Comment updated successfully", updated));
 
         } catch (Exception e) {

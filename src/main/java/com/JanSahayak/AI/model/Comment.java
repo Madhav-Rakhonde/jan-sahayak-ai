@@ -42,6 +42,10 @@ public class Comment {
     @Temporal(TemporalType.TIMESTAMP)
     private Date createdAt = new Date();
 
+    @Column(name = "updated_at")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date updatedAt;
+
     // ===== Relationships =====
 
     /**

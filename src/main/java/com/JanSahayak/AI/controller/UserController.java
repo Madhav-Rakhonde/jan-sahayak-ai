@@ -36,6 +36,7 @@ public class UserController {
     private final UserService userService;
     private final UserRepo    userRepository;
     private final CloudinaryStorageService cloudinaryStorageService;
+    private final com.JanSahayak.AI.service.PincodeValidationService pincodeValidationService;
 
     // ===== User Lookup Methods =====
 
@@ -364,6 +365,36 @@ public class UserController {
         }
     }
 
+    @PutMapping("/update-pincode")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> updatePincode(@Valid @RequestBody PincodeUpdateRequest request) {
+        try {
+            User currentUser = getCurrentUser();
+            
+            try {
+                if (!pincodeValidationService.isValidIndianPincode(request.getPincode())) {
+                    return ResponseEntity.badRequest().body(ApiResponse.error("Invalid Indian Pincode. Please enter a valid pincode."));
+                }
+            } catch (com.JanSahayak.AI.service.PincodeValidationService.ApiUnavailableException e) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
+                    ApiResponse.error("Pincode verification service is temporarily down. Please try again later."));
+            }
+
+            currentUser.setPincode(request.getPincode());
+            currentUser.setHasInvalidPincode(false);
+            userRepository.save(currentUser);
+
+            return ResponseEntity.ok(ApiResponse.success("Pincode updated successfully", null));
+        } catch (ValidationException e) {
+            log.warn("Validation error in updatePincode: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in updatePincode", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while updating pincode"));
+        }
+    }
+
     // ===== Profile Image Upload =====
 
     @PostMapping(value = "/profile-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -651,5 +682,14 @@ public class UserController {
 
         public String getNewPassword() { return newPassword; }
         public void setNewPassword(String newPassword) { this.newPassword = newPassword; }
+    }
+    
+    public static class PincodeUpdateRequest {
+        @jakarta.validation.constraints.NotBlank(message = "Pincode is required")
+        @Pattern(regexp = "^[1-9]\\d{5}$", message = "Invalid Indian pincode format")
+        private String pincode;
+
+        public String getPincode() { return pincode; }
+        public void setPincode(String pincode) { this.pincode = pincode; }
     }
 }

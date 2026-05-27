@@ -26,6 +26,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import java.util.UUID;
+import java.util.Date;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import com.JanSahayak.AI.service.EmailService;
 
 @RestController
 @Slf4j
@@ -38,13 +43,24 @@ public class AuthController {
     @Autowired private UserRepo userRepository;
     @Autowired private RoleRepo roleRepository;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private EmailService emailService;
+    @Autowired private com.JanSahayak.AI.service.PincodeValidationService pincodeValidationService;
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@RequestBody AuthRequest request) {
+        String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
         try {
             Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
+                    new UsernamePasswordAuthenticationToken(normalizedEmail, request.getPassword())
             );
+
+            // Check if email is verified (post-auth to prevent email enumeration)
+            User user = (User) authentication.getPrincipal();
+            if (user != null && !Boolean.TRUE.equals(user.getIsEmailVerified())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error("Please verify your email address. A verification link has been sent to your email."));
+            }
+
             final String jwt = jwtUtil.generateToken(authentication);
             return ResponseEntity.ok(ApiResponse.success("Login successful", new AuthResponse(jwt)));
 
@@ -58,7 +74,7 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Your account has been disabled. Please contact support."));
         } catch (Exception e) {
-            log.error("Authentication failed for user {}: {}", request.getEmail(), e.getMessage());
+            log.error("Authentication failed for user {}: {}", normalizedEmail, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("An internal error occurred. Please try again later."));
         }
@@ -67,21 +83,40 @@ public class AuthController {
     @PostMapping("/register/citizen")
     @Transactional
     public ResponseEntity<ApiResponse<String>> registerUser(@RequestBody RegisterRequest request) {
+        String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
         try {
             // FIX: Use existsByEmail() instead of findByEmail().isPresent()
             // existsByEmail() runs a COUNT query — much cheaper than loading a full User entity
             // just to check if it exists.
-            if (userRepository.existsByEmail(request.getEmail())) {
+            if (userRepository.existsByEmail(normalizedEmail)) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
             }
 
+            Boolean hasInvalidPincode = false;
+            try {
+                if (!pincodeValidationService.isValidIndianPincode(request.getPincode())) {
+                    return ResponseEntity.badRequest().body(ApiResponse.error("Invalid Indian Pincode. Please enter a valid pincode."));
+                }
+            } catch (com.JanSahayak.AI.service.PincodeValidationService.ApiUnavailableException e) {
+                log.warn("Pincode API unavailable during citizen registration. Falling back to regex validation.");
+                // Regex validation already passed in service, we just mark it as unverified
+                hasInvalidPincode = null;
+            }
+
             User user = new User();
-            user.setEmail(request.getEmail());
+            user.setEmail(normalizedEmail);
             user.setPassword(passwordEncoder.encode(request.getPassword()));
             Role CitizenRole = roleRepository.findByName("ROLE_USER")
                     .orElseThrow(() -> new RuntimeException("Role not found"));
             user.setRole(CitizenRole);
             user.setPincode(request.getPincode());
+            user.setHasInvalidPincode(hasInvalidPincode);
+
+            // Email Verification Setup
+            String verificationToken = UUID.randomUUID().toString();
+            user.setIsEmailVerified(false);
+            user.setEmailVerificationToken(verificationToken);
+            user.setEmailVerificationTokenExpiry(Date.from(Instant.now().plus(24, ChronoUnit.HOURS)));
 
             int maxRetries = 10;
             boolean saved = false;
@@ -102,7 +137,10 @@ public class AuthController {
                         .body(ApiResponse.error("Unable to generate unique username. Please try again."));
             }
 
-            return ResponseEntity.ok(ApiResponse.success("Citizen registered successfully"));
+            // Send Verification Email
+            emailService.sendVerificationEmail(user, verificationToken);
+
+            return ResponseEntity.ok(ApiResponse.success("Registration successful! A verification link has been sent to your email."));
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -114,10 +152,21 @@ public class AuthController {
     @PostMapping("/register/department")
     @Transactional
     public ResponseEntity<ApiResponse<String>> registerDepartment(@RequestBody RegisterRequest request) {
+        String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
         try {
             // FIX: Use existsByEmail() instead of findByEmail().isPresent()
-            if (userRepository.existsByEmail(request.getEmail())) {
+            if (userRepository.existsByEmail(normalizedEmail)) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
+            }
+
+            Boolean hasInvalidPincode = false;
+            try {
+                if (!pincodeValidationService.isValidIndianPincode(request.getPincode())) {
+                    return ResponseEntity.badRequest().body(ApiResponse.error("Invalid Indian Pincode. Please enter a valid pincode."));
+                }
+            } catch (com.JanSahayak.AI.service.PincodeValidationService.ApiUnavailableException e) {
+                log.warn("Pincode API unavailable during department registration. Falling back to regex validation.");
+                hasInvalidPincode = null;
             }
 
             if (request.getUsername() == null || request.getUsername().trim().isEmpty()) {
@@ -129,14 +178,16 @@ public class AuthController {
             }
 
             User user = new User();
-            user.setEmail(request.getEmail());
+            user.setEmail(normalizedEmail);
             user.setUsername(request.getUsername().trim());
             user.setPassword(passwordEncoder.encode(request.getPassword()));
+            user.setIsEmailVerified(true);
 
             Role DepartmentRole = roleRepository.findByName("ROLE_DEPARTMENT")
                     .orElseThrow(() -> new RuntimeException("Role not found"));
             user.setRole(DepartmentRole);
             user.setPincode(request.getPincode());
+            user.setHasInvalidPincode(hasInvalidPincode);
 
             userRepository.save(user);
             log.info("Department user registered successfully: {}", user.getUsername());
@@ -158,10 +209,20 @@ public class AuthController {
     @PostMapping("/register/admin")
     @Transactional
     public ResponseEntity<ApiResponse<String>> registerAdmin(@RequestBody RegisterRequest request) {
+        String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
         try {
-            // FIX: Use existsByEmail() instead of findByEmail().isPresent()
-            if (userRepository.existsByEmail(request.getEmail())) {
+            if (userRepository.existsByEmail(normalizedEmail)) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
+            }
+
+            Boolean hasInvalidPincode = false;
+            try {
+                if (!pincodeValidationService.isValidIndianPincode(request.getPincode())) {
+                    return ResponseEntity.badRequest().body(ApiResponse.error("Invalid Indian Pincode. Please enter a valid pincode."));
+                }
+            } catch (com.JanSahayak.AI.service.PincodeValidationService.ApiUnavailableException e) {
+                log.warn("Pincode API unavailable during admin registration. Falling back to regex validation.");
+                hasInvalidPincode = null;
             }
 
             if (request.getUsername() == null || request.getUsername().trim().isEmpty()) {
@@ -173,14 +234,16 @@ public class AuthController {
             }
 
             User user = new User();
-            user.setEmail(request.getEmail());
+            user.setEmail(normalizedEmail);
             user.setUsername(request.getUsername().trim());
             user.setPassword(passwordEncoder.encode(request.getPassword()));
+            user.setIsEmailVerified(true);
 
             Role adminRole = roleRepository.findByName("ROLE_ADMIN")
                     .orElseThrow(() -> new RuntimeException("Role not found"));
             user.setRole(adminRole);
             user.setPincode(request.getPincode());
+            user.setHasInvalidPincode(hasInvalidPincode);
 
             userRepository.save(user);
             log.info("Admin user registered successfully: {}", user.getUsername());
@@ -195,6 +258,69 @@ public class AuthController {
             log.error("Error during admin registration: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Registration failed due to server error"));
+        }
+    }
+
+    @GetMapping("/verify-email")
+    @Transactional
+    public ResponseEntity<ApiResponse<String>> verifyEmail(@RequestParam("token") String token) {
+        try {
+            User user = userRepository.findByEmailVerificationToken(token).orElse(null);
+
+            if (user == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("Invalid verification token."));
+            }
+
+            if (user.getEmailVerificationTokenExpiry().before(new Date())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("Verification token has expired. Please request a new one."));
+            }
+
+            user.setIsEmailVerified(true);
+            user.setEmailVerificationToken(null);
+            user.setEmailVerificationTokenExpiry(null);
+            userRepository.save(user);
+
+            return ResponseEntity.ok(ApiResponse.success("Email verified successfully! You can now log in."));
+
+        } catch (Exception e) {
+            log.error("Email verification failed", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("An error occurred during verification."));
+        }
+    }
+
+    @PostMapping("/resend-verification")
+    @Transactional
+    public ResponseEntity<ApiResponse<String>> resendVerification(@RequestParam("email") String email) {
+        try {
+            User user = userRepository.findByEmail(email).orElse(null);
+            if (user == null) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("No account found with this email address."));
+            }
+
+            if (!"ROLE_USER".equals(user.getRole().getName())) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("Only citizen accounts require email verification."));
+            }
+
+            if (Boolean.TRUE.equals(user.getIsEmailVerified())) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("This email is already verified."));
+            }
+
+            String token = UUID.randomUUID().toString();
+            user.setEmailVerificationToken(token);
+            user.setEmailVerificationTokenExpiry(Date.from(Instant.now().plus(24, ChronoUnit.HOURS)));
+            userRepository.save(user);
+
+            emailService.sendVerificationEmail(user, token);
+
+            return ResponseEntity.ok(ApiResponse.success("Verification email has been resent successfully."));
+
+        } catch (Exception e) {
+            log.error("Failed to resend verification email", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to resend verification email."));
         }
     }
 

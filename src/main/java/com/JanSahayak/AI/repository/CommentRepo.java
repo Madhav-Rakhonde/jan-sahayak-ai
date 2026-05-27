@@ -20,6 +20,20 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
     @Query("SELECT COUNT(c) FROM Comment c WHERE c.post = :post")
     Long countByPost(@Param("post") Post post);
 
+    /**
+     * Recursively counts all nested replies (descendants) under a given comment ID.
+     * Works with H2, PostgreSQL, MySQL 8.0+, and SQL Server.
+     */
+    @Query(value = 
+        "WITH RECURSIVE CommentHierarchy AS (" +
+        "    SELECT id FROM comments WHERE parent_comment_id = :commentId " +
+        "    UNION ALL " +
+        "    SELECT c.id FROM comments c " +
+        "    INNER JOIN CommentHierarchy ch ON c.parent_comment_id = ch.id" +
+        ") SELECT COUNT(*) FROM CommentHierarchy", 
+        nativeQuery = true)
+    int countRecursiveReplies(@Param("commentId") Long commentId);
+
     // ── SocialPost comment queries ────────────────────────────────────────────
 
     @Query("SELECT COUNT(c) FROM Comment c WHERE c.socialPost = :socialPost")
