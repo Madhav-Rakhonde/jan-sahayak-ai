@@ -68,10 +68,10 @@ public class MatchmakingService {
         }
 
         // ── 3 & 4. Normal matchmaking ─────────────────────────────────────────
+        LocalityMetadata requesterLocality = extractLocality(user);
+
         matchmakingLock.lock();
         try {
-            // Pre-calculate locality metadata for the joining user to speed up matching
-            LocalityMetadata requesterLocality = extractLocality(user);
             QueueEntry partner = findBestPartner(userId, requesterLocality);
 
             if (partner != null) {

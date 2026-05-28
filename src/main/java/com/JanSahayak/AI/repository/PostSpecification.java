@@ -20,7 +20,8 @@ public class PostSpecification {
 
             // Create a LIKE predicate for each pattern in the list and add it
             for (String pattern : patterns) {
-                predicates.add(criteriaBuilder.like(criteriaBuilder.lower(root.get("content")), pattern.toLowerCase()));
+                String sanitized = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(pattern);
+                predicates.add(criteriaBuilder.like(criteriaBuilder.lower(root.get("content")), sanitized.toLowerCase(), '\\'));
             }
 
             // Combine all the LIKE predicates with OR
@@ -52,7 +53,8 @@ public class PostSpecification {
             List<Predicate> hashtagPredicates = new ArrayList<>();
             for (String pattern : patterns) {
                 // This generates a query like: WHERE post.content LIKE '%#some_pattern%'
-                hashtagPredicates.add(criteriaBuilder.like(root.get("content"), "%" + pattern + "%"));
+                String sanitized = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(pattern);
+                hashtagPredicates.add(criteriaBuilder.like(root.get("content"), "%" + sanitized + "%", '\\'));
             }
 
             // Combine the hashtag predicates with "OR"
@@ -93,7 +95,8 @@ public class PostSpecification {
 
             // Create LIKE conditions for each pattern
             for (String pattern : patterns) {
-                predicates.add(cb.like(cb.lower(root.get("content")), pattern.toLowerCase()));
+                String sanitized = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(pattern);
+                predicates.add(cb.like(cb.lower(root.get("content")), sanitized.toLowerCase(), '\\'));
             }
 
             // OR all patterns together

@@ -81,8 +81,9 @@ public class PostService {
         log.info("Creating post: user={} (id={})", user.getActualUsername(), user.getId());
         try {
             PostUtility.validateUser(user);
-            contentValidationService.validateContent(postDto.getContent());
-            PostUtility.validatePostContent(postDto.getContent());
+            String safeContent = contentValidationService.sanitizeAndValidateContent(postDto.getContent());
+            postDto.setContent(safeContent);
+            PostUtility.validatePostContent(safeContent);
 
             if (postDto.getTargetPincode() == null || postDto.getTargetPincode().trim().isEmpty()) {
                 throw new ValidationException("Target pincode is required for creating posts");
@@ -722,15 +723,16 @@ public class PostService {
         try {
             PostUtility.validatePostId(postId);
             PostUtility.validateUser(currentUser);
-            PostUtility.validatePostContent(newContent);
+            String safeContent = contentValidationService.sanitizeAndValidateContent(newContent);
+            PostUtility.validatePostContent(safeContent);
             Post post = findById(postId);
             if (!PostUtility.isPostOwner(post, currentUser)) throw new SecurityException("Only post creator can update post content");
             if (!PostUtility.postAllowsUpdates(post)) throw new SecurityException("Cannot update content for posts with status: " + post.getStatus().getDisplayName());
             String oldContent = post.getContent();
-            post.setContent(newContent.trim());
+            post.setContent(safeContent.trim());
             post.setUpdatedAt(new Date());
             try {
-                userTaggingService.updatePostTags(post, newContent.trim());
+                userTaggingService.updatePostTags(post, safeContent.trim());
             } catch (Exception e) {
                 log.warn("Failed to update tags for post: {}", postId, e);
             }

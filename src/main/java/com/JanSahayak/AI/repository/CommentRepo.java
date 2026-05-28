@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.stereotype.Repository;
 
 import java.util.Date;
@@ -126,9 +127,11 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
     @Query("SELECT c FROM Comment c WHERE LOWER(c.text) LIKE LOWER(CONCAT('%', :searchTerm, '%')) AND c.id < :beforeId ORDER BY c.createdAt DESC")
     List<Comment> findByTextContainingIgnoreCaseAndIdLessThanOrderByCreatedAtDesc(@Param("searchTerm") String searchTerm, @Param("beforeId") Long beforeId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user", "socialPost"})
     @Query("SELECT c FROM Comment c WHERE c.socialPost IS NOT NULL AND c.user = :user ORDER BY c.createdAt DESC")
     org.springframework.data.domain.Page<Comment> findBySocialPostNotNullAndUserOrderByCreatedAtDesc(@Param("user") User user, org.springframework.data.domain.Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user", "post"})
     @Query("SELECT c FROM Comment c WHERE c.post IS NOT NULL AND c.user = :user ORDER BY c.createdAt DESC")
     org.springframework.data.domain.Page<Comment> findByPostNotNullAndUserOrderByCreatedAtDesc(@Param("user") User user, org.springframework.data.domain.Pageable pageable);
 }

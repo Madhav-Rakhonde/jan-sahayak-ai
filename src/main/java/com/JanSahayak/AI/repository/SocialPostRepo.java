@@ -17,6 +17,40 @@ import java.util.List;
 public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
 
     // =========================================================================
+    // ATOMIC COUNTER UPDATES
+    // =========================================================================
+
+    @Modifying @Query("UPDATE SocialPost p SET p.likeCount = p.likeCount + 1 WHERE p.id = :id")
+    void incrementLikeCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.likeCount = CASE WHEN p.likeCount > 0 THEN p.likeCount - 1 ELSE 0 END WHERE p.id = :id")
+    void decrementLikeCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.dislikeCount = p.dislikeCount + 1 WHERE p.id = :id")
+    void incrementDislikeCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.dislikeCount = CASE WHEN p.dislikeCount > 0 THEN p.dislikeCount - 1 ELSE 0 END WHERE p.id = :id")
+    void decrementDislikeCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.commentCount = p.commentCount + 1 WHERE p.id = :id")
+    void incrementCommentCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.commentCount = CASE WHEN p.commentCount > :count THEN p.commentCount - :count ELSE 0 END WHERE p.id = :id")
+    void decrementCommentCountBy(@Param("id") Long id, @Param("count") int count);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.viewCount = p.viewCount + 1 WHERE p.id = :id")
+    void incrementViewCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.shareCount = p.shareCount + 1 WHERE p.id = :id")
+    void incrementShareCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.saveCount = p.saveCount + 1 WHERE p.id = :id")
+    void incrementSaveCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE SocialPost p SET p.saveCount = CASE WHEN p.saveCount > 0 THEN p.saveCount - 1 ELSE 0 END WHERE p.id = :id")
+    void decrementSaveCount(@Param("id") Long id);
+
+    // =========================================================================
     // BASIC QUERIES
     // =========================================================================
 
@@ -70,12 +104,12 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // HASHTAG
     // =========================================================================
 
-    @Query("SELECT sp FROM SocialPost sp WHERE sp.hashtags LIKE %:hashtag% AND sp.status = :status ORDER BY sp.createdAt DESC")
+    @Query("SELECT sp FROM SocialPost sp WHERE sp.hashtags LIKE CONCAT('%', :hashtag, '%') ESCAPE '\\' AND sp.status = :status ORDER BY sp.createdAt DESC")
     List<SocialPost> findByHashtagContaining(@Param("hashtag") String hashtag,
                                              @Param("status") PostStatus status,
                                              Pageable pageable);
 
-    @Query("SELECT sp FROM SocialPost sp WHERE sp.hashtags LIKE %:hashtag% AND sp.status = :status AND sp.id < :id ORDER BY sp.createdAt DESC")
+    @Query("SELECT sp FROM SocialPost sp WHERE sp.hashtags LIKE CONCAT('%', :hashtag, '%') ESCAPE '\\' AND sp.status = :status AND sp.id < :id ORDER BY sp.createdAt DESC")
     List<SocialPost> findByHashtagContainingAndIdLessThan(@Param("hashtag") String hashtag,
                                                           @Param("status") PostStatus status,
                                                           @Param("id") Long id,
@@ -253,8 +287,8 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
-              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')))
+              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY sp.id DESC
             """)
     List<SocialPost> searchFirstPage(
@@ -267,8 +301,8 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
               AND sp.id < :cursor
-              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')))
+              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY sp.id DESC
             """)
     List<SocialPost> searchNextPage(
@@ -282,8 +316,8 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             SELECT sp FROM SocialPost sp
             WHERE sp.status  = :status
               AND sp.pincode = :pincode
-              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')))
+              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY sp.id DESC
             """)
     List<SocialPost> searchFirstPageByPincode(
@@ -298,8 +332,8 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             WHERE sp.status  = :status
               AND sp.pincode = :pincode
               AND sp.id < :cursor
-              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')))
+              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY sp.id DESC
             """)
     List<SocialPost> searchNextPageByPincode(
@@ -313,7 +347,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
-              AND LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :hashtag, '%'))
+              AND LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :hashtag, '%')) ESCAPE '\\'
             ORDER BY sp.id DESC
             """)
     List<SocialPost> searchByHashtagFirstPage(
@@ -326,7 +360,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
               AND sp.id < :cursor
-              AND LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :hashtag, '%'))
+              AND LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :hashtag, '%')) ESCAPE '\\'
             ORDER BY sp.id DESC
             """)
     List<SocialPost> searchByHashtagNextPage(
@@ -347,7 +381,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
                    ) tokens
             WHERE  sp.status   = 'ACTIVE'
               AND  sp.hashtags IS NOT NULL
-              AND  LOWER(token) LIKE LOWER(CONCAT('%', :query, '%'))
+              AND  LOWER(token) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
             GROUP  BY token
             ORDER  BY post_count DESC
             LIMIT  :limit

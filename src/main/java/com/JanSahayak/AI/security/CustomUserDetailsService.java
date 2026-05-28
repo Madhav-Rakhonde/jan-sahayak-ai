@@ -63,6 +63,10 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "User not found with id: " + id));
 
+        if (user.getIsActive() == null || !user.getIsActive()) {
+            throw new org.springframework.security.authentication.DisabledException("User account is disabled");
+        }
+
         return user;
     }
 }

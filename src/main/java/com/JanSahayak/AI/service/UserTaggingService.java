@@ -466,11 +466,13 @@ public class UserTaggingService {
                 return PaginationUtils.createEmptyResponse(setup.getValidatedLimit());
             }
 
+            String sanitizedQuery = PostUtility.sanitizeSqlLike(cleanQuery.trim());
+
             List<User> users;
             if (setup.hasCursor()) {
-                users = userRepository.searchUsersForTaggingWithCursor(cleanQuery.trim(), setup.getSanitizedCursor(), setup.toPageable());
+                users = userRepository.searchUsersForTaggingWithCursor(sanitizedQuery, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                users = userRepository.searchUsersForTagging(cleanQuery.trim(), setup.toPageable());
+                users = userRepository.searchUsersForTagging(sanitizedQuery, setup.toPageable());
             }
 
             if (users == null) {

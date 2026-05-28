@@ -41,6 +41,7 @@ public class UserService implements UserDetailsService {
     private final PinCodeLookupService pincodeLookupService;
     private final PasswordEncoder passwordEncoder;
     private final PostInteractionService postInteractionService;
+    private final RateLimitingService rateLimitingService;
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
@@ -69,7 +70,7 @@ public class UserService implements UserDetailsService {
             throw new ValidationException("Invalid authentication - no email found");
         }
 
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.findByEmailWithRole(email)
                 .orElseThrow(() -> new UserNotFoundException("User not found with email: " + email));
 
         if (user.getIsActive() == null || !user.getIsActive()) {
@@ -379,11 +380,14 @@ public class UserService implements UserDetailsService {
         try {
             User existingUser = findById(user.getId());
 
-            if (user.getEmail() != null) {
+            if (user.getEmail() != null && !user.getEmail().equals(existingUser.getEmail())) {
+                if (userRepository.findByEmail(user.getEmail()).isPresent()) {
+                    throw new ValidationException("Email already exists: " + user.getEmail());
+                }
                 existingUser.setEmail(user.getEmail());
             }
             if (user.getBio() != null) {
-                existingUser.setBio(user.getBio());
+                existingUser.setBio(org.springframework.web.util.HtmlUtils.htmlEscape(user.getBio()));
             }
             if (user.getPincode() != null) {
                 PostUtility.validateTargetPincodeForUser(user.getPincode());
@@ -421,6 +425,40 @@ public class UserService implements UserDetailsService {
             log.error("Failed to update user: {}", user.getId(), e);
             throw new ServiceException("Failed to update user: " + e.getMessage(), e);
         }
+    }
+
+    @Transactional
+    public void updatePincode(User user, String pincode) {
+        user.setPincode(pincode);
+        user.setHasInvalidPincode(false);
+        userRepository.save(user);
+    }
+
+    @Transactional
+    public User saveUser(User user) {
+        return userRepository.save(user);
+    }
+
+    public Optional<User> findByEmailVerificationToken(String token) {
+        return userRepository.findByEmailVerificationToken(token);
+    }
+
+    public Optional<User> findByEmail(String email) {
+        return userRepository.findByEmail(email);
+    }
+
+    public boolean existsByEmail(String email) {
+        return userRepository.existsByEmail(email);
+    }
+
+    public boolean existsByUsername(String username) {
+        return userRepository.existsByUsername(username);
+    }
+
+    @Transactional
+    public void updateProfileImage(User user, String imageUrl) {
+        user.setProfileImage(imageUrl);
+        userRepository.save(user);
     }
 
     // ===== New Paginated User Listing Methods =====
@@ -526,7 +564,13 @@ public class UserService implements UserDetailsService {
     public void changePassword(Long userId, String oldPassword, String newPassword) {
         try {
             User user = findById(userId);
+            
+            if (rateLimitingService.isPasswordChangeBlocked(user.getEmail())) {
+                throw new ValidationException("Too many failed password change attempts. Please try again after 15 minutes.");
+            }
+            
             if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+                rateLimitingService.recordFailedPasswordChange(user.getEmail());
                 throw new ValidationException("Incorrect current password.");
             }
             if (newPassword == null || newPassword.length() < 8) {
@@ -534,6 +578,7 @@ public class UserService implements UserDetailsService {
             }
             user.setPassword(passwordEncoder.encode(newPassword));
             userRepository.save(user);
+            rateLimitingService.clearPasswordChangeAttempts(user.getEmail());
             log.info("Password updated successfully for user ID: {}", userId);
         } catch (ValidationException e) {
             throw e;
@@ -663,7 +708,7 @@ public class UserService implements UserDetailsService {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination(
                     "searchUsersByRoleAndQuery", beforeId, limit);
 
-            String searchQuery = (query == null) ? "" : query.trim();
+            String searchQuery = (query == null) ? "" : com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(query.trim());
 
             List<User> users = userRepository.searchUsersByRoleAndQueryWithCursor(
                     roleName, searchQuery, setup.getSanitizedCursor(), setup.toPageable());
@@ -696,12 +741,14 @@ public class UserService implements UserDetailsService {
 
             Pageable pageable = PaginationUtils.createPageable(setup);
 
+            String cleanQuery = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(query.trim());
+
             List<User> users;
             if (setup.hasCursor()) {
-                users = userRepository.searchByUsernameWithCursor(query.trim(),
+                users = userRepository.searchByUsernameWithCursor(cleanQuery,
                         setup.getSanitizedCursor(), pageable);
             } else {
-                users = userRepository.searchByUsername(query.trim(), pageable);
+                users = userRepository.searchByUsername(cleanQuery, pageable);
             }
 
             if (users == null) {

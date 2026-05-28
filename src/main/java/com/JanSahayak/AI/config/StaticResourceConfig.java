@@ -1,5 +1,6 @@
 package com.JanSahayak.AI.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
@@ -8,6 +9,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.nio.file.Paths;
 
 @Configuration
+@Slf4j
 public class StaticResourceConfig implements WebMvcConfigurer {
 
     @Value("${app.upload.dir:${user.home}/uploads/posts}")
@@ -23,17 +25,17 @@ public class StaticResourceConfig implements WebMvcConfigurer {
         registry.addResourceHandler("/uploads/posts/**")
                 .addResourceLocations("file:" + absolutePath + "/");
 
-        System.out.println("Static resource handler configured for posts:");
-        System.out.println("URL Pattern: /uploads/posts/**");
-        System.out.println("File Location: file:" + absolutePath + "/");
+        log.info("Static resource handler configured for posts:");
+        log.info("URL Pattern: /uploads/posts/**");
+        log.info("File Location: file:{}/", absolutePath);
 
         // Social posts upload handler
         String socialAbsolutePath = Paths.get(socialUploadDir).toAbsolutePath().toString();
         registry.addResourceHandler("/uploads/social-posts/**")
                 .addResourceLocations("file:" + socialAbsolutePath + "/");
 
-        System.out.println("Static resource handler configured for social posts:");
-        System.out.println("URL Pattern: /uploads/social-posts/**");
-        System.out.println("File Location: file:" + socialAbsolutePath + "/");
+        log.info("Static resource handler configured for social posts:");
+        log.info("URL Pattern: /uploads/social-posts/**");
+        log.info("File Location: file:{}/", socialAbsolutePath);
     }
 }

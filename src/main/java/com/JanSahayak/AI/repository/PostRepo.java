@@ -19,6 +19,37 @@ import java.util.List;
 @Repository
 public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExecutor<Post> {
 
+    // ===== ATOMIC COUNTER UPDATES =====
+    @Modifying @Query("UPDATE Post p SET p.likeCount = p.likeCount + 1 WHERE p.id = :id")
+    void incrementLikeCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE Post p SET p.likeCount = CASE WHEN p.likeCount > 0 THEN p.likeCount - 1 ELSE 0 END WHERE p.id = :id")
+    void decrementLikeCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE Post p SET p.dislikeCount = p.dislikeCount + 1 WHERE p.id = :id")
+    void incrementDislikeCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE Post p SET p.dislikeCount = CASE WHEN p.dislikeCount > 0 THEN p.dislikeCount - 1 ELSE 0 END WHERE p.id = :id")
+    void decrementDislikeCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE Post p SET p.commentCount = p.commentCount + 1 WHERE p.id = :id")
+    void incrementCommentCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE Post p SET p.commentCount = CASE WHEN p.commentCount > :count THEN p.commentCount - :count ELSE 0 END WHERE p.id = :id")
+    void decrementCommentCountBy(@Param("id") Long id, @Param("count") int count);
+
+    @Modifying @Query("UPDATE Post p SET p.viewCount = p.viewCount + 1 WHERE p.id = :id")
+    void incrementViewCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE Post p SET p.shareCount = p.shareCount + 1 WHERE p.id = :id")
+    void incrementShareCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE Post p SET p.saveCount = p.saveCount + 1 WHERE p.id = :id")
+    void incrementSaveCount(@Param("id") Long id);
+
+    @Modifying @Query("UPDATE Post p SET p.saveCount = CASE WHEN p.saveCount > 0 THEN p.saveCount - 1 ELSE 0 END WHERE p.id = :id")
+    void decrementSaveCount(@Param("id") Long id);
+
     // ===== Basic Post Query Methods =====
     List<Post> findByUserOrderByCreatedAtDesc(User user);
     List<Post> findByUserAndStatusOrderByCreatedAtDesc(User user, PostStatus status);
@@ -191,7 +222,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findByUserInOrderByCreatedAtDesc(List<User> users);
 
     @Query("SELECT p FROM Post p WHERE p.user IN :users AND p.status = :status AND " +
-            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) " +
+            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\' " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByUserInAndStatusAndContentContainingIgnoreCaseOrderByCreatedAtDesc(
             @Param("users") List<User> users,
@@ -199,14 +230,14 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("content") String content);
 
     @Query("SELECT p FROM Post p WHERE p.status = :status AND " +
-            "p.content LIKE :hashtag " +
+            "p.content LIKE :hashtag ESCAPE '\\' " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByStatusAndHashtagOrderByCreatedAtDesc(
             @Param("status") PostStatus status,
             @Param("hashtag") String hashtag);
 
     @Query("SELECT COUNT(p) FROM Post p WHERE p.status = :status AND " +
-            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%'))")
+            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\'")
     Long countByStatusAndContentContainingIgnoreCase(
             @Param("status") PostStatus status,
             @Param("content") String content);
@@ -494,7 +525,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.status = :status AND " +
-            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) AND p.id < :beforeId " +
+            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\' AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByStatusAndContentContainingIgnoreCaseAndIdLessThanOrderByCreatedAtDesc(
             @Param("status") PostStatus status,
@@ -533,7 +564,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.user IN :users AND p.status = :status AND " +
-            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) AND p.id < :beforeId " +
+            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\' AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByUserInAndStatusAndContentContainingIgnoreCaseAndIdLessThanOrderByCreatedAtDesc(
             @Param("users") List<User> users,
@@ -543,7 +574,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.status = :status AND " +
-            "p.content LIKE :hashtag AND p.id < :beforeId " +
+            "p.content LIKE :hashtag ESCAPE '\\' AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByStatusAndHashtagAndIdLessThanOrderByCreatedAtDesc(
             @Param("status") PostStatus status,
@@ -691,7 +722,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             PostStatus status, String content, Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.status = :status AND " +
-            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) AND p.id < :beforeId " +
+            "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\' AND p.id < :beforeId " +
             "ORDER BY p.id DESC")
     List<Post> findByStatusAndContentContainingIgnoreCaseAndIdBeforeOrderByIdDesc(
             @Param("status") PostStatus status,
@@ -878,7 +909,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("""
             SELECT p FROM Post p
             WHERE p.status = :status
-              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%'))
+              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
             ORDER BY p.id DESC
             """)
     List<Post> searchFirstPage(
@@ -891,7 +922,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             SELECT p FROM Post p
             WHERE p.status = :status
               AND p.id < :cursor
-              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%'))
+              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
             ORDER BY p.id DESC
             """)
     List<Post> searchNextPage(
@@ -905,7 +936,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             SELECT p FROM Post p
             WHERE p.status       = :status
               AND p.user.pincode = :pincode
-              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%'))
+              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
             ORDER BY p.id DESC
             """)
     List<Post> searchFirstPageByPincode(
@@ -920,7 +951,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             WHERE p.status       = :status
               AND p.user.pincode = :pincode
               AND p.id < :cursor
-              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%'))
+              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
             ORDER BY p.id DESC
             """)
     List<Post> searchNextPageByPincode(

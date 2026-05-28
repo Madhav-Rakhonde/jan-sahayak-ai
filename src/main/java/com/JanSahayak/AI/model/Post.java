@@ -123,27 +123,27 @@ public class Post {
     // ── Counters (denormalized for fast reads) ────────────────────────────────
 
     @Builder.Default
-    @Column(name = "like_count", nullable = false)
+    @Column(name = "like_count", nullable = false, updatable = false)
     private int likeCount = 0;
 
     @Builder.Default
-    @Column(name = "dislike_count", nullable = false)
+    @Column(name = "dislike_count", nullable = false, updatable = false)
     private int dislikeCount = 0;
 
     @Builder.Default
-    @Column(name = "comment_count", nullable = false)
+    @Column(name = "comment_count", nullable = false, updatable = false)
     private int commentCount = 0;
 
     @Builder.Default
-    @Column(name = "view_count", nullable = false)
+    @Column(name = "view_count", nullable = false, updatable = false)
     private int viewCount = 0;
 
     @Builder.Default
-    @Column(name = "share_count", nullable = false)
+    @Column(name = "share_count", nullable = false, updatable = false)
     private int shareCount = 0;
 
     @Builder.Default
-    @Column(name = "save_count", nullable = false)
+    @Column(name = "save_count", nullable = false, updatable = false)
     private int saveCount = 0;
 
     // ── Relationships ─────────────────────────────────────────────────────────

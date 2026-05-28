@@ -128,8 +128,8 @@ public class ChatSessionService {
         userSessionMap.put(user2Id, sessionId);
 
         // FIX MEMORY LEAK #2 — pre-populate email cache so WebSocket sends are DB-free
-        try { emailCache.put(user1Id, fetchEmail(user1Id)); } catch (Exception ignored) {}
-        try { emailCache.put(user2Id, fetchEmail(user2Id)); } catch (Exception ignored) {}
+        try { emailCache.put(user1Id, fetchEmail(user1Id)); } catch (Exception e) { log.warn("Failed to pre-fetch email for user {}", user1Id, e); }
+        try { emailCache.put(user2Id, fetchEmail(user2Id)); } catch (Exception e) { log.warn("Failed to pre-fetch email for user {}", user2Id, e); }
 
         log.info("Chat session {} created successfully", sessionId);
         return session;
@@ -225,7 +225,17 @@ public class ChatSessionService {
         
         if (mediaBytes != null) {
             mediaCache.put(fileId, mediaBytes);
-            sessionMediaMap.computeIfAbsent(sessionId, k -> new ArrayList<>()).add(fileId);
+            // FIX OOM DoS + Race Condition: Use synchronizedList and enforce a strict cap 
+            // of 20 media files per session so an attacker cannot exhaust server RAM by 
+            // spamming 50MB files indefinitely.
+            List<String> sessionMedia = sessionMediaMap.computeIfAbsent(sessionId, k -> java.util.Collections.synchronizedList(new ArrayList<>()));
+            synchronized (sessionMedia) {
+                if (sessionMedia.size() >= 20) {
+                    String oldestFileId = sessionMedia.remove(0);
+                    mediaCache.remove(oldestFileId);
+                }
+                sessionMedia.add(fileId);
+            }
         }
 
         String senderAnonymousId = session.getUserAnonymousId(senderId);

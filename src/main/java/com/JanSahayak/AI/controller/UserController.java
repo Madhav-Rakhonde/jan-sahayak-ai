@@ -380,9 +380,7 @@ public class UserController {
                     ApiResponse.error("Pincode verification service is temporarily down. Please try again later."));
             }
 
-            currentUser.setPincode(request.getPincode());
-            currentUser.setHasInvalidPincode(false);
-            userRepository.save(currentUser);
+            userService.updatePincode(currentUser, request.getPincode());
 
             return ResponseEntity.ok(ApiResponse.success("Pincode updated successfully", null));
         } catch (ValidationException e) {
@@ -430,9 +428,18 @@ public class UserController {
             // Upload new image
             String imageUrl = cloudinaryStorageService.uploadFile(file, currentUser.getId(), "posts");
 
-            // Save URL to user
-            currentUser.setProfileImage(imageUrl);
-            userRepository.save(currentUser);
+            try {
+                // Save URL to user via service layer to respect transaction boundaries
+                userService.updateProfileImage(currentUser, imageUrl);
+            } catch (Exception e) {
+                // If DB save fails, clean up Cloudinary to prevent orphaned files
+                try {
+                    cloudinaryStorageService.deleteFile(imageUrl);
+                } catch (Exception ex) {
+                    log.error("Failed to delete orphaned Cloudinary image after DB failure: {}", imageUrl, ex);
+                }
+                throw e; // Let the outer catch blocks or global handler catch it
+            }
 
             log.info("Profile image updated for user: {} (ID: {})", currentUser.getActualUsername(), currentUser.getId());
             return ResponseEntity.ok(ApiResponse.success("Profile image updated successfully", imageUrl));
@@ -596,35 +603,7 @@ public class UserController {
      * without an extra DB round-trip.
      */
     private User getCurrentUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null || !authentication.isAuthenticated()) {
-            throw new ValidationException("User not authenticated");
-        }
-
-        String email = authentication.getName();
-        if (email == null || email.trim().isEmpty()) {
-            throw new ValidationException("Invalid authentication - no email found");
-        }
-
-        try {
-            // FIX: findByEmailWithRole() instead of findByEmail()
-            User user = userRepository.findByEmailWithRole(email)
-                    .orElseThrow(() -> new UserNotFoundException("User not found with email: " + email));
-
-            if (user.getIsActive() == null || !user.getIsActive()) {
-                throw new ValidationException("User account is inactive");
-            }
-
-            return user;
-
-        } catch (UserNotFoundException e) {
-            log.warn("User not found with email: {}", email);
-            throw new ValidationException("User not found: " + email);
-        } catch (Exception e) {
-            log.error("Error retrieving current user with email: {}", email, e);
-            throw new ValidationException("Error retrieving user information");
-        }
+        return userService.getUserFromAuthentication(SecurityContextHolder.getContext().getAuthentication());
     }
 
     public static class UserUpdateRequest {

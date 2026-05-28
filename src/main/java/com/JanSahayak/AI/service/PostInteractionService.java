@@ -84,6 +84,7 @@ public class PostInteractionService {
             post.incrementViewCount();
 
             PostView saved = postViewRepository.save(view);
+            postRepository.incrementViewCount(post.getId());
             postRepository.save(post);
 
             log.info("View recorded: post={} user={} viewCount={}", post.getId(), user.getActualUsername(), post.getViewCount());
@@ -129,6 +130,7 @@ public class PostInteractionService {
             socialPost.incrementViewCount();
 
             PostView saved = postViewRepository.save(view);
+            socialPostRepository.incrementViewCount(socialPost.getId());
             socialPostRepository.save(socialPost);
 
             fireHligSignal(() -> interestProfileService.onView(user.getId(), socialPost.getId()),
@@ -164,6 +166,7 @@ public class PostInteractionService {
                 if (row.isLike()) {
                     postLikeRepository.delete(row);
                     post.decrementLikeCount();
+                    postRepository.decrementLikeCount(post.getId());
                     postRepository.save(post);
                     log.info("[Like] Removed: post={} user={} likeCount={}", post.getId(), user.getActualUsername(), post.getLikeCount());
                     return false;
@@ -172,6 +175,8 @@ public class PostInteractionService {
                     postLikeRepository.save(row);
                     post.decrementDislikeCount();
                     post.incrementLikeCount();
+                    postRepository.decrementDislikeCount(post.getId());
+                    postRepository.incrementLikeCount(post.getId());
                     postRepository.save(post);
                     log.info("[Like] Flipped DISLIKE→LIKE: post={} user={}", post.getId(), user.getActualUsername());
                     return true;
@@ -180,6 +185,7 @@ public class PostInteractionService {
                 PostLike newLike = buildLike(post, null, user, PostLike.ReactionType.LIKE);
                 post.incrementLikeCount();
                 postLikeRepository.save(newLike);
+                postRepository.incrementLikeCount(post.getId());
                 postRepository.save(post);
                 log.info("[Like] Added: post={} user={} likeCount={}", post.getId(), user.getActualUsername(), post.getLikeCount());
                 return true;
@@ -212,6 +218,7 @@ public class PostInteractionService {
                 if (row.isDislike()) {
                     postLikeRepository.delete(row);
                     post.decrementDislikeCount();
+                    postRepository.decrementDislikeCount(post.getId());
                     postRepository.save(post);
                     log.info("[Dislike] Removed: post={} user={} dislikeCount={}", post.getId(), user.getActualUsername(), post.getDislikeCount());
                     return false;
@@ -220,6 +227,8 @@ public class PostInteractionService {
                     postLikeRepository.save(row);
                     post.decrementLikeCount();
                     post.incrementDislikeCount();
+                    postRepository.decrementLikeCount(post.getId());
+                    postRepository.incrementDislikeCount(post.getId());
                     postRepository.save(post);
                     log.info("[Dislike] Flipped LIKE→DISLIKE: post={} user={}", post.getId(), user.getActualUsername());
                     return true;
@@ -228,6 +237,7 @@ public class PostInteractionService {
                 PostLike newDislike = buildLike(post, null, user, PostLike.ReactionType.DISLIKE);
                 post.incrementDislikeCount();
                 postLikeRepository.save(newDislike);
+                postRepository.incrementDislikeCount(post.getId());
                 postRepository.save(post);
                 log.info("[Dislike] Added: post={} user={} dislikeCount={}", post.getId(), user.getActualUsername(), post.getDislikeCount());
                 return true;
@@ -252,7 +262,7 @@ public class PostInteractionService {
         try {
             SocialPostUtility.validateSocialPost(socialPost);
             SocialPostUtility.validateUser(user);
-            validateSocialPostInteractable(socialPost);
+            validateSocialPostInteractable(socialPost, user);
 
             Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUser(socialPost, user);
             if (existing.isPresent()) {
@@ -260,6 +270,7 @@ public class PostInteractionService {
                 if (row.isLike()) {
                     postLikeRepository.delete(row);
                     socialPost.decrementLikeCount();
+                    socialPostRepository.decrementLikeCount(socialPost.getId());
                     socialPostRepository.save(socialPost);
                     fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost.getId()),
                             "UNLIKE", socialPost.getId(), user.getId());
@@ -270,6 +281,8 @@ public class PostInteractionService {
                     postLikeRepository.save(row);
                     socialPost.decrementDislikeCount();
                     socialPost.incrementLikeCount();
+                    socialPostRepository.decrementDislikeCount(socialPost.getId());
+                    socialPostRepository.incrementLikeCount(socialPost.getId());
                     socialPostRepository.save(socialPost);
                     fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost.getId()),
                             "LIKE", socialPost.getId(), user.getId());
@@ -284,6 +297,7 @@ public class PostInteractionService {
                 PostLike newLike = buildLike(null, socialPost, user, PostLike.ReactionType.LIKE);
                 socialPost.incrementLikeCount();
                 postLikeRepository.save(newLike);
+                socialPostRepository.incrementLikeCount(socialPost.getId());
                 socialPostRepository.save(socialPost);
                 fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost.getId()),
                         "LIKE", socialPost.getId(), user.getId());
@@ -314,7 +328,7 @@ public class PostInteractionService {
         try {
             SocialPostUtility.validateSocialPost(socialPost);
             SocialPostUtility.validateUser(user);
-            validateSocialPostInteractable(socialPost);
+            validateSocialPostInteractable(socialPost, user);
 
             Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUser(socialPost, user);
             if (existing.isPresent()) {
@@ -322,6 +336,7 @@ public class PostInteractionService {
                 if (row.isDislike()) {
                     postLikeRepository.delete(row);
                     socialPost.decrementDislikeCount();
+                    socialPostRepository.decrementDislikeCount(socialPost.getId());
                     socialPostRepository.save(socialPost);
                     fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost.getId()),
                             "UN-DISLIKE", socialPost.getId(), user.getId());
@@ -332,6 +347,8 @@ public class PostInteractionService {
                     postLikeRepository.save(row);
                     socialPost.decrementLikeCount();
                     socialPost.incrementDislikeCount();
+                    socialPostRepository.decrementLikeCount(socialPost.getId());
+                    socialPostRepository.incrementDislikeCount(socialPost.getId());
                     socialPostRepository.save(socialPost);
                     fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost.getId()),
                             "DISLIKE", socialPost.getId(), user.getId());
@@ -342,6 +359,7 @@ public class PostInteractionService {
                 PostLike newDislike = buildLike(null, socialPost, user, PostLike.ReactionType.DISLIKE);
                 socialPost.incrementDislikeCount();
                 postLikeRepository.save(newDislike);
+                socialPostRepository.incrementDislikeCount(socialPost.getId());
                 socialPostRepository.save(socialPost);
                 fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost.getId()),
                         "DISLIKE", socialPost.getId(), user.getId());
@@ -478,15 +496,14 @@ public class PostInteractionService {
         validateSocialPost(socialPost);
         validateUser(user);
 
-        if (!socialPost.isEligibleForDisplay()) {
-            throw new ValidationException("Cannot save a social post with status: " + socialPost.getStatus().getDisplayName());
-        }
+        validateSocialPostInteractable(socialPost, user);
 
         try {
             Optional<SavedPost> existing = savedPostRepo.findByUserAndSocialPost(user, socialPost);
             if (existing.isPresent()) {
                 savedPostRepo.delete(existing.get());
                 socialPost.decrementSaveCount();
+                socialPostRepository.decrementSaveCount(socialPost.getId());
                 socialPostRepository.save(socialPost);
                 fireHligSignal(() -> interestProfileService.onUnsave(user.getId(), socialPost.getId()),
                         "UNSAVE", socialPost.getId(), user.getId());
@@ -496,6 +513,7 @@ public class PostInteractionService {
                 SavedPost sp = SavedPost.builder().user(user).socialPost(socialPost).savedAt(new Date()).build();
                 socialPost.incrementSaveCount();
                 savedPostRepo.save(sp);
+                socialPostRepository.incrementSaveCount(socialPost.getId());
                 socialPostRepository.save(socialPost);
                 fireHligSignal(() -> interestProfileService.onSave(user.getId(), socialPost.getId()),
                         "SAVE", socialPost.getId(), user.getId());
@@ -534,6 +552,7 @@ public class PostInteractionService {
             if (existing.isPresent()) {
                 savedPostRepo.delete(existing.get());
                 post.decrementSaveCount();
+                postRepository.decrementSaveCount(post.getId());
                 postRepository.save(post);
                 log.info("[Save] Removed: broadcastPost={} user={} saveCount={}", post.getId(), user.getActualUsername(), post.getSaveCount());
                 return false;
@@ -541,6 +560,7 @@ public class PostInteractionService {
                 SavedPost sp = SavedPost.builder().user(user).post(post).savedAt(new Date()).build();
                 post.incrementSaveCount();
                 savedPostRepo.save(sp);
+                postRepository.incrementSaveCount(post.getId());
                 postRepository.save(post);
                 log.info("[Save] Added: broadcastPost={} user={} saveCount={}", post.getId(), user.getActualUsername(), post.getSaveCount());
                 return true;
@@ -734,6 +754,7 @@ public class PostInteractionService {
 
             post.incrementShareCount();
             PostShare saved = postShareRepo.save(share);
+            postRepository.incrementShareCount(post.getId());
             postRepository.save(post);
 
             log.info("[Share] post={} user={} type={} shareCount={}",
@@ -762,9 +783,7 @@ public class PostInteractionService {
     public PostShare recordSocialPostShare(SocialPost socialPost, User user, ShareType shareType) {
         validateSocialPost(socialPost);
 
-        if (!socialPost.isEligibleForDisplay()) {
-            throw new ValidationException("Cannot share a social post with status: " + socialPost.getStatus().getDisplayName());
-        }
+        validateSocialPostInteractable(socialPost, user);
 
         try {
             PostShare share = PostShare.builder()
@@ -776,6 +795,7 @@ public class PostInteractionService {
 
             socialPost.incrementShareCount();
             PostShare saved = postShareRepo.save(share);
+            socialPostRepository.incrementShareCount(socialPost.getId());
             socialPostRepository.save(socialPost);
 
             if (user != null) {
@@ -978,12 +998,23 @@ public class PostInteractionService {
         }
     }
 
-    private void validateSocialPostInteractable(SocialPost socialPost) {
+    private void validateSocialPostInteractable(SocialPost socialPost, User user) {
         if (!socialPost.isEligibleForDisplay()) {
             throw new ValidationException("Cannot interact with social post in status: " + socialPost.getStatus().getDisplayName());
         }
         if (!socialPost.getStatus().allowsLikes()) {
             throw new ValidationException("Social post does not allow reactions in its current status.");
+        }
+        if (!com.JanSahayak.AI.payload.SocialPostUtility.isSocialPostVisibleToUser(socialPost, user)) {
+            throw new SecurityException("User does not have permission to view this social post");
+        }
+        if (socialPost.getCommunityId() != null && user != null && !com.JanSahayak.AI.payload.PostUtility.isAdmin(user)) {
+            String privacy = socialPost.getCommunityPrivacy();
+            if ("PRIVATE".equalsIgnoreCase(privacy) || "SECRET".equalsIgnoreCase(privacy)) {
+                if (!communityService.isMember(socialPost.getCommunityId(), user.getId())) {
+                    throw new SecurityException("User does not have permission to interact with this private community post");
+                }
+            }
         }
     }
 

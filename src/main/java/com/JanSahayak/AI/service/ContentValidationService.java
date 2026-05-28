@@ -13,17 +13,22 @@ public class ContentValidationService {
     private final BadWordService badWordService;
 
     /**
-     * Validates content for bad words before allowing post/comment creation.
+     * Sanitizes HTML content and validates for bad words before allowing post/comment creation.
      *
      * @param content Text content to validate
+     * @return Sanitized text content (HTML escaped)
      * @throws ValidationException if bad word is found
      */
-    public void validateContent(String content) {
+    public String sanitizeAndValidateContent(String content) {
         if (content == null || content.trim().isEmpty()) {
-            return; // Empty content validation handled elsewhere
+            return content; // Empty content validation handled elsewhere
         }
 
-        BadWordService.BadWordCheckResult result = badWordService.checkText(content);
+        // 1. Sanitize HTML to prevent Stored XSS
+        String sanitizedContent = org.springframework.web.util.HtmlUtils.htmlEscape(content);
+
+        // 2. Validate for bad words
+        BadWordService.BadWordCheckResult result = badWordService.checkText(sanitizedContent);
 
         if (!result.isAllowed()) {
             log.warn("Content validation failed - bad word detected: {}", result.getBadWord());
@@ -31,11 +36,12 @@ public class ContentValidationService {
         }
 
         log.debug("Content validation passed - no bad words found");
+        return sanitizedContent;
     }
 
     public boolean isContentClean(String content) {
         try {
-            validateContent(content);
+            sanitizeAndValidateContent(content);
             return true;
         } catch (ValidationException e) {
             return false;

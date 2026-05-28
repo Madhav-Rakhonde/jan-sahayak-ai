@@ -37,7 +37,7 @@ public class SearchService {
     // =========================================================================
 
     public SearchDto.Response search(SearchDto.Request req) {
-        String   query  = req.getQuery().trim();
+        String   query  = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(req.getQuery().trim());
         Long     cursor = req.getCursor();
         int      limit  = req.safeLimit();
         Pageable probe  = PageRequest.of(0, limit + 1);
@@ -48,7 +48,7 @@ public class SearchService {
         List<SearchDto.Result> hashtags    = Collections.emptyList();
 
         if (req.isHashtagSearch()) {
-            String tag = req.normalizedHashtag().replaceFirst("^#+", "");
+            String tag = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(req.normalizedHashtag().replaceFirst("^#+", ""));
             if (req.includesType("SOCIAL_POST")) socialPosts = fetchSocialPostsByHashtag(tag, cursor, probe);
             if (req.includesType("HASHTAG"))     hashtags    = fetchHashtagRows(tag, limit);
         } else {
@@ -94,7 +94,7 @@ public class SearchService {
 
         int      safeLimit = Math.min(Math.max(limit, 1), 50);
         Pageable probe     = PageRequest.of(0, safeLimit + 1);
-        String   q         = query.trim();
+        String   q         = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(query.trim());
 
         List<SearchDto.Result> results = switch (type.toUpperCase()) {
             case "POST"        -> fetchPosts(q, pincode, cursor, probe);

@@ -70,21 +70,21 @@ public class ClientIpResolver {
      */
     private String extractBestIp(String xffValue) {
         String[] parts = xffValue.split(",");
-        String firstEntry = null;
+        String lastEntry = null;
 
-        for (String part : parts) {
-            String ip = part.strip();
+        for (int i = parts.length - 1; i >= 0; i--) {
+            String ip = parts[i].strip();
             if (ip.isEmpty()) continue;
 
-            if (firstEntry == null) firstEntry = ip;  // remember leftmost as fallback
+            if (lastEntry == null) lastEntry = ip;  // remember rightmost as fallback
 
             if (!isPrivateOrLoopback(ip)) {
-                return ip;  // first public IP — this is the real client
+                return ip;  // first public IP from the right — this is the real client
             }
         }
 
-        // All IPs were private (pure internal network) — return leftmost
-        return firstEntry;
+        // All IPs were private (pure internal network) — return rightmost
+        return lastEntry;
     }
 
     /**
@@ -106,7 +106,7 @@ public class ClientIpResolver {
         if (ip.startsWith("10.")
                 || ip.startsWith("192.168.")
                 || ip.startsWith("127.")
-                || ip.equals("::1")) {
+                || "::1".equals(ip)) {
             return true;
         }
 

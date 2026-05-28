@@ -176,11 +176,12 @@ public class CommentController {
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getCommentsBySocialPost(
             @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
-            @RequestParam(required = false) Integer limit) {
+            @RequestParam(required = false) Integer limit,
+            @CurrentUser(required = false) User currentUser) {
 
         try {
             log.debug("[Comment] LIST all for socialPost={}", postId);
-            PaginatedResponse<CommentDto> comments = commentService.getCommentsBySocialPostId(postId, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getCommentsBySocialPostId(postId, beforeId, limit, currentUser);
             return ResponseEntity.ok(ApiResponse.success("Comments retrieved", comments));
 
         } catch (Exception e) {
@@ -230,11 +231,12 @@ public class CommentController {
     public ResponseEntity<ApiResponse<PaginatedResponse<CommentDto>>> getTopLevelCommentsBySocialPost(
             @PathVariable @NotNull Long postId,
             @RequestParam(required = false) Long beforeId,
-            @RequestParam(required = false) Integer limit) {
+            @RequestParam(required = false) Integer limit,
+            @CurrentUser(required = false) User currentUser) {
 
         try {
             log.debug("[Comment] LIST top-level for socialPost={}", postId);
-            PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsBySocialPostId(postId, beforeId, limit);
+            PaginatedResponse<CommentDto> comments = commentService.getTopLevelCommentsBySocialPostId(postId, beforeId, limit, currentUser);
             return ResponseEntity.ok(ApiResponse.success("Top-level comments retrieved", comments));
 
         } catch (Exception e) {
@@ -308,10 +310,11 @@ public class CommentController {
      */
     @GetMapping("/social-posts/{postId}/count")
     public ResponseEntity<ApiResponse<Long>> getCommentCountBySocialPost(
-            @PathVariable @NotNull Long postId) {
+            @PathVariable @NotNull Long postId,
+            @CurrentUser(required = false) User currentUser) {
 
         try {
-            Long count = commentService.countCommentsBySocialPostId(postId);
+            Long count = commentService.countCommentsBySocialPostId(postId, currentUser);
             return ResponseEntity.ok(ApiResponse.success("Comment count retrieved", count));
 
         } catch (Exception e) {

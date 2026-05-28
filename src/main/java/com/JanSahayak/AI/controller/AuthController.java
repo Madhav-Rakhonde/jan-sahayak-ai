@@ -11,7 +11,7 @@ import com.JanSahayak.AI.repository.RoleRepo;
 import com.JanSahayak.AI.repository.UserRepo;
 import com.JanSahayak.AI.security.JwtUtil;
 import com.JanSahayak.AI.security.CustomUserDetailsService;
-import jakarta.transaction.Transactional;
+import com.JanSahayak.AI.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -31,6 +31,7 @@ import java.util.Date;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import com.JanSahayak.AI.service.EmailService;
+import jakarta.validation.Valid;
 
 @RestController
 @Slf4j
@@ -44,11 +45,17 @@ public class AuthController {
     @Autowired private RoleRepo roleRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private EmailService emailService;
+    @Autowired private UserService userService;
     @Autowired private com.JanSahayak.AI.service.PincodeValidationService pincodeValidationService;
+    @Autowired private com.JanSahayak.AI.service.RateLimitingService rateLimitingService;
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthResponse>> login(@RequestBody AuthRequest request) {
+    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody AuthRequest request) {
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
+        if (rateLimitingService.isLoginBlocked(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(ApiResponse.error("Too many failed login attempts. Please try again after 15 minutes."));
+        }
         try {
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(normalizedEmail, request.getPassword())
@@ -56,18 +63,22 @@ public class AuthController {
 
             // Check if email is verified (post-auth to prevent email enumeration)
             User user = (User) authentication.getPrincipal();
-            if (user != null && !Boolean.TRUE.equals(user.getIsEmailVerified())) {
+            if (user != null && user.isNormalUser() && !Boolean.TRUE.equals(user.getIsEmailVerified())) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(ApiResponse.error("Please verify your email address. A verification link has been sent to your email."));
             }
 
+            // Clear failed attempts on successful login
+            rateLimitingService.clearLoginAttempts(normalizedEmail);
             final String jwt = jwtUtil.generateToken(authentication);
             return ResponseEntity.ok(ApiResponse.success("Login successful", new AuthResponse(jwt)));
 
         } catch (BadCredentialsException e) {
+            rateLimitingService.recordFailedLogin(normalizedEmail);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("Incorrect username or password. Please try again."));
         } catch (UsernameNotFoundException e) {
+            rateLimitingService.recordFailedLogin(normalizedEmail);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("No account found with this email address."));
         } catch (DisabledException e) {
@@ -81,14 +92,18 @@ public class AuthController {
     }
 
     @PostMapping("/register/citizen")
-    @Transactional
-    public ResponseEntity<ApiResponse<String>> registerUser(@RequestBody RegisterRequest request) {
+    public ResponseEntity<ApiResponse<String>> registerUser(@Valid @RequestBody RegisterRequest request) {
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
+        if (rateLimitingService.isRegistrationBlocked(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(ApiResponse.error("Too many registration requests. Please try again later."));
+        }
         try {
+            rateLimitingService.recordRegistrationAttempt(normalizedEmail);
             // FIX: Use existsByEmail() instead of findByEmail().isPresent()
             // existsByEmail() runs a COUNT query — much cheaper than loading a full User entity
             // just to check if it exists.
-            if (userRepository.existsByEmail(normalizedEmail)) {
+            if (userService.existsByEmail(normalizedEmail)) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
             }
 
@@ -124,7 +139,7 @@ public class AuthController {
             for (int attempt = 0; attempt < maxRetries && !saved; attempt++) {
                 try {
                     user.setUsername(generateUniqueUsername());
-                    userRepository.save(user);
+                    userService.saveUser(user);
                     saved = true;
                 } catch (DataIntegrityViolationException e) {
                     log.debug("Username collision on attempt {}, retrying...", attempt + 1);
@@ -143,6 +158,7 @@ public class AuthController {
             return ResponseEntity.ok(ApiResponse.success("Registration successful! A verification link has been sent to your email."));
 
         } catch (Exception e) {
+            log.error("Error during citizen registration: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Registration failed"));
         }
@@ -150,12 +166,16 @@ public class AuthController {
 
     @PreAuthorize("hasAnyRole('ROLE_ADMIN')")
     @PostMapping("/register/department")
-    @Transactional
-    public ResponseEntity<ApiResponse<String>> registerDepartment(@RequestBody RegisterRequest request) {
+    public ResponseEntity<ApiResponse<String>> registerDepartment(@Valid @RequestBody RegisterRequest request) {
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
+        if (rateLimitingService.isRegistrationBlocked(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(ApiResponse.error("Too many registration requests. Please try again later."));
+        }
         try {
+            rateLimitingService.recordRegistrationAttempt(normalizedEmail);
             // FIX: Use existsByEmail() instead of findByEmail().isPresent()
-            if (userRepository.existsByEmail(normalizedEmail)) {
+            if (userService.existsByEmail(normalizedEmail)) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
             }
 
@@ -173,7 +193,7 @@ public class AuthController {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Username is required"));
             }
 
-            if (userRepository.existsByUsername(request.getUsername().trim())) {
+            if (userService.existsByUsername(request.getUsername().trim())) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Username already exists"));
             }
 
@@ -189,7 +209,7 @@ public class AuthController {
             user.setPincode(request.getPincode());
             user.setHasInvalidPincode(hasInvalidPincode);
 
-            userRepository.save(user);
+            userService.saveUser(user);
             log.info("Department user registered successfully: {}", user.getUsername());
 
             return ResponseEntity.ok(ApiResponse.success("Government department registered successfully"));
@@ -207,11 +227,15 @@ public class AuthController {
 
     @PreAuthorize("hasAnyRole('ROLE_ADMIN')")
     @PostMapping("/register/admin")
-    @Transactional
-    public ResponseEntity<ApiResponse<String>> registerAdmin(@RequestBody RegisterRequest request) {
+    public ResponseEntity<ApiResponse<String>> registerAdmin(@Valid @RequestBody RegisterRequest request) {
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
+        if (rateLimitingService.isRegistrationBlocked(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(ApiResponse.error("Too many registration requests. Please try again later."));
+        }
         try {
-            if (userRepository.existsByEmail(normalizedEmail)) {
+            rateLimitingService.recordRegistrationAttempt(normalizedEmail);
+            if (userService.existsByEmail(normalizedEmail)) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Email already exists"));
             }
 
@@ -229,7 +253,7 @@ public class AuthController {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Username is required"));
             }
 
-            if (userRepository.existsByUsername(request.getUsername())) {
+            if (userService.existsByUsername(request.getUsername())) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Username already exists"));
             }
 
@@ -245,7 +269,7 @@ public class AuthController {
             user.setPincode(request.getPincode());
             user.setHasInvalidPincode(hasInvalidPincode);
 
-            userRepository.save(user);
+            userService.saveUser(user);
             log.info("Admin user registered successfully: {}", user.getUsername());
 
             return ResponseEntity.ok(ApiResponse.success("ADMIN has registered successfully"));
@@ -262,10 +286,9 @@ public class AuthController {
     }
 
     @GetMapping("/verify-email")
-    @Transactional
     public ResponseEntity<ApiResponse<String>> verifyEmail(@RequestParam("token") String token) {
         try {
-            User user = userRepository.findByEmailVerificationToken(token).orElse(null);
+            User user = userService.findByEmailVerificationToken(token).orElse(null);
 
             if (user == null) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -280,7 +303,7 @@ public class AuthController {
             user.setIsEmailVerified(true);
             user.setEmailVerificationToken(null);
             user.setEmailVerificationTokenExpiry(null);
-            userRepository.save(user);
+            userService.saveUser(user);
 
             return ResponseEntity.ok(ApiResponse.success("Email verified successfully! You can now log in."));
 
@@ -292,10 +315,15 @@ public class AuthController {
     }
 
     @PostMapping("/resend-verification")
-    @Transactional
     public ResponseEntity<ApiResponse<String>> resendVerification(@RequestParam("email") String email) {
+        String normalizedEmail = email != null ? email.trim().toLowerCase() : null;
+        if (rateLimitingService.isRegistrationBlocked(normalizedEmail)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(ApiResponse.error("Too many requests. Please try again later."));
+        }
         try {
-            User user = userRepository.findByEmail(email).orElse(null);
+            rateLimitingService.recordRegistrationAttempt(normalizedEmail);
+            User user = userService.findByEmail(email).orElse(null);
             if (user == null) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("No account found with this email address."));
             }
@@ -311,7 +339,7 @@ public class AuthController {
             String token = UUID.randomUUID().toString();
             user.setEmailVerificationToken(token);
             user.setEmailVerificationTokenExpiry(Date.from(Instant.now().plus(24, ChronoUnit.HOURS)));
-            userRepository.save(user);
+            userService.saveUser(user);
 
             emailService.sendVerificationEmail(user, token);
 
@@ -374,7 +402,7 @@ public class AuthController {
             int    number    = (int) (Math.random() * 9000) + 1000;
             String candidate = adjective + noun + number;
 
-            if (candidate.length() > 3 && !userRepository.existsByUsername(candidate)) {
+            if (candidate.length() > 3 && !userService.existsByUsername(candidate)) {
                 return candidate;
             }
         }

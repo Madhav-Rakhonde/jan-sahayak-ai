@@ -98,7 +98,8 @@ public class SocialPostService {
         try {
             PostUtility.validateUser(user);
             SocialPostUtility.validateSocialPostContent(createDto.getContent());
-            contentValidationService.validateContent(createDto.getContent());
+            String safeContent = contentValidationService.sanitizeAndValidateContent(createDto.getContent());
+            createDto.setContent(safeContent);
 
             List<String> extractedHashtags = extractAndValidateHashtags(
                     createDto.getContent(), createDto.getHashtags());
@@ -183,7 +184,8 @@ public class SocialPostService {
                         "User does not have permission to modify this social post");
             }
 
-            contentValidationService.validateContent(updateDto.getContent());
+            String safeContent = contentValidationService.sanitizeAndValidateContent(updateDto.getContent());
+            updateDto.setContent(safeContent);
             socialPost.setContent(updateDto.getContent().trim());
 
             if (updateDto.getHashtags() != null) {
@@ -277,6 +279,15 @@ public class SocialPostService {
             if (user != null && !SocialPostUtility.isSocialPostVisibleToUser(socialPost, user)) {
                 throw new SecurityException(
                         "User does not have permission to view this social post");
+            }
+            if (socialPost.getCommunityId() != null && user != null && !PostUtility.isAdmin(user)) {
+                String privacy = socialPost.getCommunityPrivacy();
+                if ("PRIVATE".equalsIgnoreCase(privacy) || "SECRET".equalsIgnoreCase(privacy)) {
+                    if (!communityMemberRepository.existsByCommunityIdAndUserIdAndIsActiveTrue(
+                            socialPost.getCommunityId(), user.getId())) {
+                        throw new SecurityException("User does not have permission to view this private community post");
+                    }
+                }
             }
 
             return convertToDto(socialPost, user);
@@ -496,7 +507,7 @@ public class SocialPostService {
                 throw new ValidationException("Hashtag cannot be empty");
             }
 
-            String cleanHashtag = normalizeHashtag(hashtag);
+            String cleanHashtag = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(normalizeHashtag(hashtag));
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupHashtagSearchPagination(
                     "searchByHashtag", beforeId, limit);
 

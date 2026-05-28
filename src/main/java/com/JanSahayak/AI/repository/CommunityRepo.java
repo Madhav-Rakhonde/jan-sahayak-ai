@@ -69,10 +69,10 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
             WHERE c.status = com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE
               AND c.privacy <> com.JanSahayak.AI.model.Community.CommunityPrivacy.SECRET
               AND (:cursor IS NULL OR c.id < :cursor)
-              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :q, '%'))
-                OR LOWER(c.description) LIKE LOWER(CONCAT('%', :q, '%'))
-                OR LOWER(c.tags)        LIKE LOWER(CONCAT('%', :q, '%'))
-                OR LOWER(c.wardName)    LIKE LOWER(CONCAT('%', :q, '%')))
+              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :q, '%')) ESCAPE '\\'
+                OR LOWER(c.description) LIKE LOWER(CONCAT('%', :q, '%')) ESCAPE '\\'
+                OR LOWER(c.tags)        LIKE LOWER(CONCAT('%', :q, '%')) ESCAPE '\\'
+                OR LOWER(c.wardName)    LIKE LOWER(CONCAT('%', :q, '%')) ESCAPE '\\')
             ORDER BY c.healthScore DESC, c.memberCount DESC, c.id DESC
             """)
     List<Community> searchCommunities(
@@ -147,10 +147,10 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
     @Query("""
             SELECT c FROM Community c
             WHERE c.privacy <> com.JanSahayak.AI.model.Community.CommunityPrivacy.SECRET
-              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')))
+              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY
               CASE c.status
                 WHEN com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE THEN 0
@@ -169,10 +169,10 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
             SELECT c FROM Community c
             WHERE c.privacy <> com.JanSahayak.AI.model.Community.CommunityPrivacy.SECRET
               AND c.id < :cursor
-              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')))
+              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY
               CASE c.status
                 WHEN com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE THEN 0
@@ -194,10 +194,10 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
               AND (c.pincode        = :pincode
                OR  c.districtPrefix = :districtPrefix
                OR  c.statePrefix    = :statePrefix)
-              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')))
+              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY
               CASE c.status
                 WHEN com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE THEN 0
@@ -222,10 +222,10 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
               AND (c.pincode        = :pincode
                OR  c.districtPrefix = :districtPrefix
                OR  c.statePrefix    = :statePrefix)
-              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%'))
-               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')))
+              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY
               CASE c.status
                 WHEN com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE THEN 0

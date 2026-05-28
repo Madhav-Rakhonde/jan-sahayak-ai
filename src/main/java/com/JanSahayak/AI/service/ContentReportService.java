@@ -48,15 +48,17 @@ public class ContentReportService {
 
         User reporter = currentUser();
 
+        String normalizedTargetType = targetType.toUpperCase();
+
         // Prevent duplicate reports from same user on same content
         if (reportRepo.existsByReporter_IdAndTargetTypeAndTargetId(
-                reporter.getId(), targetType, targetId)) {
+                reporter.getId(), normalizedTargetType, targetId)) {
             throw new ServiceException("You have already reported this content.");
         }
 
         ContentReport report = ContentReport.builder()
                 .reporter(reporter)
-                .targetType(targetType.toUpperCase())
+                .targetType(normalizedTargetType)
                 .targetId(targetId)
                 .category(category)
                 .description(description)
@@ -144,17 +146,17 @@ public class ContentReportService {
     // ── Admin: paginated queues ───────────────────────────────────────────────
 
     public Page<ContentReport> getPendingEmergencyQueue(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
         return reportRepo.findByStatusAndIsEmergencyOrderByCreatedAtAsc("PENDING", true, pageable);
     }
 
     public Page<ContentReport> getPendingStandardQueue(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
         return reportRepo.findStandardQueue("PENDING", pageable);
     }
 
     public Page<ContentReport> getAllReports(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
         return reportRepo.findAllByOrderByCreatedAtDesc(pageable);
     }
 

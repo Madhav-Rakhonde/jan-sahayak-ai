@@ -73,7 +73,8 @@ public class CommentService {
                 throw new ServiceException("Cannot add comments to posts with status: " + post.getStatus().getDisplayName());
             }
 
-            contentValidationService.validateContent(commentDto.getText());
+            String safeContent = contentValidationService.sanitizeAndValidateContent(commentDto.getText());
+            commentDto.setText(safeContent);
 
             Comment comment = new Comment();
             comment.setText(commentDto.getText().trim());
@@ -89,6 +90,7 @@ public class CommentService {
 
             Comment savedComment = commentRepository.save(comment);
             post.incrementCommentCount();
+            postRepository.incrementCommentCount(post.getId());
             postRepository.save(post);
 
             // ── Comment notification ─────────────────────────────────────────
@@ -132,7 +134,7 @@ public class CommentService {
         try {
             validateCommentDto(commentDto);
             PostUtility.validateUser(user);
-            validateSocialPost(socialPost);
+            validateSocialPost(socialPost, user);
 
             if (!socialPost.getStatus().allowsComments()) {
                 throw new ServiceException("Cannot add comments to social posts with status: " +
@@ -143,7 +145,8 @@ public class CommentService {
                 throw new ServiceException("Comments are disabled for this social post");
             }
 
-            contentValidationService.validateContent(commentDto.getText());
+            String safeContent = contentValidationService.sanitizeAndValidateContent(commentDto.getText());
+            commentDto.setText(safeContent);
 
             Comment comment = new Comment();
             comment.setText(commentDto.getText().trim());
@@ -153,12 +156,15 @@ public class CommentService {
 
             if (commentDto.getParentCommentId() != null) {
                 Comment parentComment = findById(commentDto.getParentCommentId());
+                SocialPost parentSocialPost = parentComment.getSocialPost();
+                validateSocialPost(parentSocialPost, user);
                 validateParentCommentForSocialPost(parentComment, socialPost);
                 comment.setParentComment(parentComment);
             }
 
             Comment savedComment = commentRepository.save(comment);
             socialPost.incrementCommentCount();
+            socialPostRepository.incrementCommentCount(socialPost.getId());
             socialPostRepository.save(socialPost);
 
             // ── Comment notification ─────────────────────────────────────────
@@ -198,6 +204,9 @@ public class CommentService {
             PostUtility.validateUser(user);
 
             Comment comment = findById(commentId);
+            if (comment.getSocialPost() != null) {
+                validateSocialPost(comment.getSocialPost(), user);
+            }
 
             // Check if post allows updates
             if (comment.getPost() != null) {
@@ -216,7 +225,8 @@ public class CommentService {
                 throw new SecurityException("Only the comment owner can update the comment.");
             }
 
-            contentValidationService.validateContent(commentDto.getText());
+            String safeContent = contentValidationService.sanitizeAndValidateContent(commentDto.getText());
+            commentDto.setText(safeContent);
 
             comment.setText(commentDto.getText().trim());
             comment.setUpdatedAt(new Date());
@@ -268,9 +278,9 @@ public class CommentService {
     // ===== GET COMMENTS BY SOCIAL POST =====
 
     @Transactional(readOnly = true)
-    public PaginatedResponse<CommentDto> getCommentsBySocialPost(@NotNull SocialPost socialPost, Long beforeId, Integer limit) {
+    public PaginatedResponse<CommentDto> getCommentsBySocialPost(@NotNull SocialPost socialPost, Long beforeId, Integer limit, User user) {
         try {
-            validateSocialPost(socialPost);
+            validateSocialPost(socialPost, user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getCommentsBySocialPost", beforeId, limit);
 
             if (!socialPost.isEligibleForDisplay()) {
@@ -333,9 +343,9 @@ public class CommentService {
     // ===== GET TOP LEVEL COMMENTS - SOCIAL POST =====
 
     @Transactional(readOnly = true)
-    public PaginatedResponse<CommentDto> getTopLevelCommentsBySocialPost(@NotNull SocialPost socialPost, Long beforeId, Integer limit) {
+    public PaginatedResponse<CommentDto> getTopLevelCommentsBySocialPost(@NotNull SocialPost socialPost, Long beforeId, Integer limit, User user) {
         try {
-            validateSocialPost(socialPost);
+            validateSocialPost(socialPost, user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getTopLevelCommentsBySocialPost", beforeId, limit);
 
             if (!socialPost.isEligibleForDisplay()) {
@@ -378,9 +388,9 @@ public class CommentService {
         }
     }
 
-    public Long countCommentsBySocialPost(@NotNull SocialPost socialPost) {
+    public Long countCommentsBySocialPost(@NotNull SocialPost socialPost, User user) {
         try {
-            validateSocialPost(socialPost);
+            validateSocialPost(socialPost, user);
             if (!socialPost.isEligibleForDisplay()) {
                 return 0L;
             }
@@ -530,12 +540,23 @@ public class CommentService {
         }
     }
 
-    private void validateSocialPost(SocialPost socialPost) {
+    private void validateSocialPost(SocialPost socialPost, User user) {
         if (socialPost == null) {
             throw new IllegalArgumentException("Social post cannot be null");
         }
         if (socialPost.getId() == null) {
             throw new IllegalArgumentException("Social post ID cannot be null");
+        }
+        if (!com.JanSahayak.AI.payload.SocialPostUtility.isSocialPostVisibleToUser(socialPost, user)) {
+            throw new SecurityException("User does not have permission to view this social post");
+        }
+        if (socialPost.getCommunityId() != null && user != null && !com.JanSahayak.AI.payload.PostUtility.isAdmin(user)) {
+            String privacy = socialPost.getCommunityPrivacy();
+            if ("PRIVATE".equalsIgnoreCase(privacy) || "SECRET".equalsIgnoreCase(privacy)) {
+                if (!communityService.isMember(socialPost.getCommunityId(), user.getId())) {
+                    throw new SecurityException("User does not have permission to comment on this private community post");
+                }
+            }
         }
     }
 
@@ -611,11 +632,13 @@ public class CommentService {
             if (comment.getPost() != null) {
                 Post post = comment.getPost();
                 post.setCommentCount(Math.max(0, post.getCommentCount() - totalCommentsToDelete));
+                postRepository.decrementCommentCountBy(post.getId(), totalCommentsToDelete);
                 postRepository.save(post);
             } else if (comment.getSocialPost() != null) {
                 SocialPost socialPost = comment.getSocialPost();
                 socialPost.setCommentCount(Math.max(0, socialPost.getCommentCount() - totalCommentsToDelete));
                 socialPost.recalculateEngagementScore();
+                socialPostRepository.decrementCommentCountBy(socialPost.getId(), totalCommentsToDelete);
                 socialPostRepository.save(socialPost);
             }
             // ─────────────────────────────────────────────────────────────────
@@ -671,10 +694,10 @@ public class CommentService {
      * Controller calls this instead of loading SocialPost then calling getCommentsBySocialPost(sp, ...).
      */
     @Transactional(readOnly = true)
-    public PaginatedResponse<CommentDto> getCommentsBySocialPostId(Long postId, Long beforeId, Integer limit) {
+    public PaginatedResponse<CommentDto> getCommentsBySocialPostId(Long postId, Long beforeId, Integer limit, User user) {
         SocialPost sp = socialPostRepository.findById(postId)
                 .orElseThrow(() -> new ResourceNotFoundException("SocialPost not found: " + postId));
-        return getCommentsBySocialPost(sp, beforeId, limit);
+        return getCommentsBySocialPost(sp, beforeId, limit, user);
     }
 
     // ── Read: top-level only ─────────────────────────────────────────────────
@@ -693,10 +716,10 @@ public class CommentService {
      * Top-level comments only for a SocialPost, cursor-paginated.
      */
     @Transactional(readOnly = true)
-    public PaginatedResponse<CommentDto> getTopLevelCommentsBySocialPostId(Long postId, Long beforeId, Integer limit) {
+    public PaginatedResponse<CommentDto> getTopLevelCommentsBySocialPostId(Long postId, Long beforeId, Integer limit, User user) {
         SocialPost sp = socialPostRepository.findById(postId)
                 .orElseThrow(() -> new ResourceNotFoundException("SocialPost not found: " + postId));
-        return getTopLevelCommentsBySocialPost(sp, beforeId, limit);
+        return getTopLevelCommentsBySocialPost(sp, beforeId, limit, user);
     }
 
     // ── Read: counts ─────────────────────────────────────────────────────────
@@ -715,10 +738,10 @@ public class CommentService {
      * Total comment count for a SocialPost.
      */
     @Transactional(readOnly = true)
-    public Long countCommentsBySocialPostId(Long postId) {
+    public Long countCommentsBySocialPostId(Long postId, User user) {
         SocialPost sp = socialPostRepository.findById(postId)
                 .orElseThrow(() -> new ResourceNotFoundException("SocialPost not found: " + postId));
-        return countCommentsBySocialPost(sp);
+        return countCommentsBySocialPost(sp, user);
     }
 
 }

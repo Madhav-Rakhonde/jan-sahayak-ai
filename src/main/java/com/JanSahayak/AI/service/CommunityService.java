@@ -79,8 +79,8 @@ public class CommunityService {
         }
 
         Community community = Community.builder()
-                .name(req.getName())
-                .description(req.getDescription())
+                .name(org.springframework.web.util.HtmlUtils.htmlEscape(req.getName()))
+                .description(req.getDescription() != null ? org.springframework.web.util.HtmlUtils.htmlEscape(req.getDescription()) : null)
                 .category(req.getCategory())
                 .tags(CommunityValidationUtil.normalizeTags(req.getTags()))
                 .privacy(privacy)
@@ -138,10 +138,10 @@ public class CommunityService {
             if (communityRepo.existsByName(req.getName())) {
                 throw new IllegalArgumentException("A community named '" + req.getName() + "' already exists.");
             }
-            community.setName(req.getName());
+            community.setName(org.springframework.web.util.HtmlUtils.htmlEscape(req.getName()));
         }
 
-        if (req.getDescription()         != null) community.setDescription(req.getDescription());
+        if (req.getDescription()         != null) community.setDescription(org.springframework.web.util.HtmlUtils.htmlEscape(req.getDescription()));
         if (req.getCategory()            != null) community.setCategory(req.getCategory());
         if (req.getTags()                != null) community.setTags(CommunityValidationUtil.normalizeTags(req.getTags()));
         if (req.getCoverImageUrl()       != null) community.setCoverImageUrl(req.getCoverImageUrl());
@@ -225,10 +225,12 @@ public class CommunityService {
             memberRepo.findByCommunityIdAndUserId(communityId, userId)
                 .ifPresentOrElse(
                     m -> {
+                        if (Boolean.TRUE.equals(m.getIsBanned())) {
+                            throw new ValidationException("You have been banned from this community.");
+                        }
                         // User was once a member, reactivate/reset them
                         m.setIsActive(true);
                         m.setMemberRole(CommunityMember.MemberRole.MEMBER);
-                        m.setIsBanned(false);
                         m.setJoinedAt(new Date());
                         memberRepo.save(m);
                     },
@@ -256,6 +258,12 @@ public class CommunityService {
             return Map.of("joined", true, "message", "Joined successfully.");
         } else {
             // PRIVATE community → create join request.
+            memberRepo.findByCommunityIdAndUserId(communityId, userId).ifPresent(m -> {
+                if (Boolean.TRUE.equals(m.getIsBanned())) {
+                    throw new ValidationException("You have been banned from this community.");
+                }
+            });
+
             // uk_join_request is a unique constraint on (community_id, user_id) with no
             // status column. Delete any stale row (APPROVED/REJECTED/CANCELLED) first so
             // a returning member (leave → rejoin) does not crash on duplicate key insert.
@@ -277,8 +285,11 @@ public class CommunityService {
         if (community.isOwnedBy(userId)) {
             throw new ValidationException("Owner cannot leave. Archive the community first.");
         }
-        memberRepo.findByCommunityIdAndUserId(communityId, userId)
+        CommunityMember m = memberRepo.findByCommunityIdAndUserId(communityId, userId)
                 .orElseThrow(() -> new ValidationException("You are not a member of this community."));
+        if (!Boolean.TRUE.equals(m.getIsActive())) {
+            throw new ValidationException("You have already left this community.");
+        }
         memberRepo.deactivateMember(communityId, userId);
         communityRepo.decrementMemberCount(communityId);
         // Remove the join request so uk_join_request does not block a future rejoin.
@@ -313,7 +324,6 @@ public class CommunityService {
                         // User was once a member, reactivate/reset them
                         m.setIsActive(true);
                         m.setMemberRole(CommunityMember.MemberRole.MEMBER);
-                        m.setIsBanned(false);
                         m.setJoinedAt(new Date()); // Optional: update join date to now
                         memberRepo.save(m);
                     },
@@ -405,9 +415,12 @@ public class CommunityService {
         assertModeratorOrAbove(community, requesterId);
         if (community.isOwnedBy(targetUserId)) throw new ValidationException("Cannot ban the community owner.");
         CommunityMember m = findMemberOrThrow(communityId, targetUserId);
+        boolean wasActive = Boolean.TRUE.equals(m.getIsActive());
         m.ban(req != null ? req.getReason() : null);
         memberRepo.save(m);
-        communityRepo.decrementMemberCount(communityId);
+        if (wasActive) {
+            communityRepo.decrementMemberCount(communityId);
+        }
     }
 
     public void unbanMember(Long communityId, Long targetUserId, Long requesterId) {
@@ -421,8 +434,11 @@ public class CommunityService {
         Community community = findCommunityOrThrow(communityId);
         assertModeratorOrAbove(community, requesterId);
         if (community.isOwnedBy(targetUserId)) throw new ValidationException("Cannot remove the community owner.");
-        memberRepo.deactivateMember(communityId, targetUserId);
-        communityRepo.decrementMemberCount(communityId);
+        CommunityMember m = findMemberOrThrow(communityId, targetUserId);
+        if (Boolean.TRUE.equals(m.getIsActive())) {
+            memberRepo.deactivateMember(communityId, targetUserId);
+            communityRepo.decrementMemberCount(communityId);
+        }
     }
 
     @Transactional(readOnly = true)

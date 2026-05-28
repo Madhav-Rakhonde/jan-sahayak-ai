@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import jakarta.validation.Valid;
 
 /**
  * Handles all chat operations:
@@ -307,6 +308,11 @@ public class ChatController {
             // Clamp timer to valid range (0–60 s)
             viewTimer = Math.max(0, Math.min(viewTimer, 60));
 
+            // Guard against large files BEFORE loading them into memory (50 MB limit)
+            if (file.getSize() > 50L * 1024 * 1024) {
+                throw new RuntimeException("Media payload exceeds 50 MB limit");
+            }
+
             ChatMessage msg = chatSessionService.addMediaMessage(
                     sessionId,
                     user.getId(),
@@ -388,7 +394,7 @@ public class ChatController {
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> callOffer(
             @PathVariable String sessionId,
-            @RequestBody CallOfferRequest req,
+            @Valid @RequestBody CallOfferRequest req,
             @AuthenticationPrincipal User user) {
         try {
             WebRtcSignalingService.CallType callType =
@@ -416,7 +422,7 @@ public class ChatController {
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> callAnswer(
             @PathVariable String sessionId,
-            @RequestBody SdpRequest req,
+            @Valid @RequestBody SdpRequest req,
             @AuthenticationPrincipal User user) {
         try {
             webRtcSignalingService.acceptCall(sessionId, user.getId(), req.getSdp());
@@ -439,7 +445,7 @@ public class ChatController {
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> iceCandidate(
             @PathVariable String sessionId,
-            @RequestBody IceRequest req,
+            @Valid @RequestBody IceRequest req,
             @AuthenticationPrincipal User user) {
         try {
             webRtcSignalingService.relayIceCandidate(sessionId, user.getId(), req.getCandidate());
@@ -562,20 +568,24 @@ public class ChatController {
     @lombok.Data
     public static class CallOfferRequest {
         /** "VOICE" or "VIDEO" */
+        @jakarta.validation.constraints.NotBlank(message = "Call type is required")
         private String callType;
         /** SDP offer JSON from RTCPeerConnection */
+        @jakarta.validation.constraints.NotBlank(message = "SDP is required")
         private String sdp;
     }
 
     @lombok.Data
     public static class SdpRequest {
         /** SDP answer JSON from RTCPeerConnection */
+        @jakarta.validation.constraints.NotBlank(message = "SDP is required")
         private String sdp;
     }
 
     @lombok.Data
     public static class IceRequest {
         /** RTCIceCandidate JSON string */
+        @jakarta.validation.constraints.NotBlank(message = "ICE candidate is required")
         private String candidate;
     }
 }

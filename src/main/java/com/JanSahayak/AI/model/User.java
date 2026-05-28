@@ -49,6 +49,7 @@ public class User implements UserDetails {
 
     @Column(nullable = false, length = 255)
     @Size(min = 8, message = "Password must be at least 8 characters long")
+    @JsonIgnore
     private String password;
 
     @Column(length = 100, nullable = false, unique = true)
@@ -77,6 +78,7 @@ public class User implements UserDetails {
 
     @Column(name = "pincode", length = 6)
     @Size(min = 6, max = 6, message = "Pincode must be exactly 6 digits")
+    @jakarta.validation.constraints.Pattern(regexp = "^\\d{6}$", message = "Pincode must be exactly 6 digits")
     private String pincode;
 
     @Column(name = "has_invalid_pincode", columnDefinition = "boolean")
@@ -107,10 +109,12 @@ public class User implements UserDetails {
     }
 
     @Column(name = "email_verification_token", length = 100)
+    @JsonIgnore
     private String emailVerificationToken;
 
     @Column(name = "email_verification_token_expiry")
     @Temporal(TemporalType.TIMESTAMP)
+    @JsonIgnore
     private Date emailVerificationTokenExpiry;
 
     /**
@@ -147,7 +151,7 @@ public class User implements UserDetails {
     @JsonIgnore
     private User createdBy;
 
-    @OneToMany(mappedBy = "createdBy", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "createdBy", fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @Builder.Default
     @JsonIgnore
     private List<User> createdUsers = new ArrayList<>();
@@ -239,7 +243,7 @@ public class User implements UserDetails {
         if (role == null || role.getName() == null) {
             return false;
         }
-        return "ROLE_USER".equals(role.getName().toLowerCase());
+        return "ROLE_USER".equalsIgnoreCase(role.getName());
     }
 
     public boolean canCreateBroadcast() {

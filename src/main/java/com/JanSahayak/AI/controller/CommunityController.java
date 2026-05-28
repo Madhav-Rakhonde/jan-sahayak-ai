@@ -232,7 +232,7 @@ public class CommunityController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Map<String, Object>>> join(
             @PathVariable Long id,
-            @RequestBody(required = false) JoinCommunityRequest req,
+            @Valid @RequestBody(required = false) JoinCommunityRequest req,
             @AuthenticationPrincipal User currentUser) {
         Map<String, Object> result = communityService.joinCommunity(id, currentUser.getId(), req);
         return ResponseEntity.ok(ApiResponse.success((String) result.get("message"), result));
@@ -267,7 +267,7 @@ public class CommunityController {
     public ResponseEntity<ApiResponse<JoinRequestResponse>> reviewJoinRequest(
             @PathVariable Long communityId,
             @PathVariable Long requestId,
-            @RequestBody ReviewJoinRequest req,
+            @Valid @RequestBody ReviewJoinRequest req,
             @AuthenticationPrincipal User currentUser) {
         return ResponseEntity.ok(ApiResponse.success("Request reviewed.",
                 communityService.reviewJoinRequest(communityId, requestId, currentUser.getId(), req)));
@@ -310,7 +310,7 @@ public class CommunityController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<CommunityMemberResponse>> updateRole(
             @PathVariable Long communityId, @PathVariable Long userId,
-            @RequestBody UpdateMemberRoleRequest req,
+            @Valid @RequestBody UpdateMemberRoleRequest req,
             @AuthenticationPrincipal User currentUser) {
         return ResponseEntity.ok(ApiResponse.success("Role updated.",
                 communityService.updateMemberRole(communityId, userId, currentUser.getId(), req)));
@@ -338,7 +338,7 @@ public class CommunityController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Void>> ban(
             @PathVariable Long communityId, @PathVariable Long userId,
-            @RequestBody(required = false) BanMemberRequest req,
+            @Valid @RequestBody(required = false) BanMemberRequest req,
             @AuthenticationPrincipal User currentUser) {
         communityService.banMember(communityId, userId, currentUser.getId(), req);
         return ResponseEntity.ok(ApiResponse.success("Member banned.", null));
@@ -379,7 +379,7 @@ public class CommunityController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<InviteResponse>> sendInvite(
             @PathVariable Long id,
-            @RequestBody(required = false) SendInviteRequest req,
+            @Valid @RequestBody(required = false) SendInviteRequest req,
             @AuthenticationPrincipal User currentUser) {
 
         // req can be null if admin just wants a blank shareable link

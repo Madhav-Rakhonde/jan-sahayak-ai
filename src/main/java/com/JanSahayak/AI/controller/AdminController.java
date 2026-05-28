@@ -188,9 +188,8 @@ public class AdminController {
             User user = userOpt.get();
             String username = user.getUsername();
 
-            // Soft-delete: deactivate the account
-            user.setIsActive(false);
-            userRepository.save(user);
+            // Delegate to UserService to handle cleanup and state change
+            userService.deactivateUser(userId, admin);
 
             log.info("Admin {} deleted (deactivated) user: {} (ID: {})", admin.getUsername(), username, userId);
 

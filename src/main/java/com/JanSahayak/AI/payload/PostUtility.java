@@ -793,16 +793,23 @@ public class PostUtility {
 
     public static void validateFileContent(MultipartFile file, String extension) {
         try {
-            // Get the file bytes directly instead of using InputStream
-            byte[] fileBytes = file.getBytes();
-
-            if (fileBytes.length == 0) {
-                throw new MediaValidationException("File is empty");
+            // Read first 512 bytes directly from InputStream to avoid loading entire file into memory
+            int maxHeaderSize = 512;
+            byte[] header = new byte[maxHeaderSize];
+            int bytesRead;
+            
+            try (java.io.InputStream is = file.getInputStream()) {
+                bytesRead = is.read(header, 0, maxHeaderSize);
             }
 
-            // Read first 512 bytes or entire file if smaller
-            int headerSize = Math.min(512, fileBytes.length);
-            byte[] header = Arrays.copyOf(fileBytes, headerSize);
+            if (bytesRead <= 0) {
+                throw new MediaValidationException("File is empty");
+            }
+            
+            // Trim the array if we read fewer bytes than maxHeaderSize
+            if (bytesRead < maxHeaderSize) {
+                header = Arrays.copyOf(header, bytesRead);
+            }
 
             String hexHeader = bytesToHex(header).toUpperCase();
 
@@ -894,10 +901,10 @@ public class PostUtility {
             throw new MediaValidationException("Invalid video content type: " + contentType);
         }
 
-        if (extension.equals(".mp4") && !contentType.equals("video/mp4")) {
+        if (".mp4".equals(extension) && !"video/mp4".equals(contentType)) {
             log.warn("Content type mismatch for MP4 file: {} (type: {})", file.getOriginalFilename(), contentType);
         }
-        if (extension.equals(".mov") && !contentType.contains("quicktime") && !contentType.contains("mov")) {
+        if (".mov".equals(extension) && contentType != null && !contentType.contains("quicktime") && !contentType.contains("mov")) {
             log.warn("Content type mismatch for MOV file: {} (type: {})", file.getOriginalFilename(), contentType);
         }
 
@@ -1250,5 +1257,16 @@ public class PostUtility {
                 post.isEligibleForDisplay() &&
                 post.getUser() != null &&
                 Boolean.TRUE.equals(post.getUser().getIsActive());
+    }
+
+    /**
+     * Sanitizes input strings intended to be used in SQL LIKE clauses.
+     * Escapes '%', '_', and '\' to prevent wildcard injection (DoS).
+     */
+    public static String sanitizeSqlLike(String input) {
+        if (input == null) return null;
+        return input.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
     }
 }

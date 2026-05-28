@@ -208,28 +208,28 @@ public class SocialPost {
     // ENGAGEMENT METRICS (denormalized for performance)
     // =========================================================================
 
-    @Column(name = "like_count", nullable = false)
+    @Column(name = "like_count", nullable = false, updatable = false)
     @Builder.Default
     private Integer likeCount = 0;
 
-    @Column(name = "comment_count", nullable = false)
+    @Column(name = "comment_count", nullable = false, updatable = false)
     @Builder.Default
     private Integer commentCount = 0;
 
-    @Column(name = "share_count", nullable = false)
+    @Column(name = "share_count", nullable = false, updatable = false)
     @Builder.Default
     private Integer shareCount = 0;
 
-    @Column(name = "save_count", nullable = false)
+    @Column(name = "save_count", nullable = false, updatable = false)
     @Builder.Default
     private Integer saveCount = 0;
 
-    @Column(name = "view_count", nullable = false)
+    @Column(name = "view_count", nullable = false, updatable = false)
     @Builder.Default
     private Integer viewCount = 0;
 
     // DB migration: ALTER TABLE social_posts ADD COLUMN dislike_count INT NOT NULL DEFAULT 0;
-    @Column(name = "dislike_count", nullable = false)
+    @Column(name = "dislike_count", nullable = false, updatable = false)
     @Builder.Default
     private Integer dislikeCount = 0;
 
@@ -728,7 +728,7 @@ public class SocialPost {
             this.viralTier = "LOCAL";          this.expansionLevel = 0; this.isViral = false;
         }
 
-        if ("LOCAL".equals(this.viralTier) && !previousTier.equals("LOCAL")) {
+        if ("LOCAL".equals(this.viralTier) && !"LOCAL".equals(previousTier)) {
             this.viralReachedAt = null;
         }
 

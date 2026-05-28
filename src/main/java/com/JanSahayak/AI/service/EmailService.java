@@ -62,6 +62,7 @@ public class EmailService {
     }
 
     private String buildHtmlTemplate(String username, String verificationUrl) {
+        String safeUsername = org.springframework.web.util.HtmlUtils.htmlEscape(username != null ? username : "");
         return "<!DOCTYPE html>"
                 + "<html>"
                 + "<head>"
@@ -85,7 +86,7 @@ public class EmailService {
                 + "      <h1>Govlyx Portal</h1>"
                 + "    </div>"
                 + "    <div class='content'>"
-                + "      <h2>Welcome, " + username + "!</h2>"
+                + "      <h2>Welcome, " + safeUsername + "!</h2>"
                 + "      <p>Thank you for joining Govlyx. To complete your registration and activate your account, please verify your email address by clicking the button below:</p>"
                 + "      <div class='btn-container'>"
                 + "        <a href='" + verificationUrl + "' class='btn'>Verify Email Address</a>"

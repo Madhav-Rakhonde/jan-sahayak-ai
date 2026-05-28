@@ -14,6 +14,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 @RestController
 @RequestMapping("/api/reports")
@@ -28,14 +31,22 @@ public class ContentReportController {
     // ─────────────────────────────────────────────────────────────────────────
 
     public static class ReportRequest {
+        @NotBlank(message = "Target type is required")
         public String targetType;   // SOCIAL_POST | POST | COMMENT
+        
+        @NotNull(message = "Target ID is required")
         public Long   targetId;
+        
+        @NotBlank(message = "Category is required")
         public String category;     // enum name e.g. "HARASSMENT"
+        
         public String description;  // optional free-text
     }
 
     public static class ResolveRequest {
+        @NotBlank(message = "Resolution status is required")
         public String resolution;   // RESOLVED_REMOVED | RESOLVED_DISMISSED
+        
         public String notes;
     }
 
@@ -44,7 +55,7 @@ public class ContentReportController {
     // ─────────────────────────────────────────────────────────────────────────
 
     @PostMapping
-    public ResponseEntity<ApiResponse<String>> fileReport(@RequestBody ReportRequest req) {
+    public ResponseEntity<ApiResponse<String>> fileReport(@Valid @RequestBody ReportRequest req) {
         try {
             ReportCategory category = ReportCategory.valueOf(req.category.toUpperCase());
             ContentReport report = reportService.fileReport(
@@ -126,7 +137,7 @@ public class ContentReportController {
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<String>> resolveReport(
             @PathVariable Long id,
-            @RequestBody ResolveRequest req) {
+            @Valid @RequestBody ResolveRequest req) {
         try {
             reportService.resolveReport(id, req.resolution, req.notes);
             return ResponseEntity.ok(ApiResponse.success("Report resolved successfully."));

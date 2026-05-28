@@ -202,14 +202,14 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // =========================================================================
 
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
-            "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
+            "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
             "ORDER BY u.username ASC")
     List<User> searchUsersForTagging(
             @Param("query") String query,
             Pageable pageable);
 
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
-            "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
+            "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
             "AND u.id < :beforeId " +
             "ORDER BY u.username ASC")
     List<User> searchUsersForTaggingWithCursor(
@@ -231,12 +231,12 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // =========================================================================
 
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
-            "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
+            "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
             "ORDER BY u.username ASC")
     List<User> searchByUsername(@Param("query") String query, Pageable pageable);
 
     @Query("SELECT u FROM User u WHERE u.isActive = true " +
-            "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
+            "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
             "AND u.id < :beforeId ORDER BY u.username ASC")
     List<User> searchByUsernameWithCursor(
             @Param("query") String query,
@@ -251,8 +251,8 @@ public interface UserRepo extends JpaRepository<User, Long> {
             "WHERE r.name = :role " +
             "AND u.isActive = true " +
             "AND u.id < :cursor " +
-            "AND (LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) " +
-            "     OR LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%'))) " +
+            "AND (LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
+            "     OR LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\') " +
             "ORDER BY u.id DESC")
     List<User> searchUsersByRoleAndQueryWithCursor(
             @Param("role") String role,
