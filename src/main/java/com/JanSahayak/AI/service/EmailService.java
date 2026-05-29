@@ -1,63 +1,77 @@
 package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.model.User;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
-import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 @Slf4j
 public class EmailService {
 
-    @Autowired(required = false)
-    private JavaMailSender mailSender;
-
     @Value("${app.frontend.base-url:http://localhost:5173}")
     private String frontendBaseUrl;
 
-    @Value("${spring.mail.username:}")
+    @Value("${spring.mail.username:govlyx.official@gmail.com}")
     private String fromEmail;
+
+    @Value("${brevo.api.key}")
+    private String brevoApiKey;
+
+    private final RestTemplate restTemplate = new RestTemplate();
+    private static final String BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 
     @Async
     public void sendVerificationEmail(User user, String token) {
         String verificationUrl = frontendBaseUrl + "/verify-email?token=" + token;
-        log.info("Preparing to send email verification link to {}: {}", user.getEmail(), verificationUrl);
-
-        if (mailSender == null || fromEmail == null || fromEmail.trim().isEmpty()) {
-            log.warn("==========================================================================");
-            log.warn("⚠️ SMTP IS NOT FULLY CONFIGURABLE OR EMAIL SENDER USERNAME IS EMPTY.");
-            log.warn("--- DEVELOPMENT EMAIL VERIFICATION LINK FOR {} ---", user.getEmail());
-            log.warn("LINK: {}", verificationUrl);
-            log.warn("==========================================================================");
-            return;
-        }
+        log.info("Preparing to send email verification link via Brevo to {}: {}", user.getEmail(), verificationUrl);
 
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, MimeMessageHelper.MULTIPART_MODE_MIXED_RELATED, StandardCharsets.UTF_8.name());
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("api-key", brevoApiKey);
+            headers.set("accept", "application/json");
 
-            helper.setFrom(fromEmail);
-            helper.setTo(user.getEmail());
-            helper.setSubject("Verify your Govlyx Account");
+            Map<String, Object> sender = new HashMap<>();
+            sender.put("name", "Govlyx Portal");
+            sender.put("email", fromEmail);
+
+            Map<String, Object> to = new HashMap<>();
+            to.put("email", user.getEmail());
+            if (user.getActualUsername() != null && !user.getActualUsername().trim().isEmpty()) {
+                to.put("name", user.getActualUsername());
+            }
 
             String htmlContent = buildHtmlTemplate(user.getActualUsername(), verificationUrl);
-            helper.setText(htmlContent, true);
 
-            mailSender.send(message);
-            log.info("Verification email successfully sent to {}", user.getEmail());
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("sender", sender);
+            requestBody.put("to", List.of(to));
+            requestBody.put("subject", "Verify your Govlyx Account");
+            requestBody.put("htmlContent", htmlContent);
 
-        } catch (MessagingException e) {
-            log.error("Failed to send verification email to {}: {}", user.getEmail(), e.getMessage(), e);
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(BREVO_API_URL, request, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.info("Verification email successfully sent to {} via Brevo API", user.getEmail());
+            } else {
+                log.error("Failed to send verification email. Brevo API response: {}", response.getBody());
+            }
+
         } catch (Exception e) {
-            log.error("Unexpected error while sending verification email to {}: {}", user.getEmail(), e.getMessage(), e);
+            log.error("Unexpected error while sending verification email via Brevo to {}: {}", user.getEmail(), e.getMessage(), e);
         }
     }
 
