@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -23,6 +26,7 @@ import java.util.Date;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class PostShare {
 
     @Id
@@ -94,7 +98,9 @@ public class PostShare {
 
     // ===== Helper Methods =====
 
+    @JsonIgnore
     public boolean isSocialPostShare() { return socialPost != null; }
+    @JsonIgnore
     public boolean isIssuePostShare()  { return post       != null; }
 
     public Long getPostId()       { return post       != null ? post.getId()       : null; }
@@ -127,5 +133,23 @@ public class PostShare {
     public String toString() {
         return String.format("PostShare{id=%d, postId=%s, socialPostId=%s, userId=%d, type=%s}",
                 id, getPostId(), getSocialPostId(), getUserId(), shareType);
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PostShare)) return false;
+        PostShare other = (PostShare) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

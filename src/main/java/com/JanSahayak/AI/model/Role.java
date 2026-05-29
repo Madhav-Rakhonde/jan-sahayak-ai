@@ -1,6 +1,9 @@
 package com.JanSahayak.AI.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -13,6 +16,7 @@ import java.util.Set;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Role {
 
     @Id
@@ -46,15 +50,36 @@ public class Role {
                 name.substring(5) : name;
     }
 
+    @JsonIgnore
     public boolean isAdminRole() {
         return "ROLE_ADMIN".equals(name);
     }
 
+    @JsonIgnore
     public boolean isUserRole() {
         return "ROLE_USER".equals(name);
     }
 
+    @JsonIgnore
     public int getUserCount() {
         return users != null ? users.size() : 0;
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Role)) return false;
+        Role other = (Role) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

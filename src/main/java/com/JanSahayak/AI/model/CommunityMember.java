@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.*;
 import java.util.Date;
@@ -15,6 +18,7 @@ import java.util.Date;
                 @Index(name = "idx_cm_joined",    columnList = "joined_at")
         })
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class CommunityMember {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -45,7 +49,9 @@ public class CommunityMember {
 
     public enum MemberRole { MEMBER, MODERATOR, ADMIN }
 
+    @JsonIgnore
     public boolean isAdmin()     { return MemberRole.ADMIN.equals(memberRole); }
+    @JsonIgnore
     public boolean isModerator() { return MemberRole.MODERATOR.equals(memberRole); }
 
     public boolean canModerate() {
@@ -66,4 +72,22 @@ public class CommunityMember {
 
     @PrePersist
     private void prePersist() { if (joinedAt == null) joinedAt = new Date(); }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof CommunityMember)) return false;
+        CommunityMember other = (CommunityMember) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
+    }
 }

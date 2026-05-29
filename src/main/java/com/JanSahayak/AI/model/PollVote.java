@@ -1,6 +1,9 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.*;
 
 import java.util.Date;
@@ -25,6 +28,7 @@ import java.util.Date;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class PollVote {
 
     @Id
@@ -61,4 +65,22 @@ public class PollVote {
     public Long getPollId()       { return poll       != null ? poll.getId()       : null; }
     public Long getUserId()       { return user       != null ? user.getId()       : null; }
     public Long getPollOptionId() { return pollOption != null ? pollOption.getId() : null; }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PollVote)) return false;
+        PollVote other = (PollVote) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
+    }
 }

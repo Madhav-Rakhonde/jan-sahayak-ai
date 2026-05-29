@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -27,6 +30,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Poll {
 
     @Id
@@ -57,6 +61,7 @@ public class Poll {
     @OneToMany(mappedBy = "poll", cascade = CascadeType.ALL,
             orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
+    @JsonIgnore
     private List<PollOption> options = new ArrayList<>();
 
     // ===== Settings =====
@@ -103,10 +108,17 @@ public class Poll {
 
     // ===== Helper Methods =====
 
+    @JsonIgnore
     public boolean isExpired() {
         return expiresAt != null && new Date().after(expiresAt);
     }
 
+    @JsonIgnore
+    public boolean isValid() {
+        return options != null && options.size() >= 2 && options.size() <= 4;
+    }
+
+    @JsonIgnore
     public boolean isOpenForVoting() {
         return Boolean.TRUE.equals(isActive) && !isExpired();
     }
@@ -141,5 +153,23 @@ public class Poll {
     @PreUpdate
     private void preUpdate() {
         this.updatedAt = new Date();
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Poll)) return false;
+        Poll other = (Poll) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

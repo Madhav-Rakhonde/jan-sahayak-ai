@@ -11,11 +11,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.JanSahayak.AI.payload.request.CreatePollRequest;  // specific
 import com.JanSahayak.AI.payload.request.PollResponse;      // correct package
 
 @RestController
 @RequestMapping("/api/polls")
+@PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
 @RequiredArgsConstructor
 public class PollController {
 

@@ -1,6 +1,9 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.*;
 
 import java.util.ArrayList;
@@ -21,6 +24,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class PollOption {
 
     @Id
@@ -37,6 +41,7 @@ public class PollOption {
     @OneToMany(mappedBy = "pollOption", cascade = CascadeType.ALL,
             orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
+    @JsonIgnore
     private List<PollVote> votes = new ArrayList<>();
 
     // ===== Content =====
@@ -82,5 +87,23 @@ public class PollOption {
     public double getVotePercentage(int totalPollVotes) {
         if (totalPollVotes <= 0 || voteCount == null || voteCount == 0) return 0.0;
         return Math.round(((double) voteCount / totalPollVotes) * 1000.0) / 10.0;
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PollOption)) return false;
+        PollOption other = (PollOption) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

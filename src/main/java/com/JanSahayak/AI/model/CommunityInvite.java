@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -34,6 +37,7 @@ import java.util.UUID;
         }
 )
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class CommunityInvite {
 
     @Id
@@ -131,10 +135,12 @@ public class CommunityInvite {
 
     // ── Business helpers ─────────────────────────────────────────────────────
 
+    @JsonIgnore
     public boolean isPending() {
         return InviteStatus.PENDING.equals(status);
     }
 
+    @JsonIgnore
     public boolean isExpired() {
         return expiresAt != null && new Date().after(expiresAt);
     }
@@ -185,5 +191,23 @@ public class CommunityInvite {
             // Default: 7 days
             expiresAt = new Date(System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000);
         }
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof CommunityInvite)) return false;
+        CommunityInvite other = (CommunityInvite) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

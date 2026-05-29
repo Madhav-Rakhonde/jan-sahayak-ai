@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -71,6 +74,7 @@ import java.util.Date;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class SavedPost {
 
     @Id
@@ -117,7 +121,9 @@ public class SavedPost {
     public Long getSocialPostId() { return socialPost != null ? socialPost.getId() : null; }
     public Long getPostId()       { return post       != null ? post.getId()       : null; }
 
+    @JsonIgnore
     public boolean isSocialPostSave()    { return socialPost != null; }
+    @JsonIgnore
     public boolean isBroadcastPostSave() { return post != null; }
 
     // ===== Lifecycle Validation =====
@@ -152,5 +158,23 @@ public class SavedPost {
         }
         return String.format("SavedPost{id=%d, userId=%d, broadcastPostId=%d}",
                 id, getUserId(), getPostId());
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof SavedPost)) return false;
+        SavedPost other = (SavedPost) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

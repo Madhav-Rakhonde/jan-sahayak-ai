@@ -44,7 +44,7 @@ public class NotificationService {
      * Send notification when someone likes a post
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyPostLiked(Post post, User likedBy) {
         try {
             if (post == null || post.getUser() == null || likedBy == null) {
@@ -90,7 +90,7 @@ public class NotificationService {
      * Send notification when someone likes a social post
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifySocialPostLiked(SocialPost socialPost, User likedBy) {
         try {
             if (socialPost == null || socialPost.getUser() == null || likedBy == null) {
@@ -135,7 +135,7 @@ public class NotificationService {
      * Send notification when someone comments on a post
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyPostCommented(Post post, Comment comment, User commentedBy) {
         try {
             if (post == null || post.getUser() == null || commentedBy == null) {
@@ -182,7 +182,7 @@ public class NotificationService {
      * Send notification when someone comments on a social post
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifySocialPostCommented(SocialPost socialPost, Comment comment, User commentedBy) {
         try {
             if (socialPost == null || socialPost.getUser() == null || commentedBy == null) {
@@ -229,7 +229,7 @@ public class NotificationService {
      * Send notification when someone replies to a comment
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyCommentReplied(Comment originalComment, Comment reply, User repliedBy) {
         try {
             if (originalComment == null || originalComment.getUser() == null || repliedBy == null) {
@@ -291,7 +291,7 @@ public class NotificationService {
      * Send notification when user is tagged in a post
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyUserTagged(Post post, User taggedUser, User taggedBy) {
         try {
             if (post == null || taggedUser == null || taggedBy == null) {
@@ -336,7 +336,7 @@ public class NotificationService {
      * Send notifications to multiple tagged users
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyMultipleUsersTagged(Post post, List<User> taggedUsers, User taggedBy) {
         try {
             if (post == null || taggedUsers == null || taggedUsers.isEmpty() || taggedBy == null) {
@@ -360,7 +360,7 @@ public class NotificationService {
      * Send notification when post is resolved
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyPostResolved(Post post, User resolvedBy) {
         try {
             if (post == null || post.getUser() == null) {
@@ -403,7 +403,7 @@ public class NotificationService {
      * Send broadcast notification to multiple users based on location
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyBroadcast(Post broadcastPost, List<User> targetUsers) {
         try {
             if (broadcastPost == null || targetUsers == null || targetUsers.isEmpty()) {
@@ -475,7 +475,7 @@ public class NotificationService {
      * Send system announcement to user
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void sendSystemAnnouncement(User user, String title, String message) {
         try {
             if (user == null) {
@@ -507,7 +507,7 @@ public class NotificationService {
      * Send system announcement to multiple users
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void sendSystemAnnouncementToUsers(List<User> users, String title, String message) {
         try {
             if (users == null || users.isEmpty()) {
@@ -552,7 +552,7 @@ public class NotificationService {
      * Send account update notification
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyAccountUpdate(User user, String updateMessage) {
         try {
             if (user == null) {
@@ -586,7 +586,7 @@ public class NotificationService {
      * Send department message to user
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void sendDepartmentMessage(User user, String departmentName, String message, User sentBy) {
         try {
             if (user == null) {
@@ -622,7 +622,7 @@ public class NotificationService {
      * Notify post requires attention from authorities
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyPostAttentionRequired(Post post, User notifyUser, String reason) {
         try {
             if (post == null || notifyUser == null) {
@@ -662,7 +662,7 @@ public class NotificationService {
      * Called by CommunityInviteService after a targeted (username) invite is created.
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyCommunityInvite(com.JanSahayak.AI.model.CommunityInvite invite) {
 
         if (invite == null || invite.getInvitee() == null || invite.getCommunity() == null) {
@@ -715,7 +715,7 @@ public class NotificationService {
      * Send notification to community members when a new post is created.
      */
     @Async
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void notifyCommunityNewPost(SocialPost socialPost, List<Long> targetUserIds, String communityName) {
         try {
             if (socialPost == null || socialPost.getUser() == null || targetUserIds == null || targetUserIds.isEmpty()) {

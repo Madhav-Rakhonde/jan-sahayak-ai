@@ -42,7 +42,7 @@ public class ContentReportService {
 
     // ── File a report ─────────────────────────────────────────────────────────
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ContentReport fileReport(String targetType, Long targetId,
                                     ReportCategory category, String description) {
 
@@ -110,7 +110,7 @@ public class ContentReportService {
 
     // ── Admin: resolve / dismiss ──────────────────────────────────────────────
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ContentReport resolveReport(Long reportId, String resolution, String notes) {
         User admin = currentUser();
         ContentReport report = reportRepo.findById(reportId)

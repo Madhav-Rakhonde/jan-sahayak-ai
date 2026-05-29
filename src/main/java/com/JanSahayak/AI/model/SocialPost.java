@@ -1,6 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.JanSahayak.AI.config.Constant;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
@@ -41,6 +43,7 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 @Builder
 @Slf4j
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class SocialPost {
 
     @Id
@@ -61,6 +64,7 @@ public class SocialPost {
 
     @Column(name = "media_count", nullable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer mediaCount = 0;
 
     // =========================================================================
@@ -202,6 +206,7 @@ public class SocialPost {
 
     @Column(name = "hashtag_count", nullable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer hashtagCount = 0;
 
     // =========================================================================
@@ -210,27 +215,33 @@ public class SocialPost {
 
     @Column(name = "like_count", nullable = false, updatable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer likeCount = 0;
 
     @Column(name = "comment_count", nullable = false, updatable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer commentCount = 0;
 
     @Column(name = "share_count", nullable = false, updatable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer shareCount = 0;
 
     @Column(name = "save_count", nullable = false, updatable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer saveCount = 0;
 
     @Column(name = "view_count", nullable = false, updatable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer viewCount = 0;
 
     // DB migration: ALTER TABLE social_posts ADD COLUMN dislike_count INT NOT NULL DEFAULT 0;
     @Column(name = "dislike_count", nullable = false, updatable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer dislikeCount = 0;
 
     // =========================================================================
@@ -239,14 +250,17 @@ public class SocialPost {
 
     @Column(name = "engagement_score", nullable = false, columnDefinition = "numeric(10,4) DEFAULT 0.0000")
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Double engagementScore = 0.0;
 
     @Column(name = "virality_score", nullable = false, columnDefinition = "numeric(10,4) DEFAULT 0.0000")
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Double viralityScore = 0.0;
 
     @Column(name = "quality_score", nullable = false, columnDefinition = "numeric(10,4) DEFAULT 100.0000")
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Double qualityScore = 100.0;
 
     // =========================================================================
@@ -255,6 +269,7 @@ public class SocialPost {
 
     @Column(name = "is_viral", nullable = false, columnDefinition = "boolean")
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Boolean isViral = false;
 
     @Column(name = "viral_reached_at")
@@ -292,10 +307,12 @@ public class SocialPost {
 
     @Column(name = "report_count", nullable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer reportCount = 0;
 
     @Column(name = "is_flagged", nullable = false, columnDefinition = "boolean")
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Boolean isFlagged = false;
 
     @Column(name = "flagged_at")
@@ -314,6 +331,7 @@ public class SocialPost {
 
     @Column(name = "mention_count", nullable = false)
     @Builder.Default
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Integer mentionCount = 0;
 
     // =========================================================================
@@ -331,18 +349,22 @@ public class SocialPost {
 
     @OneToMany(mappedBy = "socialPost", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     @Builder.Default
+    @JsonIgnore
     private List<PostLike> likes = new ArrayList<>();
 
     @OneToMany(mappedBy = "socialPost", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     @Builder.Default
+    @JsonIgnore
     private List<PostView> views = new ArrayList<>();
 
     @OneToMany(mappedBy = "socialPost", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     @Builder.Default
+    @JsonIgnore
     private List<SavedPost> savedByUsers = new ArrayList<>();
 
     @OneToMany(mappedBy = "socialPost", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     @Builder.Default
+    @JsonIgnore
     private List<PostShare> shares = new ArrayList<>();
 
     /**
@@ -380,6 +402,7 @@ public class SocialPost {
      * True when the post is written in a language other than English.
      * Used by HLIGScorer to decide whether the language multiplier matters.
      */
+    @JsonIgnore
     public boolean isNonEnglish() {
         return !"en".equals(safeLanguage());
     }
@@ -388,6 +411,7 @@ public class SocialPost {
      * True when the post contains content in multiple languages.
      * "mixed" posts get a 1.3× language boost (universally accessible).
      */
+    @JsonIgnore
     public boolean isMixedLanguage() {
         return "mixed".equals(safeLanguage());
     }
@@ -432,7 +456,7 @@ public class SocialPost {
         return community != null ? community.getId() : null;
     }
 
-    /** true if this post was created inside a community. */
+    @JsonIgnore
     public boolean isCommunityPost() {
         return community != null;
     }
@@ -450,6 +474,7 @@ public class SocialPost {
      * is enforced at the QUERY level in SocialPostRepo — not here — because it
      * varies based on the requesting user's location.
      */
+    @JsonIgnore
     public boolean isCommunityFeedEligible() {
         return isCommunityPost()
                 && "PUBLIC".equals(communityPrivacy)
@@ -784,6 +809,7 @@ public class SocialPost {
     // VALIDATION
     // =========================================================================
 
+    @JsonIgnore
     public boolean isEligibleForDisplay() {
         if (status != PostStatus.ACTIVE) return false;
         if (Boolean.TRUE.equals(isFlagged)) return false;
@@ -801,12 +827,14 @@ public class SocialPost {
         return Boolean.TRUE.equals(user.getIsActive());
     }
 
+    @JsonIgnore
     public boolean isEligibleForRecommendation() {
         double quality = (this.qualityScore != null ? this.qualityScore : 0.0);
         int    reports = (this.reportCount  != null ? this.reportCount  : 0);
         return isEligibleForDisplay() && quality >= 50.0 && reports < 5;
     }
 
+    @JsonIgnore
     public boolean isTrendingPost() {
         return Boolean.TRUE.equals(this.isViral) && this.expansionLevel != null && this.expansionLevel >= 1;
     }
@@ -870,6 +898,7 @@ public class SocialPost {
         return (System.currentTimeMillis() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
     }
 
+    @JsonIgnore
     public boolean isRecentPost() {
         return getAgeInHours() <= 24;
     }
@@ -926,5 +955,23 @@ public class SocialPost {
         recalculateEngagementScore();
         applyFreshnessDecay();
         recalculateViralityScore();
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof SocialPost)) return false;
+        SocialPost other = (SocialPost) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

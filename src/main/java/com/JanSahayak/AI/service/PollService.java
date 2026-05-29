@@ -35,7 +35,7 @@ public class PollService {
     private CommunityService communityService;
 
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public PollResponse createPollPost(CreatePollRequest req, User creator) {
 
         validatePollRequest(req);
@@ -73,7 +73,7 @@ public class PollService {
     }
 
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public PollResponse vote(Long pollId, List<Long> optionIds, User voter) {
         Poll poll = pollRepository.findByIdWithOptions(pollId)
                 .orElseThrow(() -> new RuntimeException("Poll not found: " + pollId));
@@ -155,7 +155,7 @@ public class PollService {
         return getPollResponse(poll.getId(), requestingUser);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void closePoll(Long pollId, User requestingUser) {
         Poll poll = pollRepository.findById(pollId)
                 .orElseThrow(() -> new RuntimeException("Poll not found: " + pollId));

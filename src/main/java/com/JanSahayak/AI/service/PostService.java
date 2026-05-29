@@ -299,6 +299,26 @@ public class PostService {
     // BROADCAST QUERIES
     // =========================================================================
 
+    public PaginatedResponse<Post> getPostsByUser(Long userId, Long beforeId, Integer limit) {
+        try {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id " + userId));
+            PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsByUser", beforeId, limit);
+            
+            // findUserPostsFast is optimal for this
+            List<Post> posts = postRepository.findUserPostsFast(userId, setup.getSanitizedCursor(), setup.toPageable().getPageSize());
+            
+            PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
+            PaginationUtils.logPaginationResults("getPostsByUser", posts, response.isHasMore(), response.getNextCursor());
+            return response;
+        } catch (ResourceNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to get posts for user: {}", userId, e);
+            return PaginationUtils.handlePaginationError("getPostsByUser", e, PaginationUtils.validateLimit(limit));
+        }
+    }
+
     public PaginatedResponse<Post> getAllBroadcastPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllBroadcastPosts", beforeId, limit);

@@ -1,6 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.JanSahayak.AI.enums.PostStatus;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.JanSahayak.AI.enums.BroadcastScope;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
@@ -37,6 +39,7 @@ import java.util.stream.Collectors;
 @Getter
 @Setter
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class User implements UserDetails {
 
     @Id
@@ -55,10 +58,12 @@ public class User implements UserDetails {
     @Column(length = 100, nullable = false, unique = true)
     @Email(message = "Invalid email format")
     @NotEmpty(message = "Email is required")
+    @JsonIgnore
     private String email;
 
     @Column(name = "contact_number", length = 15)
     @Size(max = 15, message = "Contact number cannot exceed 15 characters")
+    @JsonIgnore
     private String contactNumber;
 
     @Column(name = "profile_image", length = 255)
@@ -79,9 +84,11 @@ public class User implements UserDetails {
     @Column(name = "pincode", length = 6)
     @Size(min = 6, max = 6, message = "Pincode must be exactly 6 digits")
     @jakarta.validation.constraints.Pattern(regexp = "^\\d{6}$", message = "Pincode must be exactly 6 digits")
+    @JsonIgnore
     private String pincode;
 
     @Column(name = "has_invalid_pincode", columnDefinition = "boolean")
+    @JsonIgnore
     private Boolean hasInvalidPincode;
 
     // ===== Localization & Moderation Settings =====
@@ -225,6 +232,7 @@ public class User implements UserDetails {
 
     // ===== Role Helper Methods =====
 
+    @JsonIgnore
     public boolean isAdmin() {
         if (role == null || role.getName() == null) {
             return false;
@@ -232,6 +240,7 @@ public class User implements UserDetails {
         return "ROLE_ADMIN".equalsIgnoreCase(role.getName());
     }
 
+    @JsonIgnore
     public boolean isDepartment() {
         if (role == null || role.getName() == null) {
             return false;
@@ -239,6 +248,7 @@ public class User implements UserDetails {
         return "ROLE_DEPARTMENT".equalsIgnoreCase(role.getName());
     }
 
+    @JsonIgnore
     public boolean isNormalUser() {
         if (role == null || role.getName() == null) {
             return false;
@@ -394,5 +404,23 @@ public class User implements UserDetails {
     @PreUpdate
     private void preUpdate() {
         this.updatedAt = new Date();
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof User)) return false;
+        User other = (User) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

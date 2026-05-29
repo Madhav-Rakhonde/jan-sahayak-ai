@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -44,6 +47,7 @@ import java.util.Date;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class PostLike {
 
     /**
@@ -100,18 +104,22 @@ public class PostLike {
 
     // ── Helper predicates ─────────────────────────────────────────────────
 
+    @JsonIgnore
     public boolean isSocialPostLike() {
         return socialPost != null;
     }
 
+    @JsonIgnore
     public boolean isIssuePostLike() {
         return post != null;
     }
 
+    @JsonIgnore
     public boolean isLike() {
         return ReactionType.LIKE.equals(reactionType);
     }
 
+    @JsonIgnore
     public boolean isDislike() {
         return ReactionType.DISLIKE.equals(reactionType);
     }
@@ -139,5 +147,23 @@ public class PostLike {
         if (createdAt == null) {
             createdAt = new Date();
         }
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PostLike)) return false;
+        PostLike other = (PostLike) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

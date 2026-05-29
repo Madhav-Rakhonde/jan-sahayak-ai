@@ -1,6 +1,9 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.*;
@@ -43,6 +46,7 @@ import java.util.List;
         @Index(name = "idx_community_created",    columnList = "created_at")
 })
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Community {
 
     // ── Identity ──────────────────────────────────────────────────────────────
@@ -177,13 +181,16 @@ public class Community {
     private User owner;
 
     @OneToMany(mappedBy = "community", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    @Builder.Default private List<CommunityMember> members = new ArrayList<>();
+    @Builder.Default
+    @JsonIgnore private List<CommunityMember> members = new ArrayList<>();
 
     @OneToMany(mappedBy = "community", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    @Builder.Default private List<CommunityJoinRequest> joinRequests = new ArrayList<>();
+    @Builder.Default
+    @JsonIgnore private List<CommunityJoinRequest> joinRequests = new ArrayList<>();
 
     @OneToMany(mappedBy = "community", fetch = FetchType.LAZY)
-    @Builder.Default private List<SocialPost> posts = new ArrayList<>();
+    @Builder.Default
+    @JsonIgnore private List<SocialPost> posts = new ArrayList<>();
 
     // ── Enums ─────────────────────────────────────────────────────────────────
 
@@ -288,5 +295,23 @@ public class Community {
         updatedAt           = new Date();
         allowAnonymousPosts = true;
         if (!CommunityPrivacy.PUBLIC.equals(privacy)) feedEligible = false;
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Community)) return false;
+        Community other = (Community) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

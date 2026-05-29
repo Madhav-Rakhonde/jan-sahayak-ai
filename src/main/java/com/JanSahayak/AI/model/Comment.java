@@ -1,6 +1,9 @@
 package com.JanSahayak.AI.model;
 
+import jakarta.validation.constraints.Size;
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -23,6 +26,7 @@ import java.util.List;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Comment {
 
     @Id
@@ -30,6 +34,7 @@ public class Comment {
     private Long id;
 
     @Column(name = "text", columnDefinition = "TEXT", nullable = true)
+    @Size(max = 3000, message = "Comment text cannot exceed 3000 characters")
     private String text;
 
     @Column(name = "media_url", length = 1000)
@@ -75,6 +80,7 @@ public class Comment {
      * Direct replies to this comment.
      */
     @OneToMany(mappedBy = "parentComment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonIgnore
     private List<Comment> replies = new ArrayList<>();
 
     /**
@@ -88,10 +94,12 @@ public class Comment {
 
     // ── Helper predicates ─────────────────────────────────────────────────
 
+    @JsonIgnore
     public boolean isSocialPostComment() {
         return socialPost != null;
     }
 
+    @JsonIgnore
     public boolean isIssuePostComment() {
         return post != null;
     }
@@ -99,6 +107,7 @@ public class Comment {
     /**
      * Check if this is a top-level comment (not a reply)
      */
+    @JsonIgnore
     public boolean isTopLevelComment() {
         return parentComment == null;
     }
@@ -106,6 +115,7 @@ public class Comment {
     /**
      * Check if this is a reply to another comment
      */
+    @JsonIgnore
     public boolean isReply() {
         return parentComment != null;
     }
@@ -113,6 +123,7 @@ public class Comment {
     /**
      * Get total reply count
      */
+    @JsonIgnore
     public int getReplyCount() {
         return replies != null ? replies.size() : 0;
     }
@@ -141,6 +152,7 @@ public class Comment {
     /**
      * Get the depth level of this comment (0 for top-level, 1+ for replies)
      */
+    @JsonIgnore
     public int getDepthLevel() {
         if (parentComment == null) {
             return 0;
@@ -151,6 +163,7 @@ public class Comment {
     /**
      * Get the root comment of this comment thread
      */
+    @JsonIgnore
     public Comment getRootComment() {
         Comment current = this;
         while (current.getParentComment() != null) {
@@ -162,6 +175,7 @@ public class Comment {
     /**
      * Check if this comment has any replies
      */
+    @JsonIgnore
     public boolean hasReplies() {
         return replies != null && !replies.isEmpty();
     }
@@ -171,6 +185,7 @@ public class Comment {
     /**
      * Get total engagement count (just replies now)
      */
+    @JsonIgnore
     public int getTotalEngagementCount() {
         return getReplyCount();
     }
@@ -206,4 +221,28 @@ public class Comment {
             createdAt = new Date();
         }
     }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Comment)) return false;
+        Comment other = (Comment) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
+    }
+
+    @PreUpdate
+    private void preUpdate() {
+        this.updatedAt = new Date();
+    }
+
 }

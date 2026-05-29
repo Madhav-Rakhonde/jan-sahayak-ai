@@ -375,7 +375,7 @@ public class UserService implements UserDetailsService {
 
     // ===== User Update Methods =====
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public User updateUser(User user) {
         try {
             User existingUser = findById(user.getId());
@@ -427,14 +427,14 @@ public class UserService implements UserDetailsService {
         }
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void updatePincode(User user, String pincode) {
         user.setPincode(pincode);
         user.setHasInvalidPincode(false);
         userRepository.save(user);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public User saveUser(User user) {
         return userRepository.save(user);
     }
@@ -455,7 +455,7 @@ public class UserService implements UserDetailsService {
         return userRepository.existsByUsername(username);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void updateProfileImage(User user, String imageUrl) {
         user.setProfileImage(imageUrl);
         userRepository.save(user);
@@ -560,7 +560,7 @@ public class UserService implements UserDetailsService {
 
     // ===== Password Update =====
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void changePassword(Long userId, String oldPassword, String newPassword) {
         try {
             User user = findById(userId);
@@ -599,7 +599,7 @@ public class UserService implements UserDetailsService {
      * @param currentUser authenticated user performing the action (must be self or
      *                    admin)
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void deactivateUser(Long userId, User currentUser) {
         try {
             PostUtility.validateUserId(userId);

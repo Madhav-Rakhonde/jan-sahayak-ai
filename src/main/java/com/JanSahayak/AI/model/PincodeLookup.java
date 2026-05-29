@@ -1,6 +1,9 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -20,6 +23,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class PincodeLookup {
 
     @Id
@@ -230,5 +234,23 @@ public class PincodeLookup {
     public String toString() {
         return String.format("PincodeLookup{pincode='%s', area='%s', city='%s', district='%s', state='%s'}",
                 pincode, areaName, city, district, state);
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PincodeLookup)) return false;
+        PincodeLookup other = (PincodeLookup) o;
+        return pincode != null && pincode.equals(other.getPincode());
+    }
+
+    @Override
+    public int hashCode() {
+        return pincode != null ? pincode.hashCode() : 31;
     }
 }

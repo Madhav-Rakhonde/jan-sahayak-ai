@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.*;
 import java.util.Date;
@@ -14,6 +17,7 @@ import java.util.Date;
                 @Index(name = "idx_jr_requested", columnList = "requested_at")
         })
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class CommunityJoinRequest {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -42,6 +46,7 @@ public class CommunityJoinRequest {
 
     public enum RequestStatus { PENDING, APPROVED, REJECTED, CANCELLED }
 
+    @JsonIgnore
     public boolean isPending() { return RequestStatus.PENDING.equals(status); }
 
     public void approve(Long reviewerId) {
@@ -61,4 +66,22 @@ public class CommunityJoinRequest {
 
     @PrePersist
     private void prePersist() { if (requestedAt == null) requestedAt = new Date(); }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof CommunityJoinRequest)) return false;
+        CommunityJoinRequest other = (CommunityJoinRequest) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
+    }
 }

@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -18,6 +21,7 @@ import java.util.Date;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class PostView {
 
     @Id
@@ -70,10 +74,12 @@ public class PostView {
 
     // ── Helper predicates ─────────────────────────────────────────────────
 
+    @JsonIgnore
     public boolean isSocialPostView() {
         return socialPost != null;
     }
 
+    @JsonIgnore
     public boolean isIssuePostView() {
         return post != null;
     }
@@ -88,10 +94,12 @@ public class PostView {
         return viewDuration != null ? viewDuration / 60.0 : null;
     }
 
+    @JsonIgnore
     public boolean isLongView() {
         return viewDuration != null && viewDuration > 30;
     }
 
+    @JsonIgnore
     public boolean isQuickView() {
         return viewDuration != null && viewDuration < 5;
     }
@@ -116,5 +124,23 @@ public class PostView {
         if (viewedAt == null) {
             viewedAt = new Date();
         }
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PostView)) return false;
+        PostView other = (PostView) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

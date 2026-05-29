@@ -1,5 +1,11 @@
 package com.JanSahayak.AI.model;
 
+import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotBlank;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import com.JanSahayak.AI.enums.BroadcastScope;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
@@ -39,6 +45,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Post {
 
     @Id
@@ -46,6 +53,8 @@ public class Post {
     private Long id;
 
     @Column(nullable = false, length = 5000)
+    @NotBlank(message = "Post content cannot be empty")
+    @Size(max = 5000, message = "Post content cannot exceed 5000 characters")
     private String content;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -124,26 +133,32 @@ public class Post {
 
     @Builder.Default
     @Column(name = "like_count", nullable = false, updatable = false)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private int likeCount = 0;
 
     @Builder.Default
     @Column(name = "dislike_count", nullable = false, updatable = false)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private int dislikeCount = 0;
 
     @Builder.Default
     @Column(name = "comment_count", nullable = false, updatable = false)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private int commentCount = 0;
 
     @Builder.Default
     @Column(name = "view_count", nullable = false, updatable = false)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private int viewCount = 0;
 
     @Builder.Default
     @Column(name = "share_count", nullable = false, updatable = false)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private int shareCount = 0;
 
     @Builder.Default
     @Column(name = "save_count", nullable = false, updatable = false)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private int saveCount = 0;
 
     // ── Relationships ─────────────────────────────────────────────────────────
@@ -155,14 +170,17 @@ public class Post {
 
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @Builder.Default
+    @JsonIgnore
     private List<PostLike> likes = new ArrayList<>();
 
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @Builder.Default
+    @JsonIgnore
     private List<PostView> views = new ArrayList<>();
 
     @OneToMany(mappedBy = "post", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
     @Builder.Default
+    @JsonIgnore
     private List<UserTag> userTags = new ArrayList<>();
 
     // ── Business helpers ──────────────────────────────────────────────────────
@@ -171,26 +189,32 @@ public class Post {
         return imageName != null && !imageName.trim().isEmpty();
     }
 
+    @JsonIgnore
     public boolean isResolved() {
         return isResolved;
     }
 
+    @JsonIgnore
     public boolean isBroadcastPost() {
         return broadcastScope != null;
     }
 
+    @JsonIgnore
     public boolean isGovernmentBroadcast() {
         return isBroadcastPost() && user != null && (user.isAdmin() || user.isDepartment());
     }
 
+    @JsonIgnore
     public boolean isCountryWideBroadcast() {
         return BroadcastScope.COUNTRY.equals(broadcastScope);
     }
 
+    @JsonIgnore
     public boolean isCountryWideGovernmentBroadcast() {
         return isCountryWideBroadcast() && isGovernmentBroadcast();
     }
 
+    @JsonIgnore
     public boolean isEligibleForDisplay() {
         return status == PostStatus.ACTIVE || status == PostStatus.RESOLVED;
     }
@@ -338,4 +362,28 @@ public class Post {
         if (status    == null) status    = PostStatus.ACTIVE;
         // Remove targetCountry default logic - rely strictly on broadcastScope
     }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Post)) return false;
+        Post other = (Post) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
+    }
+
+    @PreUpdate
+    private void preUpdate() {
+        this.updatedAt = new Date();
+    }
+
 }

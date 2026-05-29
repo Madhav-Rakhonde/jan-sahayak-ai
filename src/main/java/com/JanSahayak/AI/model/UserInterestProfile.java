@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -31,6 +34,7 @@ import java.util.stream.Collectors;
         }
 )
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class UserInterestProfile {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -178,6 +182,7 @@ public class UserInterestProfile {
     }
 
     /** User has over-consumed this topic — inject more diversity. */
+    @JsonIgnore
     public boolean isBubbleRisk() {
         return Boolean.TRUE.equals(bubbleRiskFlag);
     }
@@ -188,6 +193,7 @@ public class UserInterestProfile {
      * Returns true if this row holds a language-preference topic (e.g. "lang:hi").
      * Used by InterestProfileService when separating content topics from language topics.
      */
+    @JsonIgnore
     public boolean isLanguageTopic() {
         return topic != null && topic.startsWith("lang:");
     }
@@ -269,5 +275,23 @@ public class UserInterestProfile {
 
     private void clampWeight() {
         if (weight == null || weight < 0) weight = 0.0;
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof UserInterestProfile)) return false;
+        UserInterestProfile other = (UserInterestProfile) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }

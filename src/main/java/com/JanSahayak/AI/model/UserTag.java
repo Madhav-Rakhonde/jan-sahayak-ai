@@ -1,5 +1,7 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -179,11 +181,13 @@ public class UserTag {
     // =========================================================================
 
     /** @return true when this tag lives inside a SocialPost. */
+    @JsonIgnore
     public boolean isSocialPostTag() {
         return socialPost != null;
     }
 
     /** @return true when this tag lives inside a regular government/issue Post. */
+    @JsonIgnore
     public boolean isIssuePostTag() {
         return post != null;
     }
@@ -193,6 +197,7 @@ public class UserTag {
     // =========================================================================
 
     /** @return true when the tag is currently active (not soft-deleted). */
+    @JsonIgnore
     public boolean isActiveTag() {
         return Boolean.TRUE.equals(isActive);
     }
@@ -205,6 +210,7 @@ public class UserTag {
      * Returns the display username of the tagged user.
      * Uses getActualUsername() so it returns the profile handle, not the login email.
      */
+    @JsonIgnore
     public String getTaggedUsername() {
         return taggedUser != null ? taggedUser.getActualUsername() : null;
     }
@@ -213,6 +219,7 @@ public class UserTag {
      * Returns the display username of the user who created the tag.
      * Uses getActualUsername() so it returns the profile handle, not the login email.
      */
+    @JsonIgnore
     public String getTaggedByUsername() {
         return taggedBy != null ? taggedBy.getActualUsername() : null;
     }

@@ -1,5 +1,8 @@
 package com.JanSahayak.AI.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import com.JanSahayak.AI.enums.NotificationType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -19,6 +22,7 @@ import java.util.Date;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Notification {
 
     @Id
@@ -77,11 +81,31 @@ public class Notification {
         this.readAt = null;
     }
 
+    @JsonIgnore
     public boolean isUnread() {
         return !isRead;
     }
 
+    @JsonIgnore
     public String getTriggeredByUsername() {
         return triggeredBy != null ? triggeredBy.getActualUsername() : null;
+    }
+
+
+    // =========================================================================
+    // EQUALS & HASHCODE
+    // =========================================================================
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Notification)) return false;
+        Notification other = (Notification) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 31;
     }
 }
