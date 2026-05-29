@@ -323,7 +323,7 @@ public class AuthController {
         }
         try {
             rateLimitingService.recordRegistrationAttempt(normalizedEmail);
-            User user = userService.findByEmail(email).orElse(null);
+            User user = userRepository.findByEmailWithRole(email).orElse(null);
             if (user == null) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("No account found with this email address."));
             }
