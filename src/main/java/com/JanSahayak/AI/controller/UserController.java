@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.controller;
 
 import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.DTO.UserMeResponse;
 import com.JanSahayak.AI.DTO.UserTagSuggestionDto;
 import com.JanSahayak.AI.exception.ApiResponse;
 import com.JanSahayak.AI.exception.ServiceException;
@@ -48,10 +49,10 @@ public class UserController {
      */
     @GetMapping("/me")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<User>> getCurrentUserProfile() {
+    public ResponseEntity<ApiResponse<UserMeResponse>> getCurrentUserProfile() {
         try {
             User user = getCurrentUser();
-            return ResponseEntity.ok(ApiResponse.success("Current user retrieved successfully", user));
+            return ResponseEntity.ok(ApiResponse.success("Current user retrieved successfully", new UserMeResponse(user)));
 
         } catch (ValidationException e) {
             log.warn("Validation error in getCurrentUserProfile: {}", e.getMessage());
@@ -311,7 +312,7 @@ public class UserController {
 
     @PutMapping("/profile")
     @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<User>> updateUserProfile(@Valid @RequestBody UserUpdateRequest updateRequest) {
+    public ResponseEntity<ApiResponse<UserMeResponse>> updateUserProfile(@Valid @RequestBody UserUpdateRequest updateRequest) {
         try {
             User currentUser = getCurrentUser();
 
@@ -327,7 +328,7 @@ public class UserController {
                     .build();
 
             User updatedUser = userService.updateUser(userToUpdate);
-            return ResponseEntity.ok(ApiResponse.success("User profile updated successfully", updatedUser));
+            return ResponseEntity.ok(ApiResponse.success("User profile updated successfully", new UserMeResponse(updatedUser)));
 
         } catch (ValidationException e) {
             log.warn("Validation error in updateUserProfile: {}", e.getMessage());
