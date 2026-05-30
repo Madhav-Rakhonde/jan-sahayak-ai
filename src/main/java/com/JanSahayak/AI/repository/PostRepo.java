@@ -404,11 +404,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.id < :beforeId ORDER BY p.createdAt DESC")
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullAndIdLessThanOrderByCreatedAtDesc(
             @Param("beforeId") Long beforeId, Pageable pageable);
 
-    @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL ORDER BY p.createdAt DESC")
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullOrderByCreatedAtDesc(Pageable pageable);
 
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")

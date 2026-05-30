@@ -115,7 +115,7 @@ public class PostService {
             post.setStatus(PostStatus.ACTIVE);
             post.setCreatedAt(new Date());
 
-            if (PostUtility.isNormalUser(user)) {
+            if (PostUtility.isNormalUser(user) || PostUtility.isDepartment(user) || PostUtility.isAdmin(user)) {
                 post.setBroadcastScope(BroadcastScope.AREA);
                 String targetPincode = postDto.getTargetPincode().trim();
                 if (!pinCodeLookupService.isValidPincode(targetPincode)) {
@@ -125,7 +125,7 @@ public class PostService {
                     throw new ValidationException("Invalid Indian pincode format: " + targetPincode);
                 }
                 post.setTargetPincodes(targetPincode);
-                log.info("User post created with target pincode: {}", targetPincode);
+                log.info("Post created with target pincode: {}", targetPincode);
             }
 
             post.setTargetCountry(Constant.DEFAULT_TARGET_COUNTRY);
@@ -323,8 +323,8 @@ public class PostService {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllBroadcastPosts", beforeId, limit);
             List<Post> posts = setup.hasCursor()
-                    ? postRepository.findByBroadcastScopeIsNotNullAndStatusAndIdLessThanOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable())
-                    : postRepository.findByBroadcastScopeIsNotNullAndStatusOrderByCreatedAtDesc(PostStatus.ACTIVE, setup.toPageable());
+                    ? postRepository.findByBroadcastScopeIsNotNullAndIdLessThanOrderByCreatedAtDesc(setup.getSanitizedCursor(), setup.toPageable())
+                    : postRepository.findByBroadcastScopeIsNotNullOrderByCreatedAtDesc(setup.toPageable());
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
             PaginationUtils.logPaginationResults("getAllBroadcastPosts", posts, response.isHasMore(), response.getNextCursor());
             return response;
