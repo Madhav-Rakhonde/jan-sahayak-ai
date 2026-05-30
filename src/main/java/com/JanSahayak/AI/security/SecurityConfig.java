@@ -131,6 +131,7 @@ public class SecurityConfig {
         // ✅ Exact origins instead of "*" with allowCredentials
         configuration.setAllowedOrigins(List.of(
                 "https://govlyx-io.vercel.app",
+                "https://govlyxpredeploytesting.vercel.app",
                 "http://localhost:5173",
                 "http://localhost:3000",
                 "http://localhost:8080"

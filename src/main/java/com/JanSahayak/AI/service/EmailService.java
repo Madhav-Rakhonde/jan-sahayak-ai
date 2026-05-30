@@ -19,7 +19,7 @@ import java.util.Map;
 @Slf4j
 public class EmailService {
 
-    @Value("${app.frontend.base-url:http://localhost:5173}")
+    @Value("${app.frontend.base-url:https://govlyxpredeploytesting.vercel.app}")
     private String frontendBaseUrl;
 
     @Value("${spring.mail.username:govlyx.official@gmail.com}")
