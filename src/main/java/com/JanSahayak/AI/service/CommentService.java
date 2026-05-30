@@ -547,8 +547,8 @@ public class CommentService {
         if (socialPost.getId() == null) {
             throw new IllegalArgumentException("Social post ID cannot be null");
         }
-        if (!com.JanSahayak.AI.payload.SocialPostUtility.isSocialPostVisibleToUser(socialPost, user)) {
-            throw new SecurityException("User does not have permission to view this social post");
+        if (!socialPost.isEligibleForDisplay()) {
+            throw new SecurityException("Social post is not eligible for display");
         }
         if (socialPost.getCommunityId() != null && user != null && !com.JanSahayak.AI.payload.PostUtility.isAdmin(user)) {
             String privacy = socialPost.getCommunityPrivacy();

@@ -1005,9 +1005,7 @@ public class PostInteractionService {
         if (!socialPost.getStatus().allowsLikes()) {
             throw new ValidationException("Social post does not allow reactions in its current status.");
         }
-        if (!com.JanSahayak.AI.payload.SocialPostUtility.isSocialPostVisibleToUser(socialPost, user)) {
-            throw new SecurityException("User does not have permission to view this social post");
-        }
+
         if (socialPost.getCommunityId() != null && user != null && !com.JanSahayak.AI.payload.PostUtility.isAdmin(user)) {
             String privacy = socialPost.getCommunityPrivacy();
             if ("PRIVATE".equalsIgnoreCase(privacy) || "SECRET".equalsIgnoreCase(privacy)) {

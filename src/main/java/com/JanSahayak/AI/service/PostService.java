@@ -1304,7 +1304,7 @@ public class PostService {
                     .canDelete(currentUser != null && (PostUtility.isPostOwner(post, currentUser) || PostUtility.isAdmin(currentUser)))
 
                     .timeAgo(PostUtility.calculateTimeAgo(post.getCreatedAt()))
-                    .isVisibleToCurrentUser(currentUser != null && PostUtility.isPostVisibleToUser(post, currentUser));
+                    .isVisibleToCurrentUser(currentUser != null);
 
             try {
                 PaginatedResponse<User> taggedUsersResponse = userTaggingService.getTaggedUsersInPost(post, null, Constant.MAX_TAGS_PER_POST * 10);

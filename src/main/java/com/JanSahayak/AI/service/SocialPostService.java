@@ -276,10 +276,7 @@ public class SocialPostService {
                 throw new PostNotFoundException("Social post not found with ID: " + postId);
             }
 
-            if (user != null && !SocialPostUtility.isSocialPostVisibleToUser(socialPost, user)) {
-                throw new SecurityException(
-                        "User does not have permission to view this social post");
-            }
+
             if (socialPost.getCommunityId() != null && user != null && !PostUtility.isAdmin(user)) {
                 String privacy = socialPost.getCommunityPrivacy();
                 if ("PRIVATE".equalsIgnoreCase(privacy) || "SECRET".equalsIgnoreCase(privacy)) {
