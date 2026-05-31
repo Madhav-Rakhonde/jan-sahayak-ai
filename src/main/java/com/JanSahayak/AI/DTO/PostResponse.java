@@ -37,6 +37,8 @@ public class PostResponse {
 
     private Long id;
     private String content;
+    private String translatedContent;
+    private Boolean isTranslated;
     private PostStatus status;
     private Date createdAt;
     private Date updatedAt;

@@ -24,6 +24,8 @@ public class SocialPostDto implements Serializable {
     // Basic Info
     private Long id;
     private String content;
+    private String translatedContent;
+    private Boolean isTranslated;
     private Date createdAt;
     private Date updatedAt;
 

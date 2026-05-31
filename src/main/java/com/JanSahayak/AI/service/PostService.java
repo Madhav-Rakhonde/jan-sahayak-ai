@@ -44,6 +44,7 @@ public class PostService {
     private final ContentValidationService contentValidationService;
     private final NotificationService      notificationService;
     private final PostInteractionService   postInteractionService;
+    private final TranslationService       translationService;
 
     // ── Cloudinary media adapter (replaces DrivePostMediaAdapter / local disk) ─
     // Bean name kept as drivePostMedia so no controller or other caller needs updating.
@@ -1426,6 +1427,16 @@ public class PostService {
                 .map(p -> convertToPostResponse(p, currentUser))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+                
+        // ── Batch Auto-Translate ──
+        if (currentUser != null && Boolean.TRUE.equals(currentUser.getAutoTranslate()) && currentUser.getPreferredLanguage() != null) {
+            try {
+                translationService.translatePosts(postResponses, currentUser.getPreferredLanguage());
+            } catch (Exception e) {
+                log.warn("Failed to batch translate posts: {}", e.getMessage());
+            }
+        }
+                
         return PaginationUtils.createIdBasedResponse(postResponses, limit, PostResponse::getId);
     }
 
@@ -1437,6 +1448,16 @@ public class PostService {
                 .map(p -> convertToPostResponse(p, currentUser))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+                
+        // ── Batch Auto-Translate ──
+        if (currentUser != null && Boolean.TRUE.equals(currentUser.getAutoTranslate()) && currentUser.getPreferredLanguage() != null) {
+            try {
+                translationService.translatePosts(postResponses, currentUser.getPreferredLanguage());
+            } catch (Exception e) {
+                log.warn("Failed to batch translate posts: {}", e.getMessage());
+            }
+        }
+                
         return PaginatedResponse.of(postResponses, paginatedPosts.isHasMore(), paginatedPosts.getNextCursor(), paginatedPosts.getLimit());
     }
 

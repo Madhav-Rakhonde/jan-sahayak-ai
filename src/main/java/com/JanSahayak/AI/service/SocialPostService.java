@@ -53,6 +53,7 @@ public class SocialPostService {
     private final PostInteractionService   postInteractionService;
     private final NotificationService      notificationService;
     private final CommunityMemberRepo communityMemberRepo;
+    private final TranslationService       translationService;
 
     @Lazy
     @Autowired
@@ -799,6 +800,15 @@ public class SocialPostService {
                 } catch (Exception e) {
                     log.warn("[Community] batch membership enrichment failed: {}", e.getMessage());
                 }
+            }
+        }
+
+        // ── Batch Auto-Translate ──
+        if (user != null && Boolean.TRUE.equals(user.getAutoTranslate()) && user.getPreferredLanguage() != null) {
+            try {
+                translationService.translateSocialPosts(dtos, user.getPreferredLanguage());
+            } catch (Exception e) {
+                log.warn("Failed to batch translate social posts: {}", e.getMessage());
             }
         }
 
