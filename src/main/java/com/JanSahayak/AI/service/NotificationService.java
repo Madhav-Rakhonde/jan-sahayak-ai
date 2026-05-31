@@ -400,6 +400,53 @@ public class NotificationService {
     // ===== BROADCAST NOTIFICATIONS =====
 
     /**
+     * Send notification when a post is reopened by the creator
+     */
+    @Async
+    @Transactional(rollbackFor = Exception.class)
+    public void notifyPostReopened(Post post, User reopenedBy, String reason) {
+        try {
+            if (post == null || reopenedBy == null) {
+                log.warn("Invalid parameters for post reopened notification");
+                return;
+            }
+
+            User actionUser = userRepository.findById(reopenedBy.getId()).orElse(reopenedBy);
+
+            // Find users who should be notified (e.g. tagged department users)
+            // For now, we notify any tagged users (usually departments handling the post)
+            List<UserTag> tags = post.getUserTags();
+            if (tags == null || tags.isEmpty()) return;
+
+            String title = "Issue Reopened";
+            String reasonText = (reason != null && !reason.trim().isEmpty()) ? reason : "No reason provided";
+            String message = String.format("Issue reopened by %s: %s", actionUser.getActualUsername(), truncateText(reasonText, 50));
+            String actionUrl = "/posts/" + post.getId();
+
+            for (UserTag tag : tags) {
+                User targetUser = tag.getTaggedUser();
+                if (targetUser == null || targetUser.getId().equals(actionUser.getId())) continue;
+
+                Notification notification = createNotification(
+                        targetUser,
+                        NotificationType.POST_REOPENED,
+                        title,
+                        message,
+                        post.getId(),
+                        "POST",
+                        actionUrl,
+                        actionUser
+                );
+                sendRealtimeNotification(notification);
+            }
+            log.debug("Post reopened notification sent: postId={}", post.getId());
+
+        } catch (Exception e) {
+            log.error("Failed to send post reopened notification", e);
+        }
+    }
+
+    /**
      * Send broadcast notification to multiple users based on location
      */
     @Async

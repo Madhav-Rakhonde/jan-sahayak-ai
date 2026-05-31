@@ -821,6 +821,50 @@ public class PostService {
         }
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public Post reopenPost(Long postId, User user, String reason) {
+        try {
+            PostUtility.validatePostId(postId);
+            PostUtility.validateUser(user);
+            Post post = findById(postId);
+
+            if (!PostUtility.isPostOwner(post, user)) {
+                throw new SecurityException("Only the creator of the post can reopen it");
+            }
+            if (post.getStatus() != PostStatus.RESOLVED) {
+                throw new ValidationException("Only resolved posts can be reopened");
+            }
+
+            post.markAsUnresolved();
+            log.info("Post id={} REOPENED by user={} (id={})", postId, user.getActualUsername(), user.getId());
+
+            String safeReason = reason != null && !reason.trim().isEmpty() ? reason.trim() : "No reason provided";
+            try {
+                Comment statusComment = new Comment();
+                statusComment.setText("Issue reopened by creator. Reason: " + safeReason);
+                statusComment.setUser(user);
+                statusComment.setPost(post);
+                statusComment.setCreatedAt(new Date());
+                commentRepository.save(statusComment);
+            } catch (Exception e) {
+                log.warn("Failed to create reopen comment for post: {}", postId, e);
+            }
+
+            Post updatedPost = postRepository.save(post);
+            try {
+                notificationService.notifyPostReopened(updatedPost, user, safeReason);
+            } catch (Exception e) {
+                log.warn("Failed to trigger post reopen notification for post: {}", postId, e);
+            }
+            return updatedPost;
+        } catch (SecurityException | ValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to reopen post: id={} user={}", postId, user != null ? user.getActualUsername() : "null", e);
+            throw new ServiceException("Failed to reopen post: " + e.getMessage(), e);
+        }
+    }
+
     // =========================================================================
     // USER TAGGING
     // =========================================================================

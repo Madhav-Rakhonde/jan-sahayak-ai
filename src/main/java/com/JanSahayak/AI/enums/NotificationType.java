@@ -5,6 +5,7 @@ public enum NotificationType {
     POST_LIKE("Someone liked your post", "post"),
     POST_COMMENT("Someone commented on your post", "post"),
     POST_RESOLVED("Your post was marked as resolved", "post"),
+    POST_REOPENED("A resolved post was reopened", "post"),
     POST_TAGGED("You were tagged in a post", "post"),
 
     // Comment-related notifications

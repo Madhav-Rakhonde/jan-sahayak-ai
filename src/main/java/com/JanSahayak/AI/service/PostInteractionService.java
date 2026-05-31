@@ -54,6 +54,9 @@ public class PostInteractionService {
     @Autowired
     private SocialPostService socialPostService;
 
+    @Autowired
+    private NotificationService notificationService;
+
     // =========================================================================
     // VIEWS — REGULAR POST
     // =========================================================================
@@ -178,6 +181,13 @@ public class PostInteractionService {
                     postRepository.decrementDislikeCount(post.getId());
                     postRepository.incrementLikeCount(post.getId());
                     postRepository.save(post);
+                    
+                    try {
+                        notificationService.notifyPostLiked(post, user);
+                    } catch (Exception e) {
+                        log.warn("[Notification] Failed to notify post like: post={}: {}", post.getId(), e.getMessage());
+                    }
+                    
                     log.info("[Like] Flipped DISLIKE→LIKE: post={} user={}", post.getId(), user.getActualUsername());
                     return true;
                 }
@@ -187,6 +197,13 @@ public class PostInteractionService {
                 postLikeRepository.save(newLike);
                 postRepository.incrementLikeCount(post.getId());
                 postRepository.save(post);
+                
+                try {
+                    notificationService.notifyPostLiked(post, user);
+                } catch (Exception e) {
+                    log.warn("[Notification] Failed to notify post like: post={}: {}", post.getId(), e.getMessage());
+                }
+                
                 log.info("[Like] Added: post={} user={} likeCount={}", post.getId(), user.getActualUsername(), post.getLikeCount());
                 return true;
             }
@@ -290,6 +307,13 @@ public class PostInteractionService {
                         try { communityService.onLikeAdded(socialPost.getCommunity().getId()); }
                         catch (Exception e) { log.warn("[Community] onLikeAdded (flip) failed: {}", e.getMessage()); }
                     }
+                    
+                    try {
+                        notificationService.notifySocialPostLiked(socialPost, user);
+                    } catch (Exception e) {
+                        log.warn("[Notification] Failed to notify social post like: post={}: {}", socialPost.getId(), e.getMessage());
+                    }
+                    
                     log.info("[Like] Flipped DISLIKE→LIKE: socialPost={} user={}", socialPost.getId(), user.getActualUsername());
                     return true;
                 }
@@ -305,6 +329,13 @@ public class PostInteractionService {
                     try { communityService.onLikeAdded(socialPost.getCommunity().getId()); }
                     catch (Exception e) { log.warn("[Community] onLikeAdded (new) failed: {}", e.getMessage()); }
                 }
+                
+                try {
+                    notificationService.notifySocialPostLiked(socialPost, user);
+                } catch (Exception e) {
+                    log.warn("[Notification] Failed to notify social post like: post={}: {}", socialPost.getId(), e.getMessage());
+                }
+                
                 log.info("[Like] Added: socialPost={} user={} likeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getLikeCount());
                 return true;
             }

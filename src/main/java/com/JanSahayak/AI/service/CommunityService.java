@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -36,6 +37,7 @@ public class CommunityService {
     private final PostLikeRepo                  postLikeRepo;            // Added
     private final CommunityHealthScoreService   healthScoreService;
     private final HyperlocalSeedService         hyperlocalSeedService;   // ← LOCATION PATCH
+    private final CloudinaryStorageService      cloudinaryStorageService;
 
 
     // ── HLIG v2: Interest profile service ────────────────────────────────────
@@ -182,6 +184,25 @@ public class CommunityService {
             syncPostDenormalizedFields(communityId, community);
         }
 
+        return toDetailResponse(community, requesterId);
+    }
+
+    public CommunityDetailResponse uploadCommunityImage(Long communityId, Long requesterId, MultipartFile file, String imageType) {
+        CommunityValidationUtil.validateCommunityId(communityId);
+        CommunityValidationUtil.validateUserId(requesterId);
+
+        Community community = findCommunityOrThrow(communityId);
+        assertAdminOrOwner(community, requesterId);
+
+        String imageUrl = cloudinaryStorageService.uploadFile(file, requesterId, "communities");
+
+        if ("cover".equalsIgnoreCase(imageType)) {
+            community.setCoverImageUrl(imageUrl);
+        } else {
+            community.setAvatarUrl(imageUrl);
+        }
+
+        communityRepo.save(community);
         return toDetailResponse(community, requesterId);
     }
 

@@ -13,6 +13,7 @@ import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -64,6 +65,18 @@ public class CommunityController {
             @AuthenticationPrincipal User currentUser) {
         communityService.archiveCommunity(id, currentUser.getId());
         return ResponseEntity.ok(ApiResponse.success("Community archived.", null));
+    }
+
+    @PostMapping("/{id}/image")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<CommunityDetailResponse>> uploadImage(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "type", defaultValue = "avatar") String type,
+            @AuthenticationPrincipal User currentUser) {
+        
+        CommunityDetailResponse result = communityService.uploadCommunityImage(id, currentUser.getId(), file, type);
+        return ResponseEntity.ok(ApiResponse.success("Image uploaded successfully.", result));
     }
 
     // =========================================================================

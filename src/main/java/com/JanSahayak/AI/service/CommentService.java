@@ -96,6 +96,9 @@ public class CommentService {
             // ── Comment notification ─────────────────────────────────────────
             try {
                 notificationService.notifyPostCommented(post, savedComment, user);
+                if (savedComment.getParentComment() != null) {
+                    notificationService.notifyCommentReplied(savedComment.getParentComment(), savedComment, user);
+                }
             } catch (Exception e) {
                 log.warn("[Notification] Failed to notify post comment: post={}: {}", post.getId(), e.getMessage());
             }
@@ -170,6 +173,9 @@ public class CommentService {
             // ── Comment notification ─────────────────────────────────────────
             try {
                 notificationService.notifySocialPostCommented(socialPost, savedComment, user);
+                if (savedComment.getParentComment() != null) {
+                    notificationService.notifyCommentReplied(savedComment.getParentComment(), savedComment, user);
+                }
             } catch (Exception e) {
                 log.warn("[Notification] Failed to notify social post comment: post={}: {}", socialPost.getId(), e.getMessage());
             }

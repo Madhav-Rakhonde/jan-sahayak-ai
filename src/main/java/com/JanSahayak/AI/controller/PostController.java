@@ -765,6 +765,30 @@ public class PostController {
         }
     }
 
+    @PutMapping("/{postId}/reopen")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PostResponse>> reopenPost(
+            @PathVariable Long postId,
+            @Valid @RequestBody(required = false) PostReopenDto reopenDto,
+            @CurrentUser User user) {
+        try {
+            String reason = (reopenDto != null) ? reopenDto.getReason() : null;
+            Post updatedPost = postService.reopenPost(postId, user, reason);
+            PostResponse response = postService.convertToPostResponse(updatedPost, user);
+            return ResponseEntity.ok(ApiResponse.success("Post reopened successfully", response));
+        } catch (PostNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("Post not found", e.getMessage()));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Access denied", e.getMessage()));
+        } catch (ValidationException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to reopen post: {}", postId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to reopen post", "Internal server error"));
+        }
+    }
+
     // ===== Query Endpoints =====
 
     @GetMapping("/tagged-with-user/{userId}")
