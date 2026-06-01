@@ -295,6 +295,31 @@ public class ChatMessagingService {
     }
 
     /**
+     * Notify the partner that their message was seen.
+     */
+    public void sendSeenReceipt(String sessionId, Long seenByUserId, String messageId) {
+        ChatSession session = chatSessionService.getSession(sessionId);
+        if (session == null || !session.isActive()) return;
+
+        Long partnerId = session.getPartnerId(seenByUserId);
+        if (partnerId == null) return;
+
+        String partnerEmail = chatSessionService.getUserEmail(partnerId);
+        if (partnerEmail == null) return;
+
+        ChatMessageDto dto = ChatMessageDto.builder()
+                .messageId(messageId)
+                .senderId(session.getUserAnonymousId(seenByUserId))
+                .messageType(ChatMessage.MessageType.MESSAGE_SEEN.name())
+                .timestamp(Instant.now())
+                .seen(true)
+                .build();
+
+        messagingTemplate.convertAndSendToUser(partnerEmail, DEST_MESSAGES, dto);
+        log.debug("Sent MESSAGE_SEEN receipt for message {} to partner {}", messageId, partnerId);
+    }
+
+    /**
      * Send a SYSTEM message to both users (used for reconnect / disconnect notices).
      */
     public void sendSystemMessage(String sessionId, String content) {

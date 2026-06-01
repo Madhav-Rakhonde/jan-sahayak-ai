@@ -537,7 +537,7 @@ public class CommunityService {
 
         List<Long> postIds = raw.stream().map(SocialPost::getId).collect(Collectors.toList());
         Set<Long> likedPostIds = (requesterId != null && !postIds.isEmpty()) 
-                ? new java.util.HashSet<>(postLikeRepo.findLikedSocialPostIdsByUser(requesterId, postIds))
+                ? new java.util.HashSet<>(postLikeRepo.findLikedSocialPostIdsByUser(requesterId, postIds, com.JanSahayak.AI.model.PostLike.ReactionType.LIKE))
                 : java.util.Collections.emptySet();
 
         List<CommunityPostResponse> mapped = raw.stream()
@@ -576,7 +576,7 @@ public class CommunityService {
 
         List<Long> postIds = raw.stream().map(SocialPost::getId).collect(Collectors.toList());
         Set<Long> likedPostIds = (requesterId != null && !postIds.isEmpty()) 
-                ? new java.util.HashSet<>(postLikeRepo.findLikedSocialPostIdsByUser(requesterId, postIds))
+                ? new java.util.HashSet<>(postLikeRepo.findLikedSocialPostIdsByUser(requesterId, postIds, com.JanSahayak.AI.model.PostLike.ReactionType.LIKE))
                 : java.util.Collections.emptySet();
 
         List<CommunityPostResponse> mapped = raw.stream()

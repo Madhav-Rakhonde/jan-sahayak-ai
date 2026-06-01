@@ -482,7 +482,7 @@ public class PostInteractionService {
         if (user == null || postIds == null || postIds.isEmpty())
             return Collections.emptySet();
         return new HashSet<>(
-                postLikeRepository.findLikedSocialPostIdsByUser(user.getId(), postIds));
+                postLikeRepository.findLikedSocialPostIdsByUser(user.getId(), postIds, PostLike.ReactionType.LIKE));
     }
 
     /**
@@ -493,7 +493,7 @@ public class PostInteractionService {
         if (user == null || postIds == null || postIds.isEmpty())
             return Collections.emptySet();
         return new HashSet<>(
-                postLikeRepository.findDislikedSocialPostIdsByUser(user.getId(), postIds));
+                postLikeRepository.findDislikedSocialPostIdsByUser(user.getId(), postIds, PostLike.ReactionType.DISLIKE));
     }
 
     /**

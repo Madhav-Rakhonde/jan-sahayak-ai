@@ -84,6 +84,9 @@ public class ChatMessage implements Serializable {
     /** Whether this message has been delivered over WebSocket */
     private boolean delivered;
 
+    /** Whether this message has been seen by the receiver */
+    private boolean seen;
+
     // ── Media fields (null for TEXT / SYSTEM) ─────────────────────────────────
 
     /**
@@ -148,6 +151,7 @@ public class ChatMessage implements Serializable {
         USER_JOINED,
         USER_LEFT,
         CHAT_ENDED,
+        MESSAGE_SEEN,
 
         // ── Rich media (relayed once, never stored) ────────────────────────────
         IMAGE,          // Photo / GIF       — mediaPayload = fileId
@@ -175,6 +179,7 @@ public class ChatMessage implements Serializable {
                 .messageType(MessageType.SYSTEM)
                 .timestamp(Instant.now())
                 .delivered(false)
+                .seen(false)
                 .build();
     }
 
@@ -188,6 +193,7 @@ public class ChatMessage implements Serializable {
                 .messageType(MessageType.TEXT)
                 .timestamp(Instant.now())
                 .delivered(false)
+                .seen(false)
                 .build();
     }
 
@@ -231,6 +237,7 @@ public class ChatMessage implements Serializable {
                 .viewOnce(viewOnce)
                 .timestamp(Instant.now())
                 .delivered(false)
+                .seen(false)
                 .build();
     }
 
@@ -253,6 +260,7 @@ public class ChatMessage implements Serializable {
                 .mediaPayload(sdpOrIceJson)
                 .timestamp(Instant.now())
                 .delivered(false)
+                .seen(false)
                 .build();
     }
 }

@@ -24,6 +24,9 @@ public class ChatMessageDto {
 
     // ── Media fields (null / 0 / false for text / system messages) ────────────
 
+    private boolean delivered;
+    private boolean seen;
+
     /**
      * Base64 data-URI for IMAGE / VIDEO / STICKER / VOICE_NOTE.
      * SDP or ICE JSON for CALL_* types.

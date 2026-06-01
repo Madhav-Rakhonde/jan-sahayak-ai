@@ -10,9 +10,12 @@ import com.JanSahayak.AI.exception.ValidationException;
 import com.JanSahayak.AI.model.*;
 import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.repository.NotificationRepo;
+import com.JanSahayak.AI.repository.PostRepo;
 import com.JanSahayak.AI.repository.UserRepo;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
@@ -37,6 +40,9 @@ public class NotificationService {
     private final NotificationRepo notificationRepository;
     private final UserRepo userRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final PostRepo postRepository;
+    private final WebPushService webPushService;
+    private final ObjectMapper objectMapper;
 
     // ===== POST INTERACTION NOTIFICATIONS =====
 
@@ -496,7 +502,15 @@ public class NotificationService {
 
                 if (batch.size() == BATCH_SIZE) {
                     List<Notification> saved = notificationRepository.saveAll(batch);
-                    saved.forEach(this::sendRealtimeNotification);
+                    saved.forEach(n -> {
+                        sendRealtimeNotification(n);
+                        try {
+                            String payload = objectMapper.writeValueAsString(NotificationDto.fromNotification(n));
+                            webPushService.sendPushNotification(n.getUser(), payload);
+                        } catch (Exception e) {
+                            log.error("Failed to serialize push payload", e);
+                        }
+                    });
                     totalSent += saved.size();
                     batch = new ArrayList<>(BATCH_SIZE); // release previous batch for GC
                 }
@@ -505,7 +519,15 @@ public class NotificationService {
             // Flush remaining
             if (!batch.isEmpty()) {
                 List<Notification> saved = notificationRepository.saveAll(batch);
-                saved.forEach(this::sendRealtimeNotification);
+                saved.forEach(n -> {
+                    sendRealtimeNotification(n);
+                    try {
+                        String payload = objectMapper.writeValueAsString(NotificationDto.fromNotification(n));
+                        webPushService.sendPushNotification(n.getUser(), payload);
+                    } catch (Exception e) {
+                        log.error("Failed to serialize push payload", e);
+                    }
+                });
                 totalSent += saved.size();
             }
 

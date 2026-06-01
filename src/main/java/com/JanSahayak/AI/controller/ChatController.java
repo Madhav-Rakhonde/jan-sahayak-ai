@@ -115,6 +115,27 @@ public class ChatController {
         }
     }
 
+    @MessageMapping("/chat.seen")
+    public void sendSeenReceipt(@Payload Map<String, String> payload, Principal principal) {
+        User user = getUserFromPrincipal(principal);
+        if (user == null) return;
+
+        String messageId = payload.get("messageId");
+        if (messageId == null || messageId.isBlank()) return;
+
+        try {
+            ChatSession session = chatSessionService.getUserSession(user.getId());
+            if (session != null && session.isActive()) {
+                boolean updated = chatSessionService.markMessageAsSeen(session.getSessionId(), messageId);
+                if (updated) {
+                    chatMessagingService.sendSeenReceipt(session.getSessionId(), user.getId(), messageId);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error processing seen receipt from user {}", user.getId(), e);
+        }
+    }
+
     // ── Original REST endpoints ───────────────────────────────────────────────
 
     @PostMapping("/search")
@@ -512,6 +533,8 @@ public class ChatController {
                 .content(message.getContent())
                 .messageType(message.getMessageType().name())
                 .timestamp(message.getTimestamp())
+                .delivered(message.isDelivered())
+                .seen(message.isSeen())
                 // Media messages are never in recentMessages, so these will always be null/0/false
                 // for history responses — but included for completeness in case that changes.
                 .mediaPayload(message.getMediaPayload())

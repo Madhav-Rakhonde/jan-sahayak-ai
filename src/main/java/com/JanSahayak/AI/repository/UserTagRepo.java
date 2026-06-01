@@ -68,14 +68,16 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             JOIN UserTag ut ON ut.post = p
             WHERE ut.taggedUser = :user
             AND ut.isActive = true
-            AND p.status IN (com.JanSahayak.AI.enums.PostStatus.ACTIVE, com.JanSahayak.AI.enums.PostStatus.RESOLVED)
+            AND p.status IN (:activeStatus, :resolvedStatus)
             ORDER BY p.id DESC
             """)
     @QueryHints({
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTagged(@NonNull @Param("user") User user);
+    List<Post> findPostsWhereUserIsTagged(@NonNull @Param("user") User user, 
+                                          @Param("activeStatus") PostStatus activeStatus, 
+                                          @Param("resolvedStatus") PostStatus resolvedStatus);
 
     @Query(value = """
             SELECT DISTINCT p FROM Post p
@@ -279,14 +281,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             """)
     List<UserTag> findTagsInResolvedPosts(@NonNull @Param("status") PostStatus status);
 
-    @Query("""
-            SELECT ut FROM UserTag ut
-            WHERE ut.isActive = true
-            AND ut.post.status = com.JanSahayak.AI.enums.PostStatus.RESOLVED
-            AND ut.post.resolvedAt IS NOT NULL
-            ORDER BY ut.post.resolvedAt DESC
-            """)
-    List<UserTag> findTagsInResolvedPosts();
+
 
     /**
      * FIX: Replaced MySQL TIMESTAMPDIFF(HOUR, ...) with PostgreSQL-compatible JPQL.
@@ -421,9 +416,11 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             AND NOT EXISTS (
                 SELECT 1 FROM Post p
                 WHERE p.id = ut.post.id
-                AND p.status IN (com.JanSahayak.AI.enums.PostStatus.ACTIVE, com.JanSahayak.AI.enums.PostStatus.RESOLVED)
+                AND p.status IN (:activeStatus, :resolvedStatus)
             )
             """)
     List<UserTag> findTagsForCleanup(@NonNull @Param("cleanupDate") Date cleanupDate,
+                                     @Param("activeStatus") PostStatus activeStatus,
+                                     @Param("resolvedStatus") PostStatus resolvedStatus,
                                      @NonNull Pageable pageable);
 }

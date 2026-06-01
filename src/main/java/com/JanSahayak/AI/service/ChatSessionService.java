@@ -167,6 +167,22 @@ public class ChatSessionService {
         return message;
     }
 
+    public boolean markMessageAsSeen(String sessionId, String messageId) {
+        ChatSession session = getSession(sessionId);
+        if (session == null || session.getRecentMessages() == null) return false;
+
+        for (ChatMessage msg : session.getRecentMessages()) {
+            if (msg.getMessageId().equals(messageId)) {
+                if (!msg.isSeen()) {
+                    msg.setSeen(true);
+                    return true;
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+
     // ── Rich media message (IMAGE / VIDEO / STICKER / VOICE_NOTE) ─────────────
 
     /**

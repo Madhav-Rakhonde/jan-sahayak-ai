@@ -65,10 +65,11 @@ public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
     @Query("SELECT p.socialPost.id FROM PostLike p " +
             "WHERE p.user.id = :userId " +
             "AND p.socialPost.id IN :postIds " +
-            "AND p.reactionType = com.JanSahayak.AI.model.PostLike.ReactionType.LIKE")
+            "AND p.reactionType = :reactionType")
     List<Long> findLikedSocialPostIdsByUser(
             @Param("userId") Long userId,
-            @Param("postIds") List<Long> postIds);
+            @Param("postIds") List<Long> postIds,
+            @Param("reactionType") PostLike.ReactionType reactionType);
 
     /**
      * Returns IDs of social posts (from given list) that the user has DISLIKED.
@@ -77,10 +78,11 @@ public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
     @Query("SELECT p.socialPost.id FROM PostLike p " +
             "WHERE p.user.id = :userId " +
             "AND p.socialPost.id IN :postIds " +
-            "AND p.reactionType = com.JanSahayak.AI.model.PostLike.ReactionType.DISLIKE")
+            "AND p.reactionType = :reactionType")
     List<Long> findDislikedSocialPostIdsByUser(
             @Param("userId") Long userId,
-            @Param("postIds") List<Long> postIds);
+            @Param("postIds") List<Long> postIds,
+            @Param("reactionType") PostLike.ReactionType reactionType);
 
     /**
      * Returns IDs of regular posts (from given list) that the user has LIKED.
@@ -88,10 +90,11 @@ public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
     @Query("SELECT p.post.id FROM PostLike p " +
             "WHERE p.user.id = :userId " +
             "AND p.post.id IN :postIds " +
-            "AND p.reactionType = com.JanSahayak.AI.model.PostLike.ReactionType.LIKE")
+            "AND p.reactionType = :reactionType")
     List<Long> findLikedPostIdsByUser(
             @Param("userId") Long userId,
-            @Param("postIds") List<Long> postIds);
+            @Param("postIds") List<Long> postIds,
+            @Param("reactionType") PostLike.ReactionType reactionType);
 
     // =========================================================================
     // USER ACTIVITY LOOKUPS
