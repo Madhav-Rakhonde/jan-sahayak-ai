@@ -679,32 +679,26 @@ public class SocialPost {
     // =========================================================================
 
     public void recalculateEngagementScore() {
-        int totalViews    = Math.max(1, this.viewCount    != null ? this.viewCount    : 1);
+        int totalViews    = this.viewCount    != null ? this.viewCount    : 0;
         int totalLikes    = this.likeCount    != null ? this.likeCount    : 0;
-        int totalComments = this.commentCount != null ? this.commentCount : 0;
-        int totalShares   = this.shareCount   != null ? this.shareCount   : 0;
-        int totalSaves    = this.saveCount    != null ? this.saveCount    : 0;
+        int totalReports  = this.reportCount  != null ? this.reportCount  : 0;
 
-        double weightedEngagement = (totalLikes    * 1.0) +
-                (totalComments * 2.0) +
-                (totalShares   * 3.0) +
-                (totalSaves    * 2.5);
-
-        this.engagementScore = (weightedEngagement / totalViews) * 100;
+        this.engagementScore = com.JanSahayak.AI.service.HLIGScorer.calculateQualityScore(
+                totalLikes, totalViews, totalReports);
     }
 
     public void recalculateViralityScore() {
         if (createdAt == null) { this.viralityScore = 0.0; return; }
 
         long ageInHours = (System.currentTimeMillis() - createdAt.getTime()) / (1000 * 60 * 60);
-        ageInHours = Math.max(1, ageInHours);
+        
+        int totalLikes    = this.likeCount    != null ? this.likeCount    : 0;
+        int totalComments = this.commentCount != null ? this.commentCount : 0;
+        int totalShares   = this.shareCount   != null ? this.shareCount   : 0;
+        int totalSaves    = this.saveCount    != null ? this.saveCount    : 0;
 
-        int totalShares     = this.shareCount   != null ? this.shareCount   : 0;
-        int totalEngagement = (this.likeCount    != null ? this.likeCount    : 0) +
-                (this.commentCount != null ? this.commentCount : 0) +
-                totalShares;
-
-        this.viralityScore = ((totalShares * 10.0) + totalEngagement) / ageInHours;
+        this.viralityScore = com.JanSahayak.AI.service.HLIGScorer.calculateMomentumScore(
+                totalLikes, totalComments, totalShares, totalSaves, ageInHours);
     }
 
     private void applyFreshnessDecay() {

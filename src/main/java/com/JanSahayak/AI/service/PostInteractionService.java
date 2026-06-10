@@ -614,6 +614,11 @@ public class PostInteractionService {
         return savedPostRepo.existsByUserAndSocialPost(user, socialPost);
     }
 
+    public boolean hasSavedSocialPostByIds(Long socialPostId, Long userId) {
+        if (socialPostId == null || userId == null) return false;
+        return savedPostRepo.existsByUser_IdAndSocialPost_Id(userId, socialPostId);
+    }
+
     public boolean hasSavedBroadcastPost(Post post, User user) {
         if (post == null || user == null) return false;
         return savedPostRepo.existsByUserAndPost(user, post);

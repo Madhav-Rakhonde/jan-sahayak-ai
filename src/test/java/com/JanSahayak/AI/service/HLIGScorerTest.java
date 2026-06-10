@@ -110,4 +110,44 @@ class HLIGScorerTest {
         double geo = ReflectionTestUtils.invokeMethod(hligScorer, "geoProximity", user, post);
         assertEquals(Constant.HLIG_GEO_SAME_PINCODE, geo);
     }
+
+    // =========================================================================
+    // JANSAHAYAK DISCOVERY ENGINE TESTS
+    // =========================================================================
+
+    @Test
+    void testDiscoveryEngine_QualityScore_SparseNetwork() {
+        // 0 likes, 0 views => 1 / 10 = 10%
+        double score0 = HLIGScorer.calculateQualityScore(0, 0, 0);
+        assertEquals(10.0, score0, 0.1);
+        
+        // 1 like, 10 views => 2 / 20 = 10%
+        double score1 = HLIGScorer.calculateQualityScore(1, 10, 0);
+        assertEquals(10.0, score1, 0.1);
+
+        // 5 likes, 5 views => 6 / 15 = 40%
+        double score2 = HLIGScorer.calculateQualityScore(5, 5, 0);
+        assertEquals(40.0, score2, 0.1);
+    }
+
+    @Test
+    void testDiscoveryEngine_QualityScore_MassiveNetwork() {
+        // 1000 likes, 10000 views => 1001 / 10010 = ~10%
+        double score1 = HLIGScorer.calculateQualityScore(1000, 10000, 0);
+        assertEquals(10.0, score1, 0.1);
+        
+        // 9000 likes, 10000 views => 9001 / 10010 = ~89.9%
+        double score2 = HLIGScorer.calculateQualityScore(9000, 10000, 0);
+        assertEquals(89.9, score2, 0.1);
+    }
+
+    @Test
+    void testDiscoveryEngine_MomentumScore_GravityDecay() {
+        // High engagement post
+        double scoreHour0 = HLIGScorer.calculateMomentumScore(100, 50, 10, 5, 0);
+        double scoreHour24 = HLIGScorer.calculateMomentumScore(100, 50, 10, 5, 24);
+        
+        assertTrue(scoreHour0 > scoreHour24, "Score should decay over 24 hours");
+        assertTrue(scoreHour24 > 100.0, "Highly viral post should survive gravity after 24h");
+    }
 }

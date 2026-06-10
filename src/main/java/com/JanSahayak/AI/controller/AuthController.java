@@ -376,7 +376,16 @@ public class AuthController {
                 "Cosmic","Fiery","Dreamy","Tranquil","Golden","Boldhearted","Eternal","Zen","Spirited","Vast",
                 "Skybound","Stellar","Brighthearted","Roaring","Free","Harmonic","Nimble","Gallant","Sturdy","Calmhearted",
                 "Swiftfooted","Iron","Steady","Thunderous","Silentblade","Quickwitted","Stormy","Snowy","Frosty","Burning",
-                "Shadowy","Crimson","Silver","Serene","Ancient","Wildhearted","Springtime","Moonlit","Sunlit","Windswept"
+                "Shadowy","Crimson","Silver","Serene","Ancient","Wildhearted","Springtime","Moonlit","Sunlit","Windswept",
+                "Electric","Neon","Galactic","Fabulous","Majestic","Ruthless","Jolly","Savage","Tough","Velvet",
+                "Ambitious","Fearful","Furious","Curious","Pragmatic","Fanciful","Grandiose","Gleaming","Jumping","Sapphire",
+                "Emerald","Ruby","Diamond","Platinum","Copper","Brass","Titanium","Quantum","Cyber","Lunar",
+                "Solar","Astro","Meteor","Comet","Starlight","Nebula","Galaxy","Meteorite","Pulsar","Zealous",
+                "Vibrant","Tenacious","Stoic","Resolute","Quaint","Proud","Optimistic","Mellow","Logical","Jubilant",
+                "Invincible","Harmonious","Gritty","Enigmatic","Diligent","Auspicious","Astute","Audacious","Brawny","Candid",
+                "Dapper","Earnest","Flawless","Gleeful","Hardy","Intrepid","Jovial","Kooky","Lithe","Merry",
+                "Nifty","Outrageous","Peppy","Quirky","Rambunctious","Sassy","Snazzy","Spiffy","Swanky","Upbeat",
+                "Vivacious","Whimsical","Zippy"
         };
 
         String[] nouns = {
@@ -393,7 +402,20 @@ public class AuthController {
                 "Heron","Flamingo","Swan","Duck","Goose","Turkey","Chicken","Rooster","Peacock","Dove",
                 "Pigeon","Caterpillar","Worm","Snail","Slug","Clam","Oyster","Mussel","Coral","Barnacle",
                 "Griffin","Hydra","Cerberus","Unicorn","Pegasus","Minotaur","Yeti","Bigfoot","Werewolf","Ghoul",
-                "Sphinx","Chimera","Basilisk","Hippogriff","Mermaid","Phoenix","Wyvern","Leviathan","Titan","Golem"
+                "Sphinx","Chimera","Basilisk","Hippogriff","Mermaid","Wyvern","Leviathan","Titan","Golem","Ninja",
+                "Samurai","Wizard","Knight","Ranger","Pirate","Cyborg","Robot","Alien","Astronaut","Warrior",
+                "Paladin","Mage","Sorcerer","Warlock","Druid","Bard","Cleric","Monk","Rogue","Vampire",
+                "Zombie","Ghost","Phantom","Specter","Banshee","Goblin","Orc","Troll","Ogre","Kraken",
+                "Cyclops","Gargoyle","Wraith","Lich","Valkyrie","Imp","Demon","Alchemist","Archer","Assassin",
+                "Barbarian","Beast","Berserker","Centaur","Champion","Conjurer","Crusader","Deity","Diviner","Elemental",
+                "Elf","Enchanter","Explorer","Fighter","Gladiator","Guardian","Healer","Hunter","Illusionist","Invoker",
+                "Jester","Juggernaut","King","Legend","Lord","Mercenary","Mutant","Necromancer","Oracle","Outlaw",
+                "Pioneer","Prince","Prophet","Queen","Rebel","Sage","Savant","Scholar","Scout","Seer",
+                "Sentinel","Shaman","Sniper","Soldier","Summoner","Templar","Thief","Warlord","Weaver","Zephyr",
+                "Aardvark","Alpaca","Antelope","Baboon","Bandicoot","Bobcat","Capybara","Caribou","Cassowary","Chinchilla",
+                "Cougar","Coyote","Dingo","Echidna","Emu","Gazelle","Gibbon","Gopher","GuineaPig","Hamster",
+                "Hyena","Iguana","Impala","Jackal","Jackrabbit","Lemur","Llama","Macaque","Mandrill","Marmoset",
+                "Marmot","Meerkat","Mongoose","Ocelot"
         };
 
         for (int i = 0; i < 20; i++) {

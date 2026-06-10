@@ -11,6 +11,8 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
+import org.mockito.Spy;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +33,9 @@ public class TranslationServiceTest {
     @Mock
     private RestTemplate restTemplate;
 
+    @Spy
+    private ObjectMapper objectMapper = new ObjectMapper();
+
     @InjectMocks
     private TranslationService translationService;
 
@@ -47,8 +52,8 @@ public class TranslationServiceTest {
 
         // Mock RestTemplate response from Google API format
         String mockGoogleResponse = "[[[\"नमस्ते दुनिया\",\"Hello world\",null,null,1]],null,\"en\",null,null,null,1,[]]";
-        when(restTemplate.getForEntity(anyString(), eq(String.class)))
-                .thenReturn(new ResponseEntity<>(mockGoogleResponse, HttpStatus.OK));
+        when(restTemplate.getForObject(anyString(), eq(String.class)))
+                .thenReturn(mockGoogleResponse);
 
         // Mock DB save
         when(translationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));

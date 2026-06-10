@@ -45,6 +45,7 @@ public class PostService {
     private final NotificationService      notificationService;
     private final PostInteractionService   postInteractionService;
     private final TranslationService       translationService;
+    private final TextSimilarityService    textSimilarityService;
 
     // ── Cloudinary media adapter (replaces DrivePostMediaAdapter / local disk) ─
     // Bean name kept as drivePostMedia so no controller or other caller needs updating.
@@ -125,6 +126,16 @@ public class PostService {
                 if (!Constant.isValidIndianPincode(targetPincode)) {
                     throw new ValidationException("Invalid Indian pincode format: " + targetPincode);
                 }
+                
+                // Duplicate Issue Check
+                if (!postDto.isForceSubmit()) {
+                    Post duplicate = checkDuplicatePosts(targetPincode, safeContent, postDto.getTaggedUsernames());
+                    if (duplicate != null) {
+                        PostResponse duplicateResponse = convertToPostResponse(duplicate, user);
+                        throw new DuplicatePostException("Duplicate issue detected.", duplicateResponse);
+                    }
+                }
+                
                 post.setTargetPincodes(targetPincode);
                 log.info("Post created with target pincode: {}", targetPincode);
             }
@@ -149,6 +160,39 @@ public class PostService {
             log.error("Failed to create post: user={} (id={})", user.getActualUsername(), user.getId(), e);
             throw new ServiceException("Failed to create post: " + e.getMessage(), e);
         }
+    }
+
+    public Post checkDuplicatePosts(String pincode, String content, List<String> taggedUsernames) {
+        if (pincode == null || pincode.trim().isEmpty() || content == null || content.trim().isEmpty()) {
+            return null;
+        }
+
+        // Fetch ALL active posts in this specific pincode. 
+        // We cap it at 20 to ensure the DB query and memory loop stay under ~15ms for lightning-fast replies.
+        List<Post> activePosts = postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(
+                BroadcastScope.AREA, PostStatus.ACTIVE, pincode, PageRequest.of(0, 20));
+
+        for (Post post : activePosts) {
+            // If the new post tags specific departments, only compare against old posts that tag at least one of those
+            if (taggedUsernames != null && !taggedUsernames.isEmpty()) {
+                boolean hasOverlappingTag = false;
+                if (post.getUserTags() != null) {
+                    hasOverlappingTag = post.getUserTags().stream()
+                            .filter(tag -> tag.getTaggedUser() != null)
+                            .map(tag -> tag.getTaggedUser().getActualUsername())
+                            .anyMatch(taggedUsernames::contains);
+                }
+                if (!hasOverlappingTag) {
+                    continue;
+                }
+            }
+
+            double similarity = textSimilarityService.calculateSimilarity(content, post.getContent());
+            if (similarity >= 0.60) {
+                return post;
+            }
+        }
+        return null;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -300,6 +344,7 @@ public class PostService {
     // BROADCAST QUERIES
     // =========================================================================
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getPostsByUser(Long userId, Long beforeId, Integer limit) {
         try {
             User user = userRepository.findById(userId)
@@ -320,6 +365,8 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'all:' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
     public PaginatedResponse<Post> getAllBroadcastPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllBroadcastPosts", beforeId, limit);
@@ -335,6 +382,8 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'active:' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
     public PaginatedResponse<Post> getActiveBroadcastPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActiveBroadcastPosts", beforeId, limit);
@@ -350,6 +399,8 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'scope:' + #scope.name() + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
     public PaginatedResponse<Post> getBroadcastPostsByScope(BroadcastScope scope, Long beforeId, Integer limit) {
         try {
             PostUtility.validateBroadcastScope(scope);
@@ -366,6 +417,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getVisiblePostsForUser(User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
@@ -386,6 +438,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getBroadcastPostsVisibleToUser(User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
@@ -404,6 +457,8 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'countryAll:' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
     public PaginatedResponse<Post> getAllCountryWideBroadcasts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllCountryWideBroadcasts", beforeId, limit);
@@ -419,6 +474,8 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'countryActive:' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
     public PaginatedResponse<Post> getActiveCountryWideBroadcasts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActiveCountryWideBroadcasts", beforeId, limit);
@@ -434,10 +491,13 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getCountryWideBroadcasts(Long beforeId, Integer limit) {
         return getBroadcastPostsByScope(BroadcastScope.COUNTRY, beforeId, limit);
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'state:' + #state + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
     public PaginatedResponse<Post> getStateLevelBroadcasts(String state, Long beforeId, Integer limit) {
         try {
             if (state == null || state.trim().isEmpty()) throw new ValidationException("State cannot be empty");
@@ -460,6 +520,8 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'district:' + #district + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
     public PaginatedResponse<Post> getDistrictLevelBroadcasts(String district, Long beforeId, Integer limit) {
         try {
             if (district == null || district.trim().isEmpty()) throw new ValidationException("District cannot be empty");
@@ -483,6 +545,8 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'area:' + #pincode + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
     public PaginatedResponse<Post> getAreaLevelBroadcasts(String pincode, Long beforeId, Integer limit) {
         try {
             if (!Constant.isValidIndianPincode(pincode)) throw new ValidationException("Invalid Indian pincode format");

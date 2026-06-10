@@ -67,6 +67,9 @@ public class CacheConfig {
     private static final int  GEO_DIST_MAX_SIZE_ENTRIES = 50_000;
     private static final long GEO_DIST_EXPIRE_AFTER_WRITE_MINUTES = 30L;
 
+    private static final int  FEED_CACHE_MAX_SIZE_ENTRIES = 5_000;
+    private static final long FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES = 5L;
+
     @Bean
     public CacheManager cacheManager() {
         CaffeineCache profileCache = buildCache(
@@ -83,8 +86,22 @@ public class CacheConfig {
                 TimeUnit.MINUTES
         );
 
+        CaffeineCache trendingPostsCache = buildCache(
+                "trending-posts",
+                FEED_CACHE_MAX_SIZE_ENTRIES,
+                FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES,
+                TimeUnit.MINUTES
+        );
+
+        CaffeineCache broadcastFeedsCache = buildCache(
+                "broadcast-feeds",
+                FEED_CACHE_MAX_SIZE_ENTRIES,
+                FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES,
+                TimeUnit.MINUTES
+        );
+
         SimpleCacheManager manager = new SimpleCacheManager();
-        manager.setCaches(List.of(profileCache, geoDistCache));
+        manager.setCaches(List.of(profileCache, geoDistCache, trendingPostsCache, broadcastFeedsCache));
         return manager;
     }
 

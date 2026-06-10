@@ -443,4 +443,57 @@ public class HLIGScorer {
                 ? post.getQualityScore()
                 : Constant.POST_QUALITY_DEFAULT;
     }
+
+    // =========================================================================
+    // JANSAHAYAK DISCOVERY ENGINE (Momentum & Quality Math)
+    // =========================================================================
+
+    // Gravity determines how fast a post decays over time. 
+    // 1.2 allows posts to stay visible for 48-72 hours on sparse networks.
+    private static final double GRAVITY = 1.2;
+    
+    // Laplace smoothing priors for Quality Score (Like Rate).
+    // Assumes a "phantom" 1 like for every 10 views to prevent division by zero
+    // and give new posts a fighting chance on a 30-user network.
+    private static final double LAPLACE_LIKES = 1.0;
+    private static final double LAPLACE_VIEWS = 10.0;
+
+    /**
+     * The Momentum Score (Replaces simple viralityScore)
+     * Determines how fast a post is moving *right now*.
+     */
+    public static double calculateMomentumScore(int likes, int comments, int shares, int saves, long ageInHours) {
+        double basePoints = 1.0;
+        double weightedEngagement = basePoints 
+                + (likes * 1.0) 
+                + (comments * 2.0) 
+                + (saves * 2.5) 
+                + (shares * 5.0);
+
+        double effectiveAge = Math.max(0, ageInHours) + 2.0;
+        double momentum = weightedEngagement / Math.pow(effectiveAge, GRAVITY);
+        
+        return momentum * 100.0;
+    }
+
+    /**
+     * The Quality Score (Replaces simple engagementScore)
+     * Determines the actual value/relevance of the post using Bayesian Smoothing on Like Rate.
+     * Uses ONLY positive engagement metrics (no dislike button in UI).
+     */
+    public static double calculateQualityScore(int likes, int views, int reports) {
+        int effectiveViews = Math.max(views, likes);
+        
+        // E.g., 0 likes, 0 views = 1/10 = 10% expected quality
+        double bayesianLikeRate = (likes + LAPLACE_LIKES) / (effectiveViews + LAPLACE_VIEWS);
+        double qualityScore = bayesianLikeRate * 100.0;
+        
+        // Severe penalty for reports
+        if (reports > 0) {
+            double penaltyFactor = Math.pow(0.9, reports); 
+            qualityScore *= penaltyFactor;
+        }
+
+        return Math.min(100.0, qualityScore);
+    }
 }

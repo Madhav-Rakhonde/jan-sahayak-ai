@@ -38,4 +38,8 @@ public class PostCreateDto {
 
     @Size(max = 2000, message = "Target pincodes must not exceed 2000 characters")
     private String targetPincodes;
+
+    // Flag to bypass duplicate check
+    @Builder.Default
+    private boolean forceSubmit = false;
 }

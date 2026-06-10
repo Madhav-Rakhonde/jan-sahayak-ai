@@ -101,6 +101,19 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("pincode") String pincode);
 
+    @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
+            "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR " +
+            "p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
+            "p.targetPincodes LIKE CONCAT('%,', :pincode) OR " +
+            "p.targetPincodes = :pincode) AND p.createdAt >= :startDate " +
+            "ORDER BY p.createdAt DESC")
+    List<Post> findRecentAreaBroadcasts(
+            @Param("scope") BroadcastScope scope, 
+            @Param("status") PostStatus status, 
+            @Param("pincode") String pincode,
+            @Param("startDate") Timestamp startDate,
+            Pageable pageable);
+
     // ===== Efficient User Visibility Query Methods =====
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetStates LIKE CONCAT('%,', :userStatePrefix, ',%') OR " +

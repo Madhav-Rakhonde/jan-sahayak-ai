@@ -3,71 +3,62 @@ package com.JanSahayak.AI.service;
 import com.JanSahayak.AI.model.SocialPost;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-import java.util.Map;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 class TopicExtractorTest {
 
+    private DynamicNLPProcessor dynamicNLPProcessor;
+    private TopicAggregationWorker topicAggregationWorker;
     private TopicExtractor topicExtractor;
 
     @BeforeEach
     void setUp() {
-        topicExtractor = new TopicExtractor();
+        dynamicNLPProcessor = Mockito.mock(DynamicNLPProcessor.class);
+        topicAggregationWorker = Mockito.mock(TopicAggregationWorker.class);
+        topicExtractor = new TopicExtractor(dynamicNLPProcessor, topicAggregationWorker);
     }
 
     @Test
-    void testResolveToken_ExactMatch() {
-        assertEquals("roads", topicExtractor.resolveToken("roads"));
-        assertEquals("water_supply", topicExtractor.resolveToken("water"));
-    }
-
-    @Test
-    void testResolveToken_PrefixMatch() {
-        // "water_supply_problem" should map to "water_supply" via prefix "water"
-        assertEquals("water_supply", topicExtractor.resolveToken("water_supply_problem"));
-    }
-
-    @Test
-    void testResolveToken_NativeScript() {
-        // Hindi: सड़क (roads)
+    void testExtract_OnlyReturnsEstablishedTopics() {
         SocialPost post = new SocialPost();
-        post.setContent("\u0938\u095C\u0915 बहुत खराब है");
+        Map<String, Double> mockCandidates = new HashMap<>();
+        mockCandidates.put("pothole", 0.6);
+        mockCandidates.put("typo_word", 0.6);
         
-        Map<String, Double> topics = topicExtractor.extract(post);
-        assertTrue(topics.containsKey("roads"));
-        assertEquals(0.60, topics.get("roads")); // Content strength
-    }
+        when(dynamicNLPProcessor.parseCandidates(any(SocialPost.class))).thenReturn(mockCandidates);
+        
+        // Only pothole is established
+        when(topicAggregationWorker.isEstablishedTopic("pothole")).thenReturn(true);
+        when(topicAggregationWorker.isEstablishedTopic("typo_word")).thenReturn(false);
 
-    @Test
-    void testExtract_Hashtags() {
-        SocialPost post = new SocialPost();
-        post.setHashtagsList(Arrays.asList("#roads", "#water"));
-        
         Map<String, Double> topics = topicExtractor.extract(post);
         
-        assertTrue(topics.containsKey("roads"));
-        assertEquals(1.00, topics.get("roads")); // Hashtag strength
-        assertTrue(topics.containsKey("water_supply"));
-        assertEquals(1.00, topics.get("water_supply"));
+        assertTrue(topics.containsKey("pothole"));
+        assertFalse(topics.containsKey("typo_word"));
+        assertEquals(0.6, topics.get("pothole"));
     }
 
     @Test
     void testExtractFromHashtagsOnly() {
         SocialPost post = new SocialPost();
-        post.setHashtagsList(Arrays.asList("#education"));
+        post.setHashtagsList(Arrays.asList("#education", "#randomTag"));
         
+        when(topicAggregationWorker.isEstablishedTopic("education")).thenReturn(true);
+        when(topicAggregationWorker.isEstablishedTopic("randomtag")).thenReturn(false);
+
         Map<String, Double> topics = topicExtractor.extractFromHashtagsOnly(post);
         
         assertTrue(topics.containsKey("education"));
         assertEquals(1.00, topics.get("education"));
-    }
-
-    @Test
-    void testLocationTokensAreIgnored() {
-        assertNull(topicExtractor.resolveToken("mumbai"));
-        assertNull(topicExtractor.resolveToken("delhi"));
+        assertFalse(topics.containsKey("randomtag"));
     }
 }

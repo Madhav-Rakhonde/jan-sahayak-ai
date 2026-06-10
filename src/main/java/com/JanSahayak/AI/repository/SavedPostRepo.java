@@ -33,6 +33,8 @@ public interface SavedPostRepo extends JpaRepository<SavedPost, Long> {
 
     boolean existsByUserAndSocialPost(User user, SocialPost socialPost);
 
+    boolean existsByUser_IdAndSocialPost_Id(Long userId, Long socialPostId);
+
     boolean existsByUserAndPost(User user, Post post);
 
     // =========================================================================

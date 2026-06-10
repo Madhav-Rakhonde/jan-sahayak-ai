@@ -259,6 +259,23 @@ public class GlobalExceptionHandler {
     // 409 — CONFLICT
     // =========================================================================
 
+    @ExceptionHandler(DuplicatePostException.class)
+    public ResponseEntity<ApiResponse<Object>> handleDuplicatePost(
+            DuplicatePostException ex, WebRequest request) {
+        String requestId = generateRequestId();
+        log.error("Duplicate post conflict [{}]: {}", requestId, ex.getMessage());
+
+        ApiResponse<Object> response = ApiResponse.<Object>builder()
+                .success(false)
+                .message(ex.getMessage())
+                .data(ex.getDuplicatePost())
+                .timestamp(LocalDateTime.now())
+                .requestId(requestId)
+                .build();
+
+        return new ResponseEntity<>(response, HttpStatus.CONFLICT);
+    }
+
     /**
      * Handles IllegalStateException thrown by CommunityService (and any other service)
      * for conflict conditions — e.g. trying to join an archived community, duplicate

@@ -76,6 +76,7 @@ public class PostController {
     public ResponseEntity<ApiResponse<PostResponse>> createPostWithMedia(
             @RequestPart("content") String content,
             @RequestPart("targetPincode") String targetPincode,
+            @RequestPart(value = "forceSubmit", required = false) String forceSubmitStr,
             @RequestPart(value = "media", required = false) List<MultipartFile> mediaFile,
             @CurrentUser User user) {
         try {
@@ -96,10 +97,13 @@ public class PostController {
                         .body(ApiResponse.error("Validation failed", "Target pincode is required"));
             }
 
+            boolean forceSubmit = forceSubmitStr != null && forceSubmitStr.trim().equalsIgnoreCase("true");
+
             PostCreateDto postDto = PostCreateDto.builder()
                     .content(content.trim())
                     .targetPincode(targetPincode.trim())
                     .broadcastScope(BroadcastScope.AREA)
+                    .forceSubmit(forceSubmit)
                     .build();
 
             Post post = postService.createPost(postDto, user, mediaFile);

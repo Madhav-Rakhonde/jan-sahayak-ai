@@ -54,6 +54,7 @@ public class SocialPostService {
     private final NotificationService      notificationService;
     private final CommunityMemberRepo communityMemberRepo;
     private final TranslationService       translationService;
+    private final TopicAggregationWorker   topicAggregationWorker;
 
     @Lazy
     @Autowired
@@ -119,6 +120,8 @@ public class SocialPostService {
             // HLIG v2: post creation is the strongest interest signal (+5.0 weight).
             try {
                 interestProfileService.onPostCreated(savedPost.getUser().getId(), savedPost.getId());
+                // HLIG v4: trigger asynchronous folksonomy candidate extraction
+                topicAggregationWorker.processPostAsync(savedPost);
             } catch (Exception e) {
                 log.warn("[HLIG] onPostCreated failed: postId={} reason={}", savedPost.getId(), e.getMessage());
             }
@@ -359,9 +362,7 @@ public class SocialPostService {
 
     public boolean isSavedByUser(Long postId, User user) {
         if (user == null || postId == null) return false;
-        SocialPost socialPost = socialPostRepository.findById(postId).orElse(null);
-        if (socialPost == null) return false;
-        return postInteractionService.hasSavedSocialPost(socialPost, user);
+        return postInteractionService.hasSavedSocialPostByIds(postId, user.getId());
     }
 
     // =========================================================================
@@ -384,9 +385,9 @@ public class SocialPostService {
     }
 
     public long getShareCount(Long postId) {
-        SocialPost socialPost = socialPostRepository.findById(postId).orElse(null);
-        if (socialPost == null) return 0L;
-        return postInteractionService.getShareCountForSocialPost(socialPost);
+        if (postId == null) return 0L;
+        Integer shareCount = socialPostRepository.findShareCountById(postId);
+        return shareCount != null ? shareCount : 0L;
     }
 
     // =========================================================================
@@ -630,8 +631,8 @@ public class SocialPostService {
     public void recordScrolledPast(Long postId, User user) {
         if (postId == null || user == null) return;
         try {
-            SocialPost post = socialPostRepository.findById(postId).orElse(null);
-            if (post != null) interestProfileService.onScrolledPast(user.getId(), post.getId());
+            boolean exists = socialPostRepository.existsById(postId);
+            if (exists) interestProfileService.onScrolledPast(user.getId(), postId);
         } catch (Exception e) {
             log.warn("[HLIG] onScrolledPast failed: postId={} userId={} reason={}",
                     postId, user.getId(), e.getMessage());
@@ -641,9 +642,9 @@ public class SocialPostService {
     public void recordNotInterested(Long postId, User user) {
         if (postId == null || user == null) return;
         try {
-            SocialPost post = socialPostRepository.findById(postId).orElse(null);
-            if (post != null) {
-                interestProfileService.onNotInterested(user.getId(), post.getId());
+            boolean exists = socialPostRepository.existsById(postId);
+            if (exists) {
+                interestProfileService.onNotInterested(user.getId(), postId);
                 log.info("[HLIG] onNotInterested: postId={} userId={}", postId, user.getId());
             }
         } catch (Exception e) {

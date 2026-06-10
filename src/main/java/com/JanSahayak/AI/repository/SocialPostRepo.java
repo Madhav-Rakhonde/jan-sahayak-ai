@@ -168,6 +168,9 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
 
     Long countByCreatedAtAfter(Date date);
 
+    @Query("SELECT sp.shareCount FROM SocialPost sp WHERE sp.id = :id")
+    Integer findShareCountById(@Param("id") Long id);
+
     // =========================================================================
     // COMMUNITY FEED — LOCAL / PERSONALIZED
     // =========================================================================
