@@ -299,16 +299,25 @@ public class UserTaggingService {
 
     // CORRECTED: Method now returns a PaginatedResponse of DTOs
     @Transactional(readOnly = true)
-    public PaginatedResponse<PostResponse> getActivePostsVisibleToUser(User user, Long beforeId, Integer limit) {
+    public PaginatedResponse<PostResponse> getActivePostsVisibleToUser(User user, Long beforeId, Integer limit, String sortDirection) {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActivePostsVisibleToUser", beforeId, limit);
 
             List<Post> activePosts;
+            boolean isAsc = "asc".equalsIgnoreCase(sortDirection);
             if (setup.hasCursor()) {
-                activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
+                if (isAsc) {
+                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursorAsc(user, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
+                } else {
+                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
+                }
             } else {
-                activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, PostStatus.ACTIVE, setup.toPageable());
+                if (isAsc) {
+                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdAsc(user, PostStatus.ACTIVE, setup.toPageable());
+                } else {
+                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, PostStatus.ACTIVE, setup.toPageable());
+                }
             }
             activePosts = (activePosts == null) ? Collections.emptyList() : activePosts;
 
@@ -333,16 +342,25 @@ public class UserTaggingService {
 
     // CORRECTED: Method now returns a PaginatedResponse of DTOs
     @Transactional(readOnly = true)
-    public PaginatedResponse<PostResponse> getResolvedPostsVisibleToUser(User user, Long beforeId, Integer limit) {
+    public PaginatedResponse<PostResponse> getResolvedPostsVisibleToUser(User user, Long beforeId, Integer limit, String sortDirection) {
         try {
             PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getResolvedPostsVisibleToUser", beforeId, limit);
 
             List<Post> resolvedPosts;
+            boolean isAsc = "asc".equalsIgnoreCase(sortDirection);
             if (setup.hasCursor()) {
-                resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
+                if (isAsc) {
+                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursorAsc(user, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
+                } else {
+                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
+                }
             } else {
-                resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, PostStatus.RESOLVED, setup.toPageable());
+                if (isAsc) {
+                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdAsc(user, PostStatus.RESOLVED, setup.toPageable());
+                } else {
+                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, PostStatus.RESOLVED, setup.toPageable());
+                }
             }
             resolvedPosts = (resolvedPosts == null) ? Collections.emptyList() : resolvedPosts;
 
@@ -632,7 +650,7 @@ public class UserTaggingService {
             Long recentTags = userTagRepository.countByTaggedUserAndTaggedAtAfter(user, thirtyDaysAgo);
             analytics.put("recentTags30Days", recentTags != null ? recentTags : 0L);
 
-            PaginatedResponse<PostResponse> resolvedPosts = getResolvedPostsVisibleToUser(user, null, 1000); // Now gets PostResponse
+            PaginatedResponse<PostResponse> resolvedPosts = getResolvedPostsVisibleToUser(user, null, 1000, "desc"); // Now gets PostResponse
             OptionalDouble avgResolutionTime = resolvedPosts.getData().stream()
                     .filter(post -> post != null && post.getResolvedAt() != null && post.getCreatedAt() != null)
                     .mapToLong(post -> post.getResolvedAt().getTime() - post.getCreatedAt().getTime())
@@ -649,6 +667,24 @@ public class UserTaggingService {
         } catch (Exception e) {
             log.error("Failed to get comprehensive tagging analytics for user: {}", user.getActualUsername(), e);
             throw new ServiceException("Failed to get comprehensive tagging analytics: " + e.getMessage(), e);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getComprehensiveAnalyticsByUsername(String username) {
+        try {
+            if (username == null || username.trim().isEmpty()) {
+                throw new ValidationException("Username cannot be empty");
+            }
+            String cleanUsername = username.startsWith("@") ? username.substring(1) : username;
+            User user = userRepository.findByUsernameAndIsActiveTrue(cleanUsername)
+                    .orElseThrow(() -> new UserNotFoundException("User not found: " + cleanUsername));
+            return getComprehensiveTaggingAnalytics(user);
+        } catch (UserNotFoundException | ValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to get comprehensive analytics by username: {}", username, e);
+            throw new ServiceException("Failed to get comprehensive analytics by username: " + e.getMessage(), e);
         }
     }
 
@@ -686,7 +722,7 @@ public class UserTaggingService {
 
     // CHANGED: This method now returns a Map containing DTOs.
     @Transactional(readOnly = true)
-    public Map<String, Object> getActivePostsByUsername(String username, Long beforeId, Integer limit) {
+    public Map<String, Object> getActivePostsByUsername(String username, Long beforeId, Integer limit, String sortDirection) {
         try {
             if (username == null || username.trim().isEmpty()) {
                 throw new ValidationException("Username cannot be empty");
@@ -696,7 +732,7 @@ public class UserTaggingService {
             User user = userRepository.findByUsernameAndIsActiveTrue(cleanUsername)
                     .orElseThrow(() -> new UserNotFoundException("User not found: " + cleanUsername));
 
-            PaginatedResponse<PostResponse> posts = getActivePostsVisibleToUser(user, beforeId, limit);
+            PaginatedResponse<PostResponse> posts = getActivePostsVisibleToUser(user, beforeId, limit, sortDirection);
             Long totalActiveCount = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.ACTIVE);
 
             Map<String, Object> result = new HashMap<>();
@@ -720,7 +756,7 @@ public class UserTaggingService {
 
     // CORRECTED: This method now correctly uses the DTO-returning service method
     @Transactional(readOnly = true)
-    public Map<String, Object> getResolvedPostsByUsername(String username, Long beforeId, Integer limit) {
+    public Map<String, Object> getResolvedPostsByUsername(String username, Long beforeId, Integer limit, String sortDirection) {
         try {
             if (username == null || username.trim().isEmpty()) {
                 throw new ValidationException("Username cannot be empty");
@@ -730,7 +766,7 @@ public class UserTaggingService {
             User user = userRepository.findByUsernameAndIsActiveTrue(cleanUsername)
                     .orElseThrow(() -> new UserNotFoundException("User not found: " + cleanUsername));
 
-            PaginatedResponse<PostResponse> posts = getResolvedPostsVisibleToUser(user, beforeId, limit);
+            PaginatedResponse<PostResponse> posts = getResolvedPostsVisibleToUser(user, beforeId, limit, sortDirection);
             Long totalResolvedCount = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
 
             Map<String, Object> result = new HashMap<>();

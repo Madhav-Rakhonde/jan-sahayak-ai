@@ -58,6 +58,8 @@ public class PostController {
             PostResponse response = postService.convertToPostResponse(post, user);
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Post created successfully", response));
+        } catch (DuplicatePostException e) {
+            throw e; // Rethrow to allow GlobalExceptionHandler to handle it
         } catch (ValidationException e) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("Validation failed", e.getMessage()));
@@ -114,6 +116,8 @@ public class PostController {
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("Post with media created successfully", response));
 
+        } catch (DuplicatePostException e) {
+            throw e; // Rethrow to allow GlobalExceptionHandler to allow it
         } catch (ValidationException e) {
             log.error("Validation error: {}", e.getMessage());
             return ResponseEntity.badRequest()

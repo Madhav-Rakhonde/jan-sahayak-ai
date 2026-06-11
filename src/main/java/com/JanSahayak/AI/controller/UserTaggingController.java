@@ -116,9 +116,10 @@ public class UserTaggingController {
             @PathVariable String username,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
+            @RequestParam(defaultValue = "desc") String sort,
             @CurrentUser User currentUser) {
         try {
-            Map<String, Object> result = userTaggingService.getActivePostsByUsername(username, beforeId, limit);
+            Map<String, Object> result = userTaggingService.getActivePostsByUsername(username, beforeId, limit, sort);
             return ResponseEntity.ok(ApiResponse.success("Active tagged posts retrieved successfully", result));
         } catch (UserNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -136,9 +137,10 @@ public class UserTaggingController {
             @PathVariable String username,
             @RequestParam(required = false) Long beforeId,
             @RequestParam(required = false) Integer limit,
+            @RequestParam(defaultValue = "desc") String sort,
             @CurrentUser User currentUser) {
         try {
-            Map<String, Object> result = userTaggingService.getResolvedPostsByUsername(username, beforeId, limit);
+            Map<String, Object> result = userTaggingService.getResolvedPostsByUsername(username, beforeId, limit, sort);
             return ResponseEntity.ok(ApiResponse.success("Resolved tagged posts retrieved successfully", result));
         } catch (UserNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -147,6 +149,24 @@ public class UserTaggingController {
             log.error("Failed to get resolved tagged posts for username: {}", username, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Failed to get resolved tagged posts", "Internal server error"));
+        }
+    }
+
+    @GetMapping("/users/{username}/analytics")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getComprehensiveAnalytics(
+            @PathVariable String username,
+            @CurrentUser User currentUser) {
+        try {
+            Map<String, Object> result = userTaggingService.getComprehensiveAnalyticsByUsername(username);
+            return ResponseEntity.ok(ApiResponse.success("Tagging analytics retrieved successfully", result));
+        } catch (UserNotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("User not found", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to get tagging analytics for username: {}", username, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to get tagging analytics", "Internal server error"));
         }
     }
 }

@@ -387,6 +387,40 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
                                                                @NonNull @Param("status") PostStatus status,
                                                                @NonNull Pageable pageable);
 
+    @Query(value = """
+            SELECT DISTINCT p FROM Post p
+            JOIN UserTag ut ON ut.post = p
+            WHERE ut.taggedUser = :user
+            AND ut.isActive = true
+            AND p.status = :status
+            AND p.id > :afterId
+            ORDER BY p.id ASC
+            """)
+    @QueryHints({
+            @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
+            @QueryHint(name = "org.hibernate.readOnly",  value = "true")
+    })
+    List<Post> findPostsWhereUserIsTaggedByStatusWithCursorAsc(@NonNull @Param("user") User user,
+                                                               @NonNull @Param("status") PostStatus status,
+                                                               @NonNull @Param("afterId") Long afterId,
+                                                               @NonNull Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT p FROM Post p
+            JOIN UserTag ut ON ut.post = p
+            WHERE ut.taggedUser = :user
+            AND ut.isActive = true
+            AND p.status = :status
+            ORDER BY p.id ASC
+            """)
+    @QueryHints({
+            @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
+            @QueryHint(name = "org.hibernate.readOnly",  value = "true")
+    })
+    List<Post> findPostsWhereUserIsTaggedByStatusOrderByIdAsc(@NonNull @Param("user") User user,
+                                                              @NonNull @Param("status") PostStatus status,
+                                                              @NonNull Pageable pageable);
+
     // ===== Cursor-based Tagged Users in Post Queries =====
 
     /**
