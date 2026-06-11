@@ -126,10 +126,15 @@ public class PostService {
                 if (!Constant.isValidIndianPincode(targetPincode)) {
                     throw new ValidationException("Invalid Indian pincode format: " + targetPincode);
                 }
+                // Extract tags if not provided in DTO
+                List<String> tagsForDuplicateCheck = postDto.getTaggedUsernames();
+                if (tagsForDuplicateCheck == null || tagsForDuplicateCheck.isEmpty()) {
+                    tagsForDuplicateCheck = PostUtility.extractUserTags(safeContent);
+                }
                 
                 // Duplicate Issue Check
                 if (!postDto.isForceSubmit()) {
-                    Post duplicate = checkDuplicatePosts(targetPincode, safeContent, postDto.getTaggedUsernames());
+                    Post duplicate = checkDuplicatePosts(targetPincode, safeContent, tagsForDuplicateCheck);
                     if (duplicate != null) {
                         PostResponse duplicateResponse = convertToPostResponse(duplicate, user);
                         throw new DuplicatePostException("Duplicate issue detected.", duplicateResponse);
@@ -154,7 +159,7 @@ public class PostService {
                     post.getBroadcastScope() != null ? post.getBroadcastScope().getDescription() : "None",
                     post.getTargetPincodes());
             return post;
-        } catch (ValidationException | MediaValidationException e) {
+        } catch (ValidationException | MediaValidationException | DuplicatePostException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to create post: user={} (id={})", user.getActualUsername(), user.getId(), e);
@@ -167,24 +172,38 @@ public class PostService {
             return null;
         }
 
+        // If it's not tagged to anyone, it's not a report/complaint, so bypass duplicate checker
+        if (taggedUsernames == null || taggedUsernames.isEmpty()) {
+            return null;
+        }
+
+        // Only consider it an issue post if at least one tagged user is a department
+        List<User> taggedUsers = userRepository.findByUsernameInAndIsActiveTrue(taggedUsernames);
+        boolean hasDepartmentTag = false;
+        if (taggedUsers != null) {
+            hasDepartmentTag = taggedUsers.stream().anyMatch(User::isDepartment);
+        }
+        
+        if (!hasDepartmentTag) {
+            return null;
+        }
+
         // Fetch ALL active posts in this specific pincode. 
         // We cap it at 20 to ensure the DB query and memory loop stay under ~15ms for lightning-fast replies.
         List<Post> activePosts = postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(
                 BroadcastScope.AREA, PostStatus.ACTIVE, pincode, PageRequest.of(0, 20));
 
         for (Post post : activePosts) {
-            // If the new post tags specific departments, only compare against old posts that tag at least one of those
-            if (taggedUsernames != null && !taggedUsernames.isEmpty()) {
-                boolean hasOverlappingTag = false;
-                if (post.getUserTags() != null) {
-                    hasOverlappingTag = post.getUserTags().stream()
-                            .filter(tag -> tag.getTaggedUser() != null)
-                            .map(tag -> tag.getTaggedUser().getActualUsername())
-                            .anyMatch(taggedUsernames::contains);
-                }
-                if (!hasOverlappingTag) {
-                    continue;
-                }
+            // Only compare against old posts that tag at least one of the same departments
+            boolean hasOverlappingTag = false;
+            if (post.getUserTags() != null) {
+                hasOverlappingTag = post.getUserTags().stream()
+                        .filter(tag -> tag.getTaggedUser() != null)
+                        .map(tag -> tag.getTaggedUser().getActualUsername())
+                        .anyMatch(taggedUsernames::contains);
+            }
+            if (!hasOverlappingTag) {
+                continue;
             }
 
             double similarity = textSimilarityService.calculateSimilarity(content, post.getContent());

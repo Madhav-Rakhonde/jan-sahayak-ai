@@ -6,6 +6,7 @@ import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.model.UserTag;
 import com.JanSahayak.AI.repository.PostRepo;
+import com.JanSahayak.AI.repository.UserRepo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -19,7 +20,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,6 +28,9 @@ public class PostServiceTest {
 
     @Mock
     private PostRepo postRepository;
+
+    @Mock
+    private UserRepo userRepository;
 
     @Mock
     private TextSimilarityService textSimilarityService;
@@ -38,9 +42,20 @@ public class PostServiceTest {
     void testCheckDuplicatePosts_NoDuplicates() {
         String pincode = "411001";
         String content = "There is a huge pothole";
+        List<String> tags = Collections.singletonList("dept1");
+
+        User deptUser = mock(User.class);
+        when(deptUser.isDepartment()).thenReturn(true);
+        when(userRepository.findByUsernameInAndIsActiveTrue(anyList())).thenReturn(Collections.singletonList(deptUser));
 
         Post oldPost = new Post();
         oldPost.setContent("Water leak on main street");
+        
+        UserTag oldTag = mock(UserTag.class);
+        User oldTaggedUser = mock(User.class);
+        when(oldTag.getTaggedUser()).thenReturn(oldTaggedUser);
+        when(oldTaggedUser.getActualUsername()).thenReturn("dept1");
+        oldPost.setUserTags(Collections.singletonList(oldTag));
 
         when(postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(
                 any(), any(), any(), any()))
@@ -48,7 +63,7 @@ public class PostServiceTest {
 
         when(textSimilarityService.calculateSimilarity(content, oldPost.getContent())).thenReturn(0.2);
 
-        Post duplicate = postService.checkDuplicatePosts(pincode, content, null);
+        Post duplicate = postService.checkDuplicatePosts(pincode, content, tags);
 
         assertNull(duplicate, "Should return null when similarity is below threshold");
     }
@@ -57,9 +72,20 @@ public class PostServiceTest {
     void testCheckDuplicatePosts_DuplicateFound() {
         String pincode = "411001";
         String content = "There is a huge pothole";
+        List<String> tags = Collections.singletonList("dept1");
+
+        User deptUser = mock(User.class);
+        when(deptUser.isDepartment()).thenReturn(true);
+        when(userRepository.findByUsernameInAndIsActiveTrue(anyList())).thenReturn(Collections.singletonList(deptUser));
 
         Post oldPost = new Post();
         oldPost.setContent("Huge pothole reported here");
+        
+        UserTag oldTag = mock(UserTag.class);
+        User oldTaggedUser = mock(User.class);
+        when(oldTag.getTaggedUser()).thenReturn(oldTaggedUser);
+        when(oldTaggedUser.getActualUsername()).thenReturn("dept1");
+        oldPost.setUserTags(Collections.singletonList(oldTag));
 
         when(postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(
                 any(), any(), any(), any()))
@@ -67,62 +93,26 @@ public class PostServiceTest {
 
         when(textSimilarityService.calculateSimilarity(content, oldPost.getContent())).thenReturn(0.8);
 
-        Post duplicate = postService.checkDuplicatePosts(pincode, content, null);
+        Post duplicate = postService.checkDuplicatePosts(pincode, content, tags);
 
         assertNotNull(duplicate, "Should return the duplicate post when similarity is above threshold");
         assertEquals(oldPost, duplicate);
     }
-
+    
     @Test
-    void testCheckDuplicatePosts_WithTaggedDepartment_NoOverlap() {
+    void testCheckDuplicatePosts_NotADepartment() {
         String pincode = "411001";
         String content = "There is a huge pothole";
-        List<String> newPostTags = Arrays.asList("WaterDepartment");
+        List<String> tags = Collections.singletonList("normalUser");
 
-        Post oldPost = new Post();
-        oldPost.setContent("Huge pothole reported here");
-        
-        User oldTagUser = new User();
-        oldTagUser.setUsername("ElectricityDepartment");
-        UserTag oldUserTag = new UserTag();
-        oldUserTag.setTaggedUser(oldTagUser);
-        oldPost.setUserTags(Collections.singletonList(oldUserTag));
+        User normalUser = mock(User.class);
+        when(normalUser.isDepartment()).thenReturn(false);
+        when(userRepository.findByUsernameInAndIsActiveTrue(anyList())).thenReturn(Collections.singletonList(normalUser));
 
-        when(postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(
-                any(), any(), any(), any()))
-                .thenReturn(Collections.singletonList(oldPost));
+        Post duplicate = postService.checkDuplicatePosts(pincode, content, tags);
 
-        // Note: textSimilarityService should NOT be called because tags do not overlap
-        Post duplicate = postService.checkDuplicatePosts(pincode, content, newPostTags);
-
-        assertNull(duplicate, "Should return null because tagged departments do not overlap");
-        verify(textSimilarityService, never()).calculateSimilarity(anyString(), anyString());
-    }
-
-    @Test
-    void testCheckDuplicatePosts_WithTaggedDepartment_WithOverlap() {
-        String pincode = "411001";
-        String content = "There is a huge pothole";
-        List<String> newPostTags = Arrays.asList("RoadDepartment");
-
-        Post oldPost = new Post();
-        oldPost.setContent("Huge pothole reported here");
-        
-        User oldTagUser = new User();
-        oldTagUser.setUsername("RoadDepartment");
-        UserTag oldUserTag = new UserTag();
-        oldUserTag.setTaggedUser(oldTagUser);
-        oldPost.setUserTags(Collections.singletonList(oldUserTag));
-
-        when(postRepository.findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(
-                any(), any(), any(), any()))
-                .thenReturn(Collections.singletonList(oldPost));
-
-        when(textSimilarityService.calculateSimilarity(content, oldPost.getContent())).thenReturn(0.7);
-
-        Post duplicate = postService.checkDuplicatePosts(pincode, content, newPostTags);
-
-        assertNotNull(duplicate, "Should return duplicate because tags overlap and similarity is high");
-        assertEquals(oldPost, duplicate);
+        assertNull(duplicate, "Should return null because no department is tagged");
+        verify(postRepository, never()).findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(any(), any(), any(), any());
     }
 }
+

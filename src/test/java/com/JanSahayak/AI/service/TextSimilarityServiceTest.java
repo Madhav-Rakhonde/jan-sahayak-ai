@@ -44,6 +44,18 @@ public class TextSimilarityServiceTest {
     }
 
     @Test
+    void testShortVsLongDescription() {
+        // Core issue is the same, but one is much longer
+        String text1 = "Broken road near SBI bank";
+        String text2 = "There is a broken road near SBI bank which has been ignored for three days and it is causing a lot of problems for pedestrians walking at night.";
+
+        double similarity = textSimilarityService.calculateSimilarity(text1, text2);
+        // Overlap coefficient will be 1.0 (all keywords of text1 are in text2).
+        // Jaccard will be lower. Average should easily pass 0.60.
+        assertTrue(similarity >= 0.60, "Similarity should be high due to overlap coefficient");
+    }
+
+    @Test
     void testStopWordsAndShortWordsFiltered() {
         // "is", "a", "the", "to", "it" are stop words or < 2 length
         String text1 = "it is a big problem";

@@ -64,7 +64,15 @@ public class TextSimilarityService {
         Set<String> union = new HashSet<>(set1);
         union.addAll(set2);
 
-        return (double) intersection.size() / union.size();
+        // Jaccard Similarity (Intersection over Union)
+        double jaccard = (double) intersection.size() / union.size();
+
+        // Overlap Coefficient (how much of the smaller text is contained in the larger text)
+        int minSize = Math.min(set1.size(), set2.size());
+        double overlap = minSize == 0 ? 0.0 : (double) intersection.size() / minSize;
+
+        // Return the average of both to balance strict matching and substring-like matching
+        return (jaccard + overlap) / 2.0;
     }
 
     /**

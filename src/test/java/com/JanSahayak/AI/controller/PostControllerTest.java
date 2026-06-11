@@ -21,8 +21,12 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.mock.web.MockPart;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -83,5 +87,34 @@ class PostControllerTest {
                 .andExpect(jsonPath("$.message").value("Duplicate issue detected."))
                 .andExpect(jsonPath("$.data.id").value(99))
                 .andExpect(jsonPath("$.data.content").value("Duplicate content test"));
+    }
+
+    @Test
+    @DisplayName("Test createPostWithMedia with duplicate throws 409 Conflict")
+    void createPostWithMedia_whenDuplicate_shouldReturn409() throws Exception {
+        // Arrange
+        PostResponse duplicateResponse = new PostResponse();
+        duplicateResponse.setId(100L);
+        duplicateResponse.setContent("Duplicate media content test");
+
+        // Mock the postService to throw DuplicatePostException
+        Mockito.when(postService.createPost(any(PostCreateDto.class), any(), any()))
+                .thenThrow(new DuplicatePostException("Duplicate issue detected.", duplicateResponse));
+
+        // Mock rate limiter to allow the request
+        Mockito.when(rateLimiterService.tryConsume(any())).thenReturn(true);
+
+        MockMultipartFile mediaFile = new MockMultipartFile("media", "test.jpg", "image/jpeg", "test data".getBytes());
+
+        // Act & Assert
+        mockMvc.perform(multipart("/api/posts/with-media")
+                        .file(mediaFile)
+                        .part(new MockPart("content", "Duplicate media content test".getBytes()))
+                        .part(new MockPart("targetPincode", "411001".getBytes())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Duplicate issue detected."))
+                .andExpect(jsonPath("$.data.id").value(100))
+                .andExpect(jsonPath("$.data.content").value("Duplicate media content test"));
     }
 }
