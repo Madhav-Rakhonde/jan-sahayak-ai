@@ -7,6 +7,7 @@ import com.JanSahayak.AI.DTO.PostResponse;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.enums.BroadcastScope;
+import com.JanSahayak.AI.enums.FeedSort;
 import com.JanSahayak.AI.exception.*;
 import com.JanSahayak.AI.model.*;
 import com.JanSahayak.AI.model.PostShare.ShareType;
@@ -1548,7 +1549,7 @@ public class PostService {
     // LOCAL FEED / RECOMMENDATION
     // =========================================================================
 
-    public PaginatedResponse<PostResponse> getLocalFeed(User user, Long beforeId, int limit) {
+    public PaginatedResponse<PostResponse> getLocalFeed(User user, FeedSort sort, Long beforeId, int limit) {
         try {
             PostUtility.validateUser(user);
             pinCodeLookupService.populateUserLocationData(user);
@@ -1561,7 +1562,7 @@ public class PostService {
                 log.debug("[LocalFeed] userId={} has no pincode — returning all citizen posts nationally", user.getId());
                 List<Post> allCitizen = postRepository.findAllCitizenPosts(
                         PostStatus.ACTIVE, PageRequest.of(0, candidatePool));
-                return buildCitizenFeedResponse(allCitizen, user, null, null, null, validLimit, "NATIONAL");
+                return buildCitizenFeedResponse(allCitizen, user, sort, null, null, null, validLimit, "NATIONAL");
             }
 
             String userPincode    = user.getPincode();
@@ -1616,7 +1617,7 @@ public class PostService {
             }
 
             return buildCitizenFeedResponse(
-                    new ArrayList<>(merged.values()), user,
+                    new ArrayList<>(merged.values()), user, sort,
                     userPincode, districtPrefix, statePrefix,
                     validLimit, scopeLabel);
 
@@ -1631,16 +1632,50 @@ public class PostService {
      * Scores, ranks, and paginates a pool of citizen issue posts for the Location tab.
      */
     private PaginatedResponse<PostResponse> buildCitizenFeedResponse(
-            List<Post> pool, User user,
+            List<Post> pool, User user, FeedSort sort,
             String userPincode, String districtPrefix, String statePrefix,
             int validLimit, String scopeLabel) {
 
-        List<Post> ranked = pool.stream()
-                .filter(p -> p.getStatus() == PostStatus.ACTIVE)
-                .sorted(Comparator.comparingDouble(
-                        (Post p) -> computeIssueScore(p, userPincode, districtPrefix, statePrefix)).reversed())
-                .limit(validLimit)
-                .collect(Collectors.toList());
+        List<Post> ranked;
+        if (sort == FeedSort.NEW) {
+            ranked = pool.stream()
+                    .filter(p -> p.getStatus() == PostStatus.ACTIVE)
+                    .sorted(Comparator.comparingLong((Post p) -> p.getCreatedAt() != null ? -p.getCreatedAt().getTime() : 0L))
+                    .limit(validLimit)
+                    .collect(Collectors.toList());
+        } else if (sort == FeedSort.TOP) {
+            ranked = pool.stream()
+                    .filter(p -> p.getStatus() == PostStatus.ACTIVE)
+                    .sorted(Comparator.comparingDouble((Post p) -> {
+                        int likes = p.getLikeCount();
+                        int comments = p.getCommentCount();
+                        int shares = p.getShareCount();
+                        return -(likes * Constant.POST_WEIGHT_LIKE + comments * Constant.POST_WEIGHT_COMMENT + shares * 3.0);
+                    }))
+                    .limit(validLimit)
+                    .collect(Collectors.toList());
+        } else {
+            long now72hAgo = System.currentTimeMillis() - 72L * 60 * 60 * 1000;
+            long now7dAgo  = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000;
+            List<Post> active = pool.stream()
+                    .filter(p -> p.getStatus() == PostStatus.ACTIVE)
+                    .collect(Collectors.toList());
+            List<Post> hotPool = active.stream()
+                    .filter(p -> p.getCreatedAt() != null && p.getCreatedAt().getTime() >= now72hAgo)
+                    .collect(Collectors.toList());
+            if (hotPool.size() < 5) {
+                hotPool = active.stream()
+                        .filter(p -> p.getCreatedAt() != null && p.getCreatedAt().getTime() >= now7dAgo)
+                        .collect(Collectors.toList());
+            }
+            if (hotPool.isEmpty()) {
+                hotPool = active;
+            }
+            ranked = hotPool.stream()
+                    .sorted(Comparator.comparingDouble((Post p) -> computeIssueScore(p, userPincode, districtPrefix, statePrefix)).reversed())
+                    .limit(validLimit)
+                    .collect(Collectors.toList());
+        }
 
         log.debug("[LocalFeed] userId={} pincode={} scope={} pool={} returned={}",
                 user.getId(), userPincode, scopeLabel, pool.size(), ranked.size());
@@ -1659,7 +1694,7 @@ public class PostService {
      * Official government feed — exclusively departments/admins, strictly geo-targeted.
      * Waterfall: User's Pincode -> User's District -> User's State -> National.
      */
-    public PaginatedResponse<PostResponse> getOfficialFeed(User user, Long beforeId, int limit) {
+    public PaginatedResponse<PostResponse> getOfficialFeed(User user, FeedSort sort, Long beforeId, int limit) {
         try {
             PostUtility.validateUser(user);
             pinCodeLookupService.populateUserLocationData(user);
@@ -1717,10 +1752,56 @@ public class PostService {
                 ).forEach(p -> merged.putIfAbsent(p.getId(), p));
             }
 
-            // Filter by cursor, sort by ID desc, and limit
-            List<Post> finalPosts = merged.values().stream()
+            // Deduplicate and filter by cursor (beforeId)
+            List<Post> allOfficial = merged.values().stream()
                     .filter(p -> beforeId == null || p.getId() < beforeId)
-                    .sorted(Comparator.comparing(Post::getId).reversed())
+                    .collect(Collectors.toList());
+            List<Post> sortedOfficial;
+            if (sort == FeedSort.NEW) {
+                // --- NEW (Chronological) ---
+                sortedOfficial = allOfficial.stream()
+                        .sorted(Comparator.comparingLong((Post p) -> p.getCreatedAt() != null ? -p.getCreatedAt().getTime() : -p.getId()))
+                        .collect(Collectors.toList());
+            } else if (sort == FeedSort.TOP) {
+                // --- TOP (All-Time Engagement Score) ---
+                sortedOfficial = allOfficial.stream()
+                        .sorted(Comparator.comparingDouble((Post p) -> {
+                            int likes = p.getLikeCount();
+                            int comments = p.getCommentCount();
+                            int shares = p.getShareCount();
+                            return -(likes * Constant.POST_WEIGHT_LIKE + comments * Constant.POST_WEIGHT_COMMENT + shares * 3.0);
+                        }))
+                        .collect(Collectors.toList());
+            } else { 
+                // --- HOT (Trending Official Updates) ---
+                long now72hAgo = System.currentTimeMillis() - 72L * 60 * 60 * 1000;
+                long now7dAgo  = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000;
+                // Attempt to filter for posts in the last 72 hours
+                List<Post> hotPool = allOfficial.stream()
+                        .filter(p -> p.getCreatedAt() != null && p.getCreatedAt().getTime() >= now72hAgo)
+                        .collect(Collectors.toList());
+                // Fallback to last 7 days
+                if (hotPool.size() < 5) {
+                    hotPool = allOfficial.stream()
+                            .filter(p -> p.getCreatedAt() != null && p.getCreatedAt().getTime() >= now7dAgo)
+                            .collect(Collectors.toList());
+                }
+                // Final fallback: all posts
+                if (hotPool.isEmpty()) {
+                    hotPool = allOfficial;
+                }
+                // Sort the trending updates by engagement
+                sortedOfficial = hotPool.stream()
+                        .sorted(Comparator.comparingDouble((Post p) -> {
+                            int likes = p.getLikeCount();
+                            int comments = p.getCommentCount();
+                            int shares = p.getShareCount();
+                            return -(likes * Constant.POST_WEIGHT_LIKE + comments * Constant.POST_WEIGHT_COMMENT + shares * 3.0);
+                        }))
+                        .collect(Collectors.toList());
+            }
+            // Paginate the sorted list
+            List<Post> finalPosts = sortedOfficial.stream()
                     .limit(validLimit)
                     .collect(Collectors.toList());
 

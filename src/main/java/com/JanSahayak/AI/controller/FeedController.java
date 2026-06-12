@@ -213,12 +213,13 @@ public class FeedController {
     @GetMapping("/local")
     public ResponseEntity<PaginatedResponse<PostResponse>> getLocalFeed(
             @CurrentUser        User user,
+            @RequestParam(defaultValue = "HOT") FeedSort sort,
             @RequestParam(required = false)  Long beforeId,
             @RequestParam(defaultValue = "20") int limit) {
 
         limit = clampSize(limit);
-        log.debug("[Feed] LOCAL: userId={} beforeId={} limit={}", userId(user), beforeId, limit);
-        return ResponseEntity.ok(postService.getLocalFeed(user, beforeId, limit));
+        log.debug("[Feed] LOCAL sort={}: userId={} beforeId={} limit={}", sort, userId(user), beforeId, limit);
+        return ResponseEntity.ok(postService.getLocalFeed(user, sort, beforeId, limit));
     }
 
     /**
@@ -230,12 +231,13 @@ public class FeedController {
     @GetMapping("/official")
     public ResponseEntity<PaginatedResponse<PostResponse>> getOfficialFeed(
             @CurrentUser        User user,
+            @RequestParam(defaultValue = "HOT") FeedSort sort,
             @RequestParam(required = false)  Long beforeId,
             @RequestParam(defaultValue = "20") int limit) {
 
         limit = clampSize(limit);
-        log.debug("[Feed] OFFICIAL: userId={} beforeId={} limit={}", userId(user), beforeId, limit);
-        return ResponseEntity.ok(postService.getOfficialFeed(user, beforeId, limit));
+        log.debug("[Feed] OFFICIAL sort={}: userId={} beforeId={} limit={}", sort, userId(user), beforeId, limit);
+        return ResponseEntity.ok(postService.getOfficialFeed(user, sort, beforeId, limit));
     }
 
 
