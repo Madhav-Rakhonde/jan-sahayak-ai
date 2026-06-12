@@ -24,7 +24,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import jakarta.validation.ValidationException;
+import com.JanSahayak.AI.exception.ValidationException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -573,8 +573,8 @@ public class UserService implements UserDetailsService {
                 rateLimitingService.recordFailedPasswordChange(user.getEmail());
                 throw new ValidationException("Incorrect current password.");
             }
-            if (newPassword == null || newPassword.length() < 8) {
-                throw new ValidationException("Password must be at least 8 characters long.");
+            if (newPassword == null || !newPassword.matches("^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=!.*_\\-])(?=\\S+$).{8,20}$")) {
+                throw new ValidationException("Password must be 8-20 characters long and contain at least one digit, one lowercase, one uppercase, one special character, and no whitespace.");
             }
             user.setPassword(passwordEncoder.encode(newPassword));
             userRepository.save(user);
