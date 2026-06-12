@@ -203,6 +203,67 @@ public class PostServiceTest {
         assertEquals(42L, count);
         verify(postRepository, times(1)).countByUserId(userId);
     }
+    @Test
+    void testGetBroadcastStatistics_FiltersDeletedPosts() {
+        when(postRepository.countByBroadcastScopeIsNotNullAndStatusNot(PostStatus.DELETED)).thenReturn(100L);
+        when(postRepository.countByBroadcastScopeIsNotNullAndStatus(PostStatus.ACTIVE)).thenReturn(90L);
+        when(postRepository.countByBroadcastScopeAndTargetCountryAndStatusNot(eq(BroadcastScope.COUNTRY), anyString(), eq(PostStatus.DELETED))).thenReturn(20L);
+
+        for (BroadcastScope scope : BroadcastScope.values()) {
+            when(postRepository.countByBroadcastScopeAndStatusNot(scope, PostStatus.DELETED)).thenReturn(10L);
+            when(postRepository.countByBroadcastScopeAndStatus(scope, PostStatus.ACTIVE)).thenReturn(8L);
+        }
+
+        java.util.Map<String, Long> stats = postService.getBroadcastStatistics();
+
+        assertEquals(100L, stats.get("totalBroadcasts"));
+        assertEquals(90L, stats.get("activeBroadcasts"));
+        assertEquals(20L, stats.get("countryWideBroadcasts"));
+        
+        for (BroadcastScope scope : BroadcastScope.values()) {
+            assertEquals(10L, stats.get("broadcasts" + scope.name()));
+            assertEquals(8L, stats.get("activeBroadcasts" + scope.name()));
+        }
+
+        verify(postRepository).countByBroadcastScopeIsNotNullAndStatusNot(PostStatus.DELETED);
+    }
+
+    @Test
+    void testGetBroadcastAnalytics_FiltersDeletedPosts() {
+        Long userId = 1L;
+        User user = new User();
+        user.setId(userId);
+        user.setUsername("testUser");
+        com.JanSahayak.AI.model.Role role = new com.JanSahayak.AI.model.Role();
+        role.setName("ROLE_ADMIN");
+        user.setRole(role);
+
+        when(postRepository.countByUserIdAndBroadcastScopeIsNotNullAndStatusNot(userId, PostStatus.DELETED)).thenReturn(50L);
+        when(postRepository.countByUserIdAndBroadcastScopeIsNotNullAndCreatedAtAfterAndStatusNot(eq(userId), any(), eq(PostStatus.DELETED))).thenReturn(10L);
+        when(postRepository.countByUserIdAndBroadcastScopeAndTargetCountryAndStatusNot(eq(userId), eq(BroadcastScope.COUNTRY), anyString(), eq(PostStatus.DELETED))).thenReturn(5L);
+
+        for (BroadcastScope scope : BroadcastScope.values()) {
+            when(postRepository.countByUserIdAndBroadcastScopeAndStatusNot(userId, scope, PostStatus.DELETED)).thenReturn(2L);
+        }
+        
+        Post mockPost = new Post();
+        mockPost.setLikeCount(10);
+        mockPost.setCommentCount(5);
+        mockPost.setViewCount(100);
+        mockPost.setShareCount(2);
+        
+        when(postRepository.findByUserIdAndBroadcastScopeIsNotNullAndStatusNot(userId, PostStatus.DELETED))
+            .thenReturn(Collections.singletonList(mockPost));
+
+        java.util.Map<String, Object> analytics = postService.getBroadcastAnalytics(user, 7);
+
+        assertEquals(50L, analytics.get("totalBroadcastsCreated"));
+        assertEquals(10L, analytics.get("recentBroadcasts"));
+        assertEquals(5L, analytics.get("countryWideBroadcasts"));
+        
+        assertEquals(10.0, analytics.get("averageLikes"));
+        assertEquals(5.0, analytics.get("averageComments"));
+
+        verify(postRepository).countByUserIdAndBroadcastScopeIsNotNullAndStatusNot(userId, PostStatus.DELETED);
+    }
 }
-
-

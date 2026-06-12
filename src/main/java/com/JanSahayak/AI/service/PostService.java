@@ -589,12 +589,12 @@ public class PostService {
     public Map<String, Long> getBroadcastStatistics() {
         try {
             Map<String, Long> stats = new HashMap<>();
-            stats.put("totalBroadcasts", postRepository.countByBroadcastScopeIsNotNull());
+            stats.put("totalBroadcasts", postRepository.countByBroadcastScopeIsNotNullAndStatusNot(PostStatus.DELETED));
             stats.put("activeBroadcasts", postRepository.countByBroadcastScopeIsNotNullAndStatus(PostStatus.ACTIVE));
-            Long countryBroadcasts = postRepository.countByBroadcastScopeAndTargetCountry(BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY);
+            Long countryBroadcasts = postRepository.countByBroadcastScopeAndTargetCountryAndStatusNot(BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY, PostStatus.DELETED);
             stats.put("countryWideBroadcasts", countryBroadcasts != null ? countryBroadcasts : 0L);
             for (BroadcastScope scope : BroadcastScope.values()) {
-                Long count = postRepository.countByBroadcastScope(scope);
+                Long count = postRepository.countByBroadcastScopeAndStatusNot(scope, PostStatus.DELETED);
                 stats.put("broadcasts" + scope.name(), count != null ? count : 0L);
                 Long activeCount = postRepository.countByBroadcastScopeAndStatus(scope, PostStatus.ACTIVE);
                 stats.put("activeBroadcasts" + scope.name(), activeCount != null ? activeCount : 0L);
@@ -614,19 +614,19 @@ public class PostService {
             LocalDateTime startDate = LocalDateTime.now().minus(days, ChronoUnit.DAYS);
             Timestamp timestamp = Timestamp.valueOf(startDate);
             Map<String, Object> analytics = new HashMap<>();
-            analytics.put("totalBroadcastsCreated", postRepository.countByUserIdAndBroadcastScopeIsNotNull(user.getId()));
-            analytics.put("recentBroadcasts", postRepository.countByUserIdAndBroadcastScopeIsNotNullAndCreatedAtAfter(user.getId(), timestamp));
+            analytics.put("totalBroadcastsCreated", postRepository.countByUserIdAndBroadcastScopeIsNotNullAndStatusNot(user.getId(), PostStatus.DELETED));
+            analytics.put("recentBroadcasts", postRepository.countByUserIdAndBroadcastScopeIsNotNullAndCreatedAtAfterAndStatusNot(user.getId(), timestamp, PostStatus.DELETED));
             if (PostUtility.canCreateBroadcast(user)) {
-                Long cb = postRepository.countByUserIdAndBroadcastScopeAndTargetCountry(user.getId(), BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY);
+                Long cb = postRepository.countByUserIdAndBroadcastScopeAndTargetCountryAndStatusNot(user.getId(), BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY, PostStatus.DELETED);
                 analytics.put("countryWideBroadcasts", cb != null ? cb : 0L);
             }
             Map<String, Long> scopeBreakdown = new HashMap<>();
             for (BroadcastScope scope : BroadcastScope.values()) {
-                Long count = postRepository.countByUserIdAndBroadcastScope(user.getId(), scope);
+                Long count = postRepository.countByUserIdAndBroadcastScopeAndStatusNot(user.getId(), scope, PostStatus.DELETED);
                 scopeBreakdown.put(scope.name(), count != null ? count : 0L);
             }
             analytics.put("scopeBreakdown", scopeBreakdown);
-            List<Post> userBroadcasts = postRepository.findByUserIdAndBroadcastScopeIsNotNull(user.getId());
+            List<Post> userBroadcasts = postRepository.findByUserIdAndBroadcastScopeIsNotNullAndStatusNot(user.getId(), PostStatus.DELETED);
             if (userBroadcasts != null && !userBroadcasts.isEmpty()) {
                 analytics.put("averageLikes",    Math.round(userBroadcasts.stream().mapToInt(Post::getLikeCount).average().orElse(0.0)    * 100.0) / 100.0);
                 analytics.put("averageComments", Math.round(userBroadcasts.stream().mapToInt(Post::getCommentCount).average().orElse(0.0) * 100.0) / 100.0);

@@ -178,23 +178,38 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Query("SELECT COUNT(p) FROM Post p WHERE p.broadcastScope IS NOT NULL")
     Long countByBroadcastScopeIsNotNull();
 
+    @Query("SELECT COUNT(p) FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.status != :status")
+    Long countByBroadcastScopeIsNotNullAndStatusNot(@Param("status") PostStatus status);
+
     @Query("SELECT COUNT(p) FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.status = :status")
     Long countByBroadcastScopeIsNotNullAndStatus(@Param("status") PostStatus status);
 
     Long countByBroadcastScope(BroadcastScope scope);
+    Long countByBroadcastScopeAndStatusNot(BroadcastScope scope, PostStatus status);
     Long countByBroadcastScopeAndStatus(BroadcastScope scope, PostStatus status);
 
     @Query("SELECT COUNT(p) FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL")
     Long countByUserIdAndBroadcastScopeIsNotNull(@Param("userId") Long userId);
 
+    @Query("SELECT COUNT(p) FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL AND p.status != :status")
+    Long countByUserIdAndBroadcastScopeIsNotNullAndStatusNot(@Param("userId") Long userId, @Param("status") PostStatus status);
+
     @Query("SELECT COUNT(p) FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL AND p.createdAt > :timestamp")
     Long countByUserIdAndBroadcastScopeIsNotNullAndCreatedAtAfter(
             @Param("userId") Long userId, @Param("timestamp") Timestamp timestamp);
 
+    @Query("SELECT COUNT(p) FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL AND p.createdAt > :timestamp AND p.status != :status")
+    Long countByUserIdAndBroadcastScopeIsNotNullAndCreatedAtAfterAndStatusNot(
+            @Param("userId") Long userId, @Param("timestamp") Timestamp timestamp, @Param("status") PostStatus status);
+
     Long countByUserIdAndBroadcastScope(Long userId, BroadcastScope scope);
+    Long countByUserIdAndBroadcastScopeAndStatusNot(Long userId, BroadcastScope scope, PostStatus status);
 
     @Query("SELECT p FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL")
     List<Post> findByUserIdAndBroadcastScopeIsNotNull(@Param("userId") Long userId);
+
+    @Query("SELECT p FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL AND p.status != :status")
+    List<Post> findByUserIdAndBroadcastScopeIsNotNullAndStatusNot(@Param("userId") Long userId, @Param("status") PostStatus status);
 
     // ===== FIX: Single GROUP BY query to replace N per-scope COUNT loops =====
     // Used by PostService.getBroadcastStatistics() to avoid 2×N individual COUNT queries.
@@ -317,6 +332,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findByBroadcastScopeAndStatusAndTargetCountryOrderByCreatedAtDesc(
             BroadcastScope scope, PostStatus status, String targetCountry);
     Long countByBroadcastScopeAndTargetCountry(BroadcastScope scope, String targetCountry);
+    Long countByBroadcastScopeAndTargetCountryAndStatusNot(BroadcastScope scope, String targetCountry, PostStatus status);
     Long countByBroadcastScopeAndStatusAndTargetCountry(BroadcastScope scope, PostStatus status, String targetCountry);
 
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
@@ -408,6 +424,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findPostsWithoutTargetCountry();
 
     Long countByUserIdAndBroadcastScopeAndTargetCountry(Long userId, BroadcastScope scope, String targetCountry);
+    Long countByUserIdAndBroadcastScopeAndTargetCountryAndStatusNot(Long userId, BroadcastScope scope, String targetCountry, PostStatus status);
 
     // ===== FIX: JOIN FETCH user+role on primary status feed queries =====
     // These replace the bare findByStatusOrderByCreatedAtDesc variants to eliminate

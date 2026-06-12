@@ -163,10 +163,12 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // =========================================================================
 
     Long countByUserId(Long userId);
+    Long countByUserIdAndStatusNot(Long userId, PostStatus status);
 
     Long countByStatus(PostStatus status);
 
     Long countByCreatedAtAfter(Date date);
+    Long countByCreatedAtAfterAndStatusNot(Date date, PostStatus status);
 
     @Query("SELECT sp.shareCount FROM SocialPost sp WHERE sp.id = :id")
     Integer findShareCountById(@Param("id") Long id);
