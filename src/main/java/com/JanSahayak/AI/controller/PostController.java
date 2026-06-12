@@ -924,7 +924,7 @@ public class PostController {
             @RequestParam(required = false) Integer limit,
             @CurrentUser User user) {
         try {
-            PaginatedResponse<Post> posts = postService.getPostsByUser(user, beforeId, limit);
+            PaginatedResponse<Post> posts = postService.getPostsByUser(user.getId(), beforeId, limit);
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("Your posts retrieved successfully", response));
         } catch (Exception e) {
@@ -941,7 +941,7 @@ public class PostController {
             @RequestParam(required = false) Integer limit,
             @CurrentUser User user) {
         try {
-            PaginatedResponse<Post> posts = postService.getActivePostsByUser(user, beforeId, limit);
+            PaginatedResponse<Post> posts = postService.getActivePostsByUser(user.getId(), beforeId, limit);
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("Your active posts retrieved successfully", response));
         } catch (Exception e) {
@@ -958,7 +958,7 @@ public class PostController {
             @RequestParam(required = false) Integer limit,
             @CurrentUser User user) {
         try {
-            PaginatedResponse<Post> posts = postService.getResolvedPostsByUser(user, user, beforeId, limit);
+            PaginatedResponse<Post> posts = postService.getResolvedPostsByUser(user, user.getId(), beforeId, limit);
             PaginatedResponse<PostResponse> response = postService.convertPaginatedPostsToResponses(posts, user);
             return ResponseEntity.ok(ApiResponse.success("Your resolved posts retrieved successfully", response));
         } catch (SecurityException e) {

@@ -66,7 +66,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND p.status IN (:activeStatus, :resolvedStatus)
             ORDER BY p.id DESC
@@ -75,14 +75,14 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTagged(@NonNull @Param("user") User user, 
+    List<Post> findPostsWhereUserIsTagged(@NonNull @Param("userId") Long userId, 
                                           @Param("activeStatus") PostStatus activeStatus, 
                                           @Param("resolvedStatus") PostStatus resolvedStatus);
 
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND p.status = :status
             ORDER BY p.id DESC
@@ -91,13 +91,13 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTaggedByStatus(@NonNull @Param("user") User user,
+    List<Post> findPostsWhereUserIsTaggedByStatus(@NonNull @Param("userId") Long userId,
                                                   @NonNull @Param("status") PostStatus status);
 
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND p.status IN :statuses
             ORDER BY p.id DESC
@@ -106,13 +106,13 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTaggedByStatuses(@NonNull @Param("user") User user,
+    List<Post> findPostsWhereUserIsTaggedByStatuses(@NonNull @Param("userId") Long userId,
                                                     @NonNull @Param("statuses") List<PostStatus> statuses);
 
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND ut.taggedAt >= :fromDate
             ORDER BY p.id DESC
@@ -121,34 +121,34 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findRecentPostsWhereUserIsTagged(@NonNull @Param("user") User user,
+    List<Post> findRecentPostsWhereUserIsTagged(@NonNull @Param("userId") Long userId,
                                                 @NonNull @Param("fromDate") Date fromDate);
 
     // ===== Optimized Count Queries =====
 
-    @Query("SELECT COUNT(ut.id) FROM UserTag ut WHERE ut.taggedUser = :user AND ut.isActive = true")
-    Long countByTaggedUser(@NonNull @Param("user") User user);
+    @Query("SELECT COUNT(ut.id) FROM UserTag ut WHERE ut.taggedUser.id = :userId AND ut.isActive = true")
+    Long countByTaggedUser(@NonNull @Param("userId") Long userId);
 
     @Query("""
             SELECT COUNT(DISTINCT ut.post.id) FROM UserTag ut
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.post.status = :status
             AND ut.isActive = true
             """)
-    Long countByTaggedUserAndPostStatus(@NonNull @Param("user") User user,
+    Long countByTaggedUserAndPostStatus(@NonNull @Param("userId") Long userId,
                                         @NonNull @Param("status") PostStatus status);
 
     @Query("""
             SELECT COUNT(ut.id) FROM UserTag ut
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.taggedAt >= :date
             AND ut.isActive = true
             """)
-    Long countByTaggedUserAndTaggedAtAfter(@NonNull @Param("user") User user,
+    Long countByTaggedUserAndTaggedAtAfter(@NonNull @Param("userId") Long userId,
                                            @NonNull @Param("date") Date date);
 
-    @Query("SELECT COUNT(ut.id) FROM UserTag ut WHERE ut.taggedBy = :user AND ut.isActive = true")
-    Long countByTaggedBy(@NonNull @Param("user") User user);
+    @Query("SELECT COUNT(ut.id) FROM UserTag ut WHERE ut.taggedBy.id = :userId AND ut.isActive = true")
+    Long countByTaggedBy(@NonNull @Param("userId") Long userId);
 
     @Query("SELECT COUNT(ut.id) FROM UserTag ut WHERE ut.isActive = true")
     Long countActiveUserTags();
@@ -194,11 +194,11 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     @Query("""
             SELECT ut.post.status, COUNT(DISTINCT ut.post.id) as postCount
             FROM UserTag ut
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             GROUP BY ut.post.status
             """)
-    List<Object[]> getPostStatusDistributionForUser(@NonNull @Param("user") User user);
+    List<Object[]> getPostStatusDistributionForUser(@NonNull @Param("userId") Long userId);
 
     // ===== Geographic and Targeted Queries =====
 
@@ -326,7 +326,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND p.id < :beforeId
             ORDER BY p.id DESC
@@ -335,14 +335,14 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTaggedWithCursor(@NonNull @Param("user") User user,
+    List<Post> findPostsWhereUserIsTaggedWithCursor(@NonNull @Param("userId") Long userId,
                                                     @NonNull @Param("beforeId") Long beforeId,
                                                     @NonNull Pageable pageable);
 
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             ORDER BY p.id DESC
             """)
@@ -350,13 +350,13 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTaggedOrderByIdDesc(@NonNull @Param("user") User user,
+    List<Post> findPostsWhereUserIsTaggedOrderByIdDesc(@NonNull @Param("userId") Long userId,
                                                        @NonNull Pageable pageable);
 
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND p.status = :status
             AND p.id < :beforeId
@@ -366,7 +366,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTaggedByStatusWithCursor(@NonNull @Param("user") User user,
+    List<Post> findPostsWhereUserIsTaggedByStatusWithCursor(@NonNull @Param("userId") Long userId,
                                                             @NonNull @Param("status") PostStatus status,
                                                             @NonNull @Param("beforeId") Long beforeId,
                                                             @NonNull Pageable pageable);
@@ -374,7 +374,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND p.status = :status
             ORDER BY p.id DESC
@@ -383,14 +383,14 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTaggedByStatusOrderByIdDesc(@NonNull @Param("user") User user,
+    List<Post> findPostsWhereUserIsTaggedByStatusOrderByIdDesc(@NonNull @Param("userId") Long userId,
                                                                @NonNull @Param("status") PostStatus status,
                                                                @NonNull Pageable pageable);
 
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND p.status = :status
             AND p.id > :afterId
@@ -400,7 +400,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTaggedByStatusWithCursorAsc(@NonNull @Param("user") User user,
+    List<Post> findPostsWhereUserIsTaggedByStatusWithCursorAsc(@NonNull @Param("userId") Long userId,
                                                                @NonNull @Param("status") PostStatus status,
                                                                @NonNull @Param("afterId") Long afterId,
                                                                @NonNull Pageable pageable);
@@ -408,7 +408,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
     @Query(value = """
             SELECT DISTINCT p FROM Post p
             JOIN UserTag ut ON ut.post = p
-            WHERE ut.taggedUser = :user
+            WHERE ut.taggedUser.id = :userId
             AND ut.isActive = true
             AND p.status = :status
             ORDER BY p.id ASC
@@ -417,7 +417,7 @@ public interface UserTagRepo extends JpaRepository<UserTag, Long> {
             @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
             @QueryHint(name = "org.hibernate.readOnly",  value = "true")
     })
-    List<Post> findPostsWhereUserIsTaggedByStatusOrderByIdAsc(@NonNull @Param("user") User user,
+    List<Post> findPostsWhereUserIsTaggedByStatusOrderByIdAsc(@NonNull @Param("userId") Long userId,
                                                               @NonNull @Param("status") PostStatus status,
                                                               @NonNull Pageable pageable);
 

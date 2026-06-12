@@ -624,6 +624,31 @@ public class UserService implements UserDetailsService {
             }
 
             user.setIsActive(false);
+
+            // Allow re-registration by freeing up the email and username
+            String timeSuffix = "_del_" + System.currentTimeMillis();
+            
+            String originalEmail = user.getEmail();
+            int atIndex = originalEmail.indexOf('@');
+            String newEmail;
+            if (atIndex > 0) {
+                String localPart = originalEmail.substring(0, atIndex);
+                String domainPart = originalEmail.substring(atIndex);
+                if (localPart.length() + timeSuffix.length() + domainPart.length() > 100) {
+                    localPart = localPart.substring(0, 100 - timeSuffix.length() - domainPart.length());
+                }
+                newEmail = localPart + timeSuffix + domainPart;
+            } else {
+                newEmail = originalEmail + timeSuffix + "@deleted.local";
+            }
+            user.setEmail(newEmail);
+
+            String newUsername = user.getActualUsername();
+            if (newUsername.length() + timeSuffix.length() > 100) {
+                newUsername = newUsername.substring(0, 100 - timeSuffix.length());
+            }
+            user.setUsername(newUsername + timeSuffix);
+
             userRepository.save(user);
             log.info("User account deactivated: id={} by user={}", userId, currentUser.getActualUsername());
 
@@ -653,7 +678,7 @@ public class UserService implements UserDetailsService {
                         Constant.POST_CONTENT_TRUNCATION_SUFFIX))
                 .taggableName("@" + user.getUsername())
                 .pincode(user.getPincode())
-                .totalTaggedPosts(userTagRepository.countByTaggedUser(user))
+                .totalTaggedPosts(userTagRepository.countByTaggedUser(user.getId()))
                 .resolutionRate(calculateUserResolutionRate(user))
                 .hasLocation(user.hasLocation())
                 .build();
@@ -665,8 +690,8 @@ public class UserService implements UserDetailsService {
                 return 0.0;
             }
 
-            long totalTagged = userTagRepository.countByTaggedUser(user);
-            long resolved = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
+            long totalTagged = userTagRepository.countByTaggedUser(user.getId());
+            long resolved = userTagRepository.countByTaggedUserAndPostStatus(user.getId(), PostStatus.RESOLVED);
 
             return PostUtility.calculateUserResolutionRate(user, totalTagged, resolved);
         } catch (Exception e) {

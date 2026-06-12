@@ -114,5 +114,95 @@ public class PostServiceTest {
         assertNull(duplicate, "Should return null because no department is tagged");
         verify(postRepository, never()).findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(any(), any(), any(), any());
     }
+
+    @Test
+    void testGetPostsByUser_WithCursor() {
+        Long userId = 1L;
+        Long cursor = 50L;
+        Integer limit = 10;
+        
+        Post post = new Post();
+        post.setId(49L);
+        List<Post> mockedPosts = Collections.singletonList(post);
+        
+        when(postRepository.findByUserIdWithUserAndStatusInAndIdLessThanOrderByCreatedAtDesc(
+                eq(userId), anyList(), eq(cursor), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(mockedPosts);
+                
+        com.JanSahayak.AI.DTO.PaginatedResponse<Post> response = postService.getPostsByUser(userId, cursor, limit);
+        
+        assertNotNull(response);
+        assertEquals(1, response.getData().size());
+        assertEquals(49L, response.getData().get(0).getId());
+        
+        verify(postRepository, times(1)).findByUserIdWithUserAndStatusInAndIdLessThanOrderByCreatedAtDesc(
+                eq(userId), anyList(), eq(cursor), any(org.springframework.data.domain.Pageable.class));
+    }
+
+    @Test
+    void testGetPostsByUser_WithoutCursor() {
+        Long userId = 1L;
+        Integer limit = 10;
+        
+        Post post = new Post();
+        post.setId(50L);
+        List<Post> mockedPosts = Collections.singletonList(post);
+        
+        when(postRepository.findByUserIdWithUserAndStatusInOrderByCreatedAtDesc(
+                eq(userId), anyList()))
+                .thenReturn(mockedPosts);
+                
+        com.JanSahayak.AI.DTO.PaginatedResponse<Post> response = postService.getPostsByUser(userId, null, limit);
+        
+        assertNotNull(response);
+        assertEquals(1, response.getData().size());
+        assertEquals(50L, response.getData().get(0).getId());
+        
+        verify(postRepository, times(1)).findByUserIdWithUserAndStatusInOrderByCreatedAtDesc(
+                eq(userId), anyList());
+    }
+    @Test
+    void testGetPostsTaggedWithUser_WithCursor() {
+        Long userId = 1L;
+        Long cursor = 100L;
+        Integer limit = 10;
+
+        User user = new User();
+        user.setId(userId);
+
+        when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
+
+        Post post = new Post();
+        post.setId(99L);
+        List<Post> mockedPosts = Collections.singletonList(post);
+
+        when(postRepository.findPostsTaggedWithUserIdAndIdLessThan(
+                eq(userId), eq(cursor), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(mockedPosts);
+
+        com.JanSahayak.AI.DTO.PaginatedResponse<Post> response = postService.getPostsTaggedWithUser(userId, cursor, limit);
+
+        assertNotNull(response);
+        assertEquals(1, response.getData().size());
+        assertEquals(99L, response.getData().get(0).getId());
+
+        verify(postRepository, times(1)).findPostsTaggedWithUserIdAndIdLessThan(
+                eq(userId), eq(cursor), any(org.springframework.data.domain.Pageable.class));
+    }
+
+    @Test
+    void testCountPostsByUser() {
+        Long userId = 1L;
+        User user = new User();
+        user.setId(userId);
+
+        when(postRepository.countByUserId(userId)).thenReturn(42L);
+
+        Long count = postService.countPostsByUser(user);
+
+        assertEquals(42L, count);
+        verify(postRepository, times(1)).countByUserId(userId);
+    }
 }
+
 

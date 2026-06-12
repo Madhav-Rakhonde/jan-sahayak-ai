@@ -367,18 +367,18 @@ public class PostService {
     @Transactional(readOnly = true)
     public PaginatedResponse<Post> getPostsByUser(Long userId, Long beforeId, Integer limit) {
         try {
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id " + userId));
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsByUser", beforeId, limit);
+            List<PostStatus> visibleStatuses = Arrays.asList(PostStatus.ACTIVE, PostStatus.RESOLVED);
+            List<Post> posts;
             
-            // findUserPostsFast is optimal for this
-            List<Post> posts = postRepository.findUserPostsFast(userId, setup.getSanitizedCursor(), setup.toPageable().getPageSize());
-            
-            PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
-            PaginationUtils.logPaginationResults("getPostsByUser", posts, response.isHasMore(), response.getNextCursor());
-            return response;
-        } catch (ResourceNotFoundException e) {
-            throw e;
+            if (setup.hasCursor()) {
+                posts = postRepository.findByUserIdWithUserAndStatusInAndIdLessThanOrderByCreatedAtDesc(
+                        userId, visibleStatuses, setup.getSanitizedCursor(), setup.toPageable());
+            } else {
+                posts = postRepository.findByUserIdWithUserAndStatusInOrderByCreatedAtDesc(userId, visibleStatuses);
+                posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
+            }
+            return PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
         } catch (Exception e) {
             log.error("Failed to get posts for user: {}", userId, e);
             return PaginationUtils.handlePaginationError("getPostsByUser", e, PaginationUtils.validateLimit(limit));
@@ -614,19 +614,19 @@ public class PostService {
             LocalDateTime startDate = LocalDateTime.now().minus(days, ChronoUnit.DAYS);
             Timestamp timestamp = Timestamp.valueOf(startDate);
             Map<String, Object> analytics = new HashMap<>();
-            analytics.put("totalBroadcastsCreated", postRepository.countByUserAndBroadcastScopeIsNotNull(user));
-            analytics.put("recentBroadcasts", postRepository.countByUserAndBroadcastScopeIsNotNullAndCreatedAtAfter(user, timestamp));
+            analytics.put("totalBroadcastsCreated", postRepository.countByUserIdAndBroadcastScopeIsNotNull(user.getId()));
+            analytics.put("recentBroadcasts", postRepository.countByUserIdAndBroadcastScopeIsNotNullAndCreatedAtAfter(user.getId(), timestamp));
             if (PostUtility.canCreateBroadcast(user)) {
-                Long cb = postRepository.countByUserAndBroadcastScopeAndTargetCountry(user, BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY);
+                Long cb = postRepository.countByUserIdAndBroadcastScopeAndTargetCountry(user.getId(), BroadcastScope.COUNTRY, Constant.DEFAULT_TARGET_COUNTRY);
                 analytics.put("countryWideBroadcasts", cb != null ? cb : 0L);
             }
             Map<String, Long> scopeBreakdown = new HashMap<>();
             for (BroadcastScope scope : BroadcastScope.values()) {
-                Long count = postRepository.countByUserAndBroadcastScope(user, scope);
+                Long count = postRepository.countByUserIdAndBroadcastScope(user.getId(), scope);
                 scopeBreakdown.put(scope.name(), count != null ? count : 0L);
             }
             analytics.put("scopeBreakdown", scopeBreakdown);
-            List<Post> userBroadcasts = postRepository.findByUserAndBroadcastScopeIsNotNull(user);
+            List<Post> userBroadcasts = postRepository.findByUserIdAndBroadcastScopeIsNotNull(user.getId());
             if (userBroadcasts != null && !userBroadcasts.isEmpty()) {
                 analytics.put("averageLikes",    Math.round(userBroadcasts.stream().mapToInt(Post::getLikeCount).average().orElse(0.0)    * 100.0) / 100.0);
                 analytics.put("averageComments", Math.round(userBroadcasts.stream().mapToInt(Post::getCommentCount).average().orElse(0.0) * 100.0) / 100.0);
@@ -962,9 +962,9 @@ public class PostService {
                     .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + userId));
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findPostsTaggedWithUserAndIdLessThan(user, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findPostsTaggedWithUserIdAndIdLessThan(user.getId(), setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findPostsTaggedWithUser(user);
+                posts = postRepository.findPostsTaggedWithUserId(user.getId());
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
             PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
@@ -1104,50 +1104,45 @@ public class PostService {
         }
     }
 
-    public PaginatedResponse<Post> getActivePostsByUser(User user, Long beforeId, Integer limit) {
+    public PaginatedResponse<Post> getActivePostsByUser(Long userId, Long beforeId, Integer limit) {
         try {
-            PostUtility.validateUser(user);
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActivePostsByUser", beforeId, limit);
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByUserWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
-                        user, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByUserIdWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
+                        userId, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByUserWithUserAndStatusOrderByCreatedAtDesc(user, PostStatus.ACTIVE);
+                posts = postRepository.findByUserIdWithUserAndStatusOrderByCreatedAtDesc(userId, PostStatus.ACTIVE);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-            PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
-            PaginationUtils.logPaginationResults("getActivePostsByUser", posts, response.isHasMore(), response.getNextCursor());
-            return response;
+            return PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
         } catch (Exception e) {
-            log.error("Failed to get active posts by user: {}", user != null ? user.getActualUsername() : "null", e);
+            log.error("Failed to get active posts for user: {}", userId, e);
             return PaginationUtils.handlePaginationError("getActivePostsByUser", e, PaginationUtils.validateLimit(limit));
         }
     }
 
-    public PaginatedResponse<Post> getResolvedPostsByUser(User requestingUser, User user, Long beforeId, Integer limit) {
+    public PaginatedResponse<Post> getResolvedPostsByUser(User requestingUser, Long userId, Long beforeId, Integer limit) {
         try {
-            PostUtility.validateUser(user);
-            if (requestingUser == null) throw new SecurityException("Authentication required to view resolved posts.");
-            boolean isSelf  = requestingUser.getId().equals(user.getId());
+            if (requestingUser == null) throw new SecurityException("Authentication required.");
+            boolean isSelf = requestingUser.getId().equals(userId);
             boolean isAdmin = PostUtility.isAdmin(requestingUser);
             if (!isSelf && !isAdmin) throw new SecurityException("You can only view your own resolved posts.");
+            
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getResolvedPostsByUser", beforeId, limit);
             List<Post> posts;
             if (setup.hasCursor()) {
-                posts = postRepository.findByUserWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
-                        user, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
+                posts = postRepository.findByUserIdWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
+                        userId, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
             } else {
-                posts = postRepository.findByUserWithUserAndStatusOrderByCreatedAtDesc(user, PostStatus.RESOLVED);
+                posts = postRepository.findByUserIdWithUserAndStatusOrderByCreatedAtDesc(userId, PostStatus.RESOLVED);
                 posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
             }
-            PaginatedResponse<Post> response = PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
-            PaginationUtils.logPaginationResults("getResolvedPostsByUser", posts, response.isHasMore(), response.getNextCursor());
-            return response;
+            return PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
         } catch (SecurityException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to get resolved posts by user: {}", user != null ? user.getActualUsername() : "null", e);
+            log.error("Failed to get resolved posts for user: {}", userId, e);
             return PaginationUtils.handlePaginationError("getResolvedPostsByUser", e, PaginationUtils.validateLimit(limit));
         }
     }
@@ -1291,7 +1286,7 @@ public class PostService {
     public Map<String, Object> getMediaConstraints() { return PostUtility.createMediaConstraints(maxImageSize, maxVideoSize); }
     
     public Long countPostsByUser(User user) {
-        return postRepository.countByUser(user);
+        return postRepository.countByUserId(user.getId());
     }
 
     // =========================================================================

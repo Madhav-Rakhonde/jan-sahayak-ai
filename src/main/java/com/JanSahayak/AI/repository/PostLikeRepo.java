@@ -21,11 +21,14 @@ public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
     // SINGLE-RECORD LOOKUPS
     // =========================================================================
 
-    Optional<PostLike> findByPostAndUser(Post post, User user);
+    @Query("SELECT pl FROM PostLike pl WHERE pl.post = :post AND pl.user.id = :userId")
+    Optional<PostLike> findByPostAndUserId(@Param("post") Post post, @Param("userId") Long userId);
 
-    Optional<PostLike> findBySocialPostAndUser(SocialPost socialPost, User user);
+    @Query("SELECT pl FROM PostLike pl WHERE pl.socialPost = :socialPost AND pl.user.id = :userId")
+    Optional<PostLike> findBySocialPostAndUserId(@Param("socialPost") SocialPost socialPost, @Param("userId") Long userId);
 
-    boolean existsByPostAndUser(Post post, User user);
+    @Query("SELECT COUNT(pl) > 0 FROM PostLike pl WHERE pl.post = :post AND pl.user.id = :userId")
+    boolean existsByPostAndUserId(@Param("post") Post post, @Param("userId") Long userId);
 
     // =========================================================================
     // COUNT QUERIES
@@ -100,7 +103,9 @@ public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
     // USER ACTIVITY LOOKUPS
     // =========================================================================
 
-    org.springframework.data.domain.Page<PostLike> findBySocialPostNotNullAndUserOrderByCreatedAtDesc(User user, org.springframework.data.domain.Pageable pageable);
+    @Query("SELECT pl FROM PostLike pl WHERE pl.socialPost IS NOT NULL AND pl.user.id = :userId ORDER BY pl.createdAt DESC")
+    org.springframework.data.domain.Page<PostLike> findBySocialPostNotNullAndUserIdOrderByCreatedAtDesc(@Param("userId") Long userId, org.springframework.data.domain.Pageable pageable);
 
-    org.springframework.data.domain.Page<PostLike> findByPostNotNullAndUserOrderByCreatedAtDesc(User user, org.springframework.data.domain.Pageable pageable);
+    @Query("SELECT pl FROM PostLike pl WHERE pl.post IS NOT NULL AND pl.user.id = :userId ORDER BY pl.createdAt DESC")
+    org.springframework.data.domain.Page<PostLike> findByPostNotNullAndUserIdOrderByCreatedAtDesc(@Param("userId") Long userId, org.springframework.data.domain.Pageable pageable);
 }

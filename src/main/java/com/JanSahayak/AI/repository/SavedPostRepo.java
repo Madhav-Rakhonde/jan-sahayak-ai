@@ -23,41 +23,49 @@ public interface SavedPostRepo extends JpaRepository<SavedPost, Long> {
     // SINGLE-RECORD LOOKUPS
     // =========================================================================
 
-    Optional<SavedPost> findByUserAndSocialPost(User user, SocialPost socialPost);
+    @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId AND sp.socialPost = :socialPost")
+    Optional<SavedPost> findByUserIdAndSocialPost(@Param("userId") Long userId, @Param("socialPost") SocialPost socialPost);
 
-    Optional<SavedPost> findByUserAndPost(User user, Post post);
+    @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId AND sp.post = :post")
+    Optional<SavedPost> findByUserIdAndPost(@Param("userId") Long userId, @Param("post") Post post);
 
     // =========================================================================
     // EXISTENCE CHECKS
     // =========================================================================
 
-    boolean existsByUserAndSocialPost(User user, SocialPost socialPost);
+    @Query("SELECT COUNT(sp) > 0 FROM SavedPost sp WHERE sp.user.id = :userId AND sp.socialPost = :socialPost")
+    boolean existsByUserIdAndSocialPost(@Param("userId") Long userId, @Param("socialPost") SocialPost socialPost);
 
     boolean existsByUser_IdAndSocialPost_Id(Long userId, Long socialPostId);
 
-    boolean existsByUserAndPost(User user, Post post);
+    @Query("SELECT COUNT(sp) > 0 FROM SavedPost sp WHERE sp.user.id = :userId AND sp.post = :post")
+    boolean existsByUserIdAndPost(@Param("userId") Long userId, @Param("post") Post post);
 
     // =========================================================================
     // PAGINATED LISTING
     // =========================================================================
 
-    Page<SavedPost> findByUserOrderBySavedAtDesc(User user, Pageable pageable);
+    @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId ORDER BY sp.savedAt DESC")
+    Page<SavedPost> findByUserIdOrderBySavedAtDesc(@Param("userId") Long userId, Pageable pageable);
 
-    Page<SavedPost> findByUserAndIdLessThanOrderBySavedAtDesc(User user, Long id, Pageable pageable);
+    @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId AND sp.id < :id ORDER BY sp.savedAt DESC")
+    Page<SavedPost> findByUserIdAndIdLessThanOrderBySavedAtDesc(@Param("userId") Long userId, @Param("id") Long id, Pageable pageable);
 
-    List<SavedPost> findByUserOrderBySavedAtDesc(User user);
+    @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId ORDER BY sp.savedAt DESC")
+    List<SavedPost> findByUserIdOrderBySavedAtDesc(@Param("userId") Long userId);
 
-    @Query("SELECT sp FROM SavedPost sp WHERE sp.user = :user AND sp.socialPost IS NOT NULL ORDER BY sp.savedAt DESC")
-    Page<SavedPost> findSocialPostSavesByUserOrderBySavedAtDesc(@Param("user") User user, Pageable pageable);
+    @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId AND sp.socialPost IS NOT NULL ORDER BY sp.savedAt DESC")
+    Page<SavedPost> findSocialPostSavesByUserIdOrderBySavedAtDesc(@Param("userId") Long userId, Pageable pageable);
 
-    @Query("SELECT sp FROM SavedPost sp WHERE sp.user = :user AND sp.post IS NOT NULL ORDER BY sp.savedAt DESC")
-    Page<SavedPost> findBroadcastPostSavesByUserOrderBySavedAtDesc(@Param("user") User user, Pageable pageable);
+    @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId AND sp.post IS NOT NULL ORDER BY sp.savedAt DESC")
+    Page<SavedPost> findBroadcastPostSavesByUserIdOrderBySavedAtDesc(@Param("userId") Long userId, Pageable pageable);
 
     // =========================================================================
     // COUNT QUERIES
     // =========================================================================
 
-    long countByUser(User user);
+    @Query("SELECT COUNT(sp) FROM SavedPost sp WHERE sp.user.id = :userId")
+    long countByUserId(@Param("userId") Long userId);
 
     long countBySocialPost(SocialPost socialPost);
 
@@ -77,8 +85,8 @@ public interface SavedPostRepo extends JpaRepository<SavedPost, Long> {
 
     @Modifying
     @Transactional
-    @Query("DELETE FROM SavedPost sp WHERE sp.user = :user")
-    void deleteAllByUser(@Param("user") User user);
+    @Query("DELETE FROM SavedPost sp WHERE sp.user.id = :userId")
+    void deleteAllByUserId(@Param("userId") Long userId);
 
     // =========================================================================
     // UTILITY — admin / reconciliation

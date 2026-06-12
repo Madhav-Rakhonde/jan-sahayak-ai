@@ -264,16 +264,16 @@ public class UserTaggingService {
             if (setup.hasCursor()) {
                 if (isResolved != null) {
                     PostStatus status = isResolved ? PostStatus.RESOLVED : PostStatus.ACTIVE;
-                    posts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user, status, setup.getSanitizedCursor(), setup.toPageable());
+                    posts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user.getId(), status, setup.getSanitizedCursor(), setup.toPageable());
                 } else {
-                    posts = userTagRepository.findPostsWhereUserIsTaggedWithCursor(user, setup.getSanitizedCursor(), setup.toPageable());
+                    posts = userTagRepository.findPostsWhereUserIsTaggedWithCursor(user.getId(), setup.getSanitizedCursor(), setup.toPageable());
                 }
             } else {
                 if (isResolved != null) {
                     PostStatus status = isResolved ? PostStatus.RESOLVED : PostStatus.ACTIVE;
-                    posts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, status, setup.toPageable());
+                    posts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user.getId(), status, setup.toPageable());
                 } else {
-                    posts = userTagRepository.findPostsWhereUserIsTaggedOrderByIdDesc(user, setup.toPageable());
+                    posts = userTagRepository.findPostsWhereUserIsTaggedOrderByIdDesc(user.getId(), setup.toPageable());
                 }
             }
             posts = (posts == null) ? Collections.emptyList() : posts;
@@ -308,15 +308,15 @@ public class UserTaggingService {
             boolean isAsc = "asc".equalsIgnoreCase(sortDirection);
             if (setup.hasCursor()) {
                 if (isAsc) {
-                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursorAsc(user, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
+                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursorAsc(user.getId(), PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
                 } else {
-                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
+                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user.getId(), PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
                 }
             } else {
                 if (isAsc) {
-                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdAsc(user, PostStatus.ACTIVE, setup.toPageable());
+                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdAsc(user.getId(), PostStatus.ACTIVE, setup.toPageable());
                 } else {
-                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, PostStatus.ACTIVE, setup.toPageable());
+                    activePosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user.getId(), PostStatus.ACTIVE, setup.toPageable());
                 }
             }
             activePosts = (activePosts == null) ? Collections.emptyList() : activePosts;
@@ -351,15 +351,15 @@ public class UserTaggingService {
             boolean isAsc = "asc".equalsIgnoreCase(sortDirection);
             if (setup.hasCursor()) {
                 if (isAsc) {
-                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursorAsc(user, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
+                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursorAsc(user.getId(), PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
                 } else {
-                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
+                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusWithCursor(user.getId(), PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
                 }
             } else {
                 if (isAsc) {
-                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdAsc(user, PostStatus.RESOLVED, setup.toPageable());
+                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdAsc(user.getId(), PostStatus.RESOLVED, setup.toPageable());
                 } else {
-                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user, PostStatus.RESOLVED, setup.toPageable());
+                    resolvedPosts = userTagRepository.findPostsWhereUserIsTaggedByStatusOrderByIdDesc(user.getId(), PostStatus.RESOLVED, setup.toPageable());
                 }
             }
             resolvedPosts = (resolvedPosts == null) ? Collections.emptyList() : resolvedPosts;
@@ -448,9 +448,9 @@ public class UserTaggingService {
         try {
             PostUtility.validateUser(user);
 
-            Long totalTagged = userTagRepository.countByTaggedUser(user);
-            Long activeTagged = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.ACTIVE);
-            Long resolvedTagged = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
+            Long totalTagged = userTagRepository.countByTaggedUser(user.getId());
+            Long activeTagged = userTagRepository.countByTaggedUserAndPostStatus(user.getId(), PostStatus.ACTIVE);
+            Long resolvedTagged = userTagRepository.countByTaggedUserAndPostStatus(user.getId(), PostStatus.RESOLVED);
 
             Map<String, Long> result = new HashMap<>();
             result.put("totalTaggedPosts", totalTagged != null ? totalTagged : 0L);
@@ -647,7 +647,7 @@ public class UserTaggingService {
             analytics.put("statusBreakdown", statusBreakdown);
 
             Date thirtyDaysAgo = new Date(System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000));
-            Long recentTags = userTagRepository.countByTaggedUserAndTaggedAtAfter(user, thirtyDaysAgo);
+            Long recentTags = userTagRepository.countByTaggedUserAndTaggedAtAfter(user.getId(), thirtyDaysAgo);
             analytics.put("recentTags30Days", recentTags != null ? recentTags : 0L);
 
             PaginatedResponse<PostResponse> resolvedPosts = getResolvedPostsVisibleToUser(user, null, 1000, "desc"); // Now gets PostResponse
@@ -693,7 +693,7 @@ public class UserTaggingService {
             if (user == null) {
                 return 0L;
             }
-            Long count = userTagRepository.countByTaggedUser(user);
+            Long count = userTagRepository.countByTaggedUser(user.getId());
             return count != null ? count : 0L;
         } catch (Exception e) {
             log.warn("Failed to get tag count for user: {}", user.getActualUsername(), e);
@@ -703,12 +703,12 @@ public class UserTaggingService {
 
     private double calculateUserResolutionRate(User user) {
         try {
-            Long totalTagged = userTagRepository.countByTaggedUser(user);
+            Long totalTagged = userTagRepository.countByTaggedUser(user.getId());
             if (totalTagged == null || totalTagged == 0) {
                 return 0.0;
             }
 
-            Long resolved = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
+            Long resolved = userTagRepository.countByTaggedUserAndPostStatus(user.getId(), PostStatus.RESOLVED);
             if (resolved == null) {
                 resolved = 0L;
             }
@@ -733,7 +733,7 @@ public class UserTaggingService {
                     .orElseThrow(() -> new UserNotFoundException("User not found: " + cleanUsername));
 
             PaginatedResponse<PostResponse> posts = getActivePostsVisibleToUser(user, beforeId, limit, sortDirection);
-            Long totalActiveCount = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.ACTIVE);
+            Long totalActiveCount = userTagRepository.countByTaggedUserAndPostStatus(user.getId(), PostStatus.ACTIVE);
 
             Map<String, Object> result = new HashMap<>();
             result.put("username", cleanUsername);
@@ -767,7 +767,7 @@ public class UserTaggingService {
                     .orElseThrow(() -> new UserNotFoundException("User not found: " + cleanUsername));
 
             PaginatedResponse<PostResponse> posts = getResolvedPostsVisibleToUser(user, beforeId, limit, sortDirection);
-            Long totalResolvedCount = userTagRepository.countByTaggedUserAndPostStatus(user, PostStatus.RESOLVED);
+            Long totalResolvedCount = userTagRepository.countByTaggedUserAndPostStatus(user.getId(), PostStatus.RESOLVED);
 
             Map<String, Object> result = new HashMap<>();
             result.put("username", cleanUsername);
@@ -810,7 +810,7 @@ public class UserTaggingService {
 
             boolean isLiked = false;
             if (currentUser != null) {
-                isLiked = postLikeRepo.findByPostAndUser(post, currentUser).isPresent();
+                isLiked = postLikeRepo.findByPostAndUserId(post, currentUser.getId()).isPresent();
             }
 
             PostResponse.PostResponseBuilder builder = PostResponse.builder()

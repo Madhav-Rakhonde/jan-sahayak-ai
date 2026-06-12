@@ -33,7 +33,8 @@ public interface PostShareRepo extends JpaRepository<PostShare, Long> {
     List<Object[]> countByPostGroupByShareType(@Param("post") Post post);
 
     /** All share records for a regular Post by a specific user (for analytics). */
-    List<PostShare> findByPostAndUser(Post post, User user);
+    @Query("SELECT ps FROM PostShare ps WHERE ps.post = :post AND ps.user.id = :userId")
+    List<PostShare> findByPostAndUserId(@Param("post") Post post, @Param("userId") Long userId);
 
     /** Share count for a specific platform on a regular Post. */
     long countByPostAndShareType(Post post, ShareType shareType);
@@ -60,7 +61,8 @@ public interface PostShareRepo extends JpaRepository<PostShare, Long> {
     List<Object[]> countBySocialPostGroupByShareType(@Param("socialPost") SocialPost socialPost);
 
     /** All share records for a SocialPost by a specific user (for analytics). */
-    List<PostShare> findBySocialPostAndUser(SocialPost socialPost, User user);
+    @Query("SELECT ps FROM PostShare ps WHERE ps.socialPost = :socialPost AND ps.user.id = :userId")
+    List<PostShare> findBySocialPostAndUserId(@Param("socialPost") SocialPost socialPost, @Param("userId") Long userId);
 
     /** Share count for a specific platform on a SocialPost. */
     long countBySocialPostAndShareType(SocialPost socialPost, ShareType shareType);
@@ -82,17 +84,17 @@ public interface PostShareRepo extends JpaRepository<PostShare, Long> {
      * Paginated share history for a user across both post types, newest first.
      * Useful for a "my activity" / analytics screen.
      */
-    @Query("SELECT ps FROM PostShare ps WHERE ps.user = :user ORDER BY ps.sharedAt DESC")
-    Page<PostShare> findByUserOrderBySharedAtDesc(@Param("user") User user, Pageable pageable);
+    @Query("SELECT ps FROM PostShare ps WHERE ps.user.id = :userId ORDER BY ps.sharedAt DESC")
+    Page<PostShare> findByUserIdOrderBySharedAtDesc(@Param("userId") Long userId, Pageable pageable);
 
-
-    long countByUser(User user);
+    @Query("SELECT COUNT(ps) FROM PostShare ps WHERE ps.user.id = :userId")
+    long countByUserId(@Param("userId") Long userId);
 
 
     @Modifying
     @Transactional
-    @Query("DELETE FROM PostShare ps WHERE ps.user = :user")
-    void deleteAllByUser(@Param("user") User user);
+    @Query("DELETE FROM PostShare ps WHERE ps.user.id = :userId")
+    void deleteAllByUserId(@Param("userId") Long userId);
 
     // =========================================================================
     // ANALYTICS / ADMIN QUERIES

@@ -74,7 +74,7 @@ public class PostInteractionService {
             }
 
             Date threshold = dedupeThreshold();
-            Optional<PostView> recent = postViewRepository.findByPostAndUserAndViewedAtAfter(post, user, threshold);
+            Optional<PostView> recent = postViewRepository.findByPostAndUserIdAndViewedAtAfter(post, user.getId(), threshold);
             if (recent.isPresent()) {
                 log.debug("Duplicate view prevented: post={} user={}", post.getId(), user.getActualUsername());
                 return null;
@@ -120,7 +120,7 @@ public class PostInteractionService {
             }
 
             Date threshold = dedupeThreshold();
-            Optional<PostView> recent = postViewRepository.findBySocialPostAndUserAndViewedAtAfter(socialPost, user, threshold);
+            Optional<PostView> recent = postViewRepository.findBySocialPostAndUserIdAndViewedAtAfter(socialPost, user.getId(), threshold);
             if (recent.isPresent()) {
                 log.debug("Duplicate view prevented: socialPost={} user={}", socialPost.getId(), user.getActualUsername());
                 return null;
@@ -163,7 +163,7 @@ public class PostInteractionService {
             PostUtility.validateUser(user);
             validatePostInteractable(post);
 
-            Optional<PostLike> existing = postLikeRepository.findByPostAndUser(post, user);
+            Optional<PostLike> existing = postLikeRepository.findByPostAndUserId(post, user.getId());
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isLike()) {
@@ -229,7 +229,7 @@ public class PostInteractionService {
             PostUtility.validateUser(user);
             validatePostInteractable(post);
 
-            Optional<PostLike> existing = postLikeRepository.findByPostAndUser(post, user);
+            Optional<PostLike> existing = postLikeRepository.findByPostAndUserId(post, user.getId());
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isDislike()) {
@@ -281,7 +281,7 @@ public class PostInteractionService {
             SocialPostUtility.validateUser(user);
             validateSocialPostInteractable(socialPost, user);
 
-            Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUser(socialPost, user);
+            Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUserId(socialPost, user.getId());
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isLike()) {
@@ -361,7 +361,7 @@ public class PostInteractionService {
             SocialPostUtility.validateUser(user);
             validateSocialPostInteractable(socialPost, user);
 
-            Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUser(socialPost, user);
+            Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUserId(socialPost, user.getId());
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isDislike()) {
@@ -442,32 +442,32 @@ public class PostInteractionService {
 
     public boolean hasUserLikedPost(Post post, User user) {
         if (post == null || user == null) return false;
-        return postLikeRepository.findByPostAndUser(post, user).map(PostLike::isLike).orElse(false);
+        return postLikeRepository.findByPostAndUserId(post, user.getId()).map(PostLike::isLike).orElse(false);
     }
 
     public boolean hasUserDislikedPost(Post post, User user) {
         if (post == null || user == null) return false;
-        return postLikeRepository.findByPostAndUser(post, user).map(PostLike::isDislike).orElse(false);
+        return postLikeRepository.findByPostAndUserId(post, user.getId()).map(PostLike::isDislike).orElse(false);
     }
 
     public boolean hasUserLikedSocialPost(SocialPost socialPost, User user) {
         if (socialPost == null || user == null) return false;
-        return postLikeRepository.findBySocialPostAndUser(socialPost, user).map(PostLike::isLike).orElse(false);
+        return postLikeRepository.findBySocialPostAndUserId(socialPost, user.getId()).map(PostLike::isLike).orElse(false);
     }
 
     public boolean hasUserDislikedSocialPost(SocialPost socialPost, User user) {
         if (socialPost == null || user == null) return false;
-        return postLikeRepository.findBySocialPostAndUser(socialPost, user).map(PostLike::isDislike).orElse(false);
+        return postLikeRepository.findBySocialPostAndUserId(socialPost, user.getId()).map(PostLike::isDislike).orElse(false);
     }
 
     public boolean hasUserViewedPostRecently(Post post, User user) {
         if (post == null || user == null) return false;
-        return postViewRepository.findByPostAndUserAndViewedAtAfter(post, user, dedupeThreshold()).isPresent();
+        return postViewRepository.findByPostAndUserIdAndViewedAtAfter(post, user.getId(), dedupeThreshold()).isPresent();
     }
 
     public boolean hasUserViewedSocialPostRecently(SocialPost socialPost, User user) {
         if (socialPost == null || user == null) return false;
-        return postViewRepository.findBySocialPostAndUserAndViewedAtAfter(socialPost, user, dedupeThreshold()).isPresent();
+        return postViewRepository.findBySocialPostAndUserIdAndViewedAtAfter(socialPost, user.getId(), dedupeThreshold()).isPresent();
     }
 
     // =========================================================================
@@ -530,7 +530,7 @@ public class PostInteractionService {
         validateSocialPostInteractable(socialPost, user);
 
         try {
-            Optional<SavedPost> existing = savedPostRepo.findByUserAndSocialPost(user, socialPost);
+            Optional<SavedPost> existing = savedPostRepo.findByUserIdAndSocialPost(user.getId(), socialPost);
             if (existing.isPresent()) {
                 savedPostRepo.delete(existing.get());
                 socialPost.decrementSaveCount();
@@ -579,7 +579,7 @@ public class PostInteractionService {
         }
 
         try {
-            Optional<SavedPost> existing = savedPostRepo.findByUserAndPost(user, post);
+            Optional<SavedPost> existing = savedPostRepo.findByUserIdAndPost(user.getId(), post);
             if (existing.isPresent()) {
                 savedPostRepo.delete(existing.get());
                 post.decrementSaveCount();
@@ -611,7 +611,7 @@ public class PostInteractionService {
 
     public boolean hasSavedSocialPost(SocialPost socialPost, User user) {
         if (socialPost == null || user == null) return false;
-        return savedPostRepo.existsByUserAndSocialPost(user, socialPost);
+        return savedPostRepo.existsByUserIdAndSocialPost(user.getId(), socialPost);
     }
 
     public boolean hasSavedSocialPostByIds(Long socialPostId, Long userId) {
@@ -621,7 +621,7 @@ public class PostInteractionService {
 
     public boolean hasSavedBroadcastPost(Post post, User user) {
         if (post == null || user == null) return false;
-        return savedPostRepo.existsByUserAndPost(user, post);
+        return savedPostRepo.existsByUserIdAndPost(user.getId(), post);
     }
 
     // ── Saved post listing ────────────────────────────────────────────────────
@@ -630,7 +630,7 @@ public class PostInteractionService {
     public Page<SavedPostDto> getSavedPostsForUser(User user, int page, int size) {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
-        return savedPostRepo.findByUserOrderBySavedAtDesc(user, pageable)
+        return savedPostRepo.findByUserIdOrderBySavedAtDesc(user.getId(), pageable)
                 .map(this::convertToDto);
     }
 
@@ -638,7 +638,7 @@ public class PostInteractionService {
     public Page<SavedPostDto> getSavedSocialPostsForUser(User user, int page, int size) {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
-        return savedPostRepo.findSocialPostSavesByUserOrderBySavedAtDesc(user, pageable)
+        return savedPostRepo.findSocialPostSavesByUserIdOrderBySavedAtDesc(user.getId(), pageable)
                 .map(this::convertToDto);
     }
 
@@ -646,7 +646,7 @@ public class PostInteractionService {
     public Page<SavedPostDto> getSavedBroadcastPostsForUser(User user, int page, int size) {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
-        return savedPostRepo.findBroadcastPostSavesByUserOrderBySavedAtDesc(user, pageable)
+        return savedPostRepo.findBroadcastPostSavesByUserIdOrderBySavedAtDesc(user.getId(), pageable)
                 .map(this::convertToDto);
     }
 
@@ -681,7 +681,7 @@ public class PostInteractionService {
     public Page<PostInteractionDto> getLikedSocialPostsForUser(User user, int page, int size) {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
-        return postLikeRepository.findBySocialPostNotNullAndUserOrderByCreatedAtDesc(user, pageable)
+        return postLikeRepository.findBySocialPostNotNullAndUserIdOrderByCreatedAtDesc(user.getId(), pageable)
                 .map(like -> convertToInteractionDto(like, "LIKE", "SOCIAL", user));
     }
 
@@ -689,7 +689,7 @@ public class PostInteractionService {
     public Page<PostInteractionDto> getLikedBroadcastPostsForUser(User user, int page, int size) {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
-        return postLikeRepository.findByPostNotNullAndUserOrderByCreatedAtDesc(user, pageable)
+        return postLikeRepository.findByPostNotNullAndUserIdOrderByCreatedAtDesc(user.getId(), pageable)
                 .map(like -> convertToInteractionDto(like, "LIKE", "ISSUE", user));
     }
 
@@ -760,7 +760,7 @@ public class PostInteractionService {
 
     public long getTotalSavesByUser(User user) {
         if (user == null) return 0L;
-        return savedPostRepo.countByUser(user);
+        return savedPostRepo.countByUserId(user.getId());
     }
 
     // =========================================================================
@@ -927,8 +927,8 @@ public class PostInteractionService {
     @Transactional(rollbackFor = Exception.class)
     public void cleanupForUserDeletion(User user) {
         if (user == null) return;
-        savedPostRepo.deleteAllByUser(user);
-        postShareRepo.deleteAllByUser(user);
+        savedPostRepo.deleteAllByUserId(user.getId());
+        postShareRepo.deleteAllByUserId(user.getId());
         log.info("Cleaned up saves and shares for user={}", user.getActualUsername());
     }
 

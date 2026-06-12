@@ -21,12 +21,15 @@ public interface PostViewRepo extends JpaRepository<PostView, Long> {
     // SINGLE-RECORD LOOKUPS
     // =========================================================================
 
-    Optional<PostView> findByPostAndUserAndViewedAtAfter(Post post, User user, Date date);
+    @Query("SELECT pv FROM PostView pv WHERE pv.post = :post AND pv.user.id = :userId AND pv.viewedAt > :date")
+    Optional<PostView> findByPostAndUserIdAndViewedAtAfter(@Param("post") Post post, @Param("userId") Long userId, @Param("date") Date date);
 
-    Optional<PostView> findByPostAndUser(Post post, User user);
+    @Query("SELECT pv FROM PostView pv WHERE pv.post = :post AND pv.user.id = :userId")
+    Optional<PostView> findByPostAndUserId(@Param("post") Post post, @Param("userId") Long userId);
 
-    Optional<PostView> findBySocialPostAndUserAndViewedAtAfter(
-            SocialPost socialPost, User user, Date viewedAt);
+    @Query("SELECT pv FROM PostView pv WHERE pv.socialPost = :socialPost AND pv.user.id = :userId AND pv.viewedAt > :viewedAt")
+    Optional<PostView> findBySocialPostAndUserIdAndViewedAtAfter(
+            @Param("socialPost") SocialPost socialPost, @Param("userId") Long userId, @Param("viewedAt") Date viewedAt);
 
     // =========================================================================
     // COUNT QUERIES
