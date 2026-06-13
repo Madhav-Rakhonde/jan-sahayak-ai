@@ -95,6 +95,7 @@ public class HLIGFeedService {
     private final InterestProfileService interestService;
     private final HLIGScorer             scorer;
     private final TopicExtractor         topicExtractor;
+    private final org.springframework.cache.CacheManager cacheManager;
 
     private static final int OWN_POST_INJECT_LIMIT  = 3;
     private static final int CANDIDATE_SPARSE_FLOOR = 20;
@@ -133,11 +134,29 @@ public class HLIGFeedService {
     public List<SocialPost> getBrowseFeed(
             User user, FeedScope scope, FeedSort sort, Long lastPostId, int size) {
 
-        List<SocialPost> sorted = (scope == FeedScope.FOR_YOU)
-                ? getPersonalisedPoolSortedBy(user, sort, size * 2)
-                : sortBrowsePool(fetchBrowsePool(user, scope, sort), sort);
+        List<SocialPost> sorted;
+        if (scope == FeedScope.FOR_YOU) {
+            String cacheKey = user.getId() + "_" + sort.name();
+            org.springframework.cache.Cache cache = cacheManager.getCache("hlig_feed");
+            List<SocialPost> cachedList = null;
+            if (cache != null) {
+                cachedList = cache.get(cacheKey, List.class);
+            }
+            if (cachedList != null) {
+                sorted = cachedList;
+                log.debug("[HLIG] Personalised feed CACHE HIT for userId={}, sort={}", user.getId(), sort);
+            } else {
+                sorted = getPersonalisedPoolSortedBy(user, sort, Constant.HLIG_CANDIDATE_LIMIT);
+                if (cache != null && sorted != null && !sorted.isEmpty()) {
+                    cache.put(cacheKey, sorted);
+                    log.debug("[HLIG] Personalised feed CACHE MISS for userId={}, sort={}. Cached {} posts", user.getId(), sort, sorted.size());
+                }
+            }
+        } else {
+            sorted = sortBrowsePool(fetchBrowsePool(user, scope, sort), sort);
+        }
 
-        if (sorted.isEmpty()) {
+        if (sorted == null || sorted.isEmpty()) {
             log.debug("[HLIG] BROWSE scope={} sort={}: empty — absoluteFallback userId={}",
                     scope, sort, user.getId());
             sorted = absoluteFallback(user, sort, size * 2);
@@ -645,16 +664,48 @@ public class HLIGFeedService {
     private List<SocialPost> fetchCandidates(User user, int limit) {
         Map<Long, SocialPost> byId = new LinkedHashMap<>();
 
-        if (user.hasPincode()) {
-            postRepo.findLocalFeedPosts(user.getPincode(),            PageRequest.of(0, limit / 3))
-                    .forEach(p -> byId.put(p.getId(), p));
-            postRepo.findDistrictViralPosts(user.getDistrictPrefix(), PageRequest.of(0, limit / 4))
-                    .forEach(p -> byId.putIfAbsent(p.getId(), p));
-            postRepo.findStateViralPosts(user.getStatePrefix(),       PageRequest.of(0, limit / 4))
+        try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            java.util.concurrent.CompletableFuture<List<SocialPost>> localFuture;
+            java.util.concurrent.CompletableFuture<List<SocialPost>> districtFuture;
+            java.util.concurrent.CompletableFuture<List<SocialPost>> stateFuture;
+
+            if (user.hasPincode()) {
+                localFuture = java.util.concurrent.CompletableFuture.supplyAsync(() ->
+                        postRepo.findLocalFeedPosts(user.getPincode(), PageRequest.of(0, limit / 3)), executor);
+                districtFuture = java.util.concurrent.CompletableFuture.supplyAsync(() ->
+                        postRepo.findDistrictViralPosts(user.getDistrictPrefix(), PageRequest.of(0, limit / 4)), executor);
+                stateFuture = java.util.concurrent.CompletableFuture.supplyAsync(() ->
+                        postRepo.findStateViralPosts(user.getStatePrefix(), PageRequest.of(0, limit / 4)), executor);
+            } else {
+                localFuture = java.util.concurrent.CompletableFuture.completedFuture(Collections.emptyList());
+                districtFuture = java.util.concurrent.CompletableFuture.completedFuture(Collections.emptyList());
+                stateFuture = java.util.concurrent.CompletableFuture.completedFuture(Collections.emptyList());
+            }
+
+            java.util.concurrent.CompletableFuture<List<SocialPost>> nationalFuture = java.util.concurrent.CompletableFuture.supplyAsync(() ->
+                    postRepo.findNationalViralPosts(PageRequest.of(0, limit / 6)), executor);
+
+            // Wait for all queries to complete in parallel
+            java.util.concurrent.CompletableFuture.allOf(localFuture, districtFuture, stateFuture, nationalFuture).join();
+
+            // Collect results in strict priority order (Local -> District -> State -> National)
+            localFuture.join().forEach(p -> byId.put(p.getId(), p));
+            districtFuture.join().forEach(p -> byId.putIfAbsent(p.getId(), p));
+            stateFuture.join().forEach(p -> byId.putIfAbsent(p.getId(), p));
+            nationalFuture.join().forEach(p -> byId.putIfAbsent(p.getId(), p));
+        } catch (Exception e) {
+            log.error("[HLIG] Parallel candidate fetching failed, falling back to sequential execution", e);
+            if (user.hasPincode()) {
+                postRepo.findLocalFeedPosts(user.getPincode(),            PageRequest.of(0, limit / 3))
+                        .forEach(p -> byId.put(p.getId(), p));
+                postRepo.findDistrictViralPosts(user.getDistrictPrefix(), PageRequest.of(0, limit / 4))
+                        .forEach(p -> byId.putIfAbsent(p.getId(), p));
+                postRepo.findStateViralPosts(user.getStatePrefix(),       PageRequest.of(0, limit / 4))
+                        .forEach(p -> byId.putIfAbsent(p.getId(), p));
+            }
+            postRepo.findNationalViralPosts(PageRequest.of(0, limit / 6))
                     .forEach(p -> byId.putIfAbsent(p.getId(), p));
         }
-        postRepo.findNationalViralPosts(PageRequest.of(0, limit / 6))
-                .forEach(p -> byId.putIfAbsent(p.getId(), p));
 
         if (byId.size() < 50) {
             postRepo.findRecentActivePosts(PageRequest.of(0, limit))

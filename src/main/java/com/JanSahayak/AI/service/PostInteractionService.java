@@ -57,6 +57,9 @@ public class PostInteractionService {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private org.springframework.cache.CacheManager cacheManager;
+
     // =========================================================================
     // VIEWS — REGULAR POST
     // =========================================================================
@@ -1097,9 +1100,25 @@ public class PostInteractionService {
         if (sp.getId() == null) throw new ValidationException("SocialPost must be persisted (id is null)");
     }
 
+    private void evictHligFeedCache(Long userId) {
+        if (userId == null) return;
+        try {
+            org.springframework.cache.Cache cache = cacheManager.getCache("hlig_feed");
+            if (cache != null) {
+                cache.evict(userId + "_HOT");
+                cache.evict(userId + "_NEW");
+                cache.evict(userId + "_TOP");
+                log.debug("[HLIG] Evicted personalised hlig_feed cache for userId={}", userId);
+            }
+        } catch (Exception e) {
+            log.warn("[HLIG] Failed to evict hlig_feed cache for userId={}: {}", userId, e.getMessage());
+        }
+    }
+
     private void fireHligSignal(Runnable signal, String signalType, Long postId, Long userId) {
         try {
             signal.run();
+            evictHligFeedCache(userId);
         } catch (Exception e) {
             log.warn("[HLIG] {} signal dropped: postId={} userId={} reason={}",
                     signalType, postId, userId, e.getMessage());

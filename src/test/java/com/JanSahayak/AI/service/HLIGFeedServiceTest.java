@@ -33,6 +33,9 @@ class HLIGFeedServiceTest {
     @Mock
     private TopicExtractor topicExtractor;
 
+    @Mock
+    private org.springframework.cache.CacheManager cacheManager;
+
     @InjectMocks
     private HLIGFeedService feedService;
 
@@ -126,5 +129,48 @@ class HLIGFeedServiceTest {
 
         // Verify batch query was called and not individual count queries
         verify(socialPostRepo, times(1)).countNeighbourLikesForPosts(anyList(), eq(neighbours));
+    }
+
+    @Test
+    void testGetBrowseFeed_ParallelCandidateFetching_Success() {
+        User testUser = new User();
+        testUser.setId(2L);
+        testUser.setUsername("parallelUser");
+        testUser.setPincode("110001");
+
+        SocialPost localPost = new SocialPost();
+        localPost.setId(201L);
+        localPost.setStatus(com.JanSahayak.AI.enums.PostStatus.ACTIVE);
+
+        SocialPost districtPost = new SocialPost();
+        districtPost.setId(202L);
+        districtPost.setStatus(com.JanSahayak.AI.enums.PostStatus.ACTIVE);
+
+        SocialPost statePost = new SocialPost();
+        statePost.setId(203L);
+        statePost.setStatus(com.JanSahayak.AI.enums.PostStatus.ACTIVE);
+
+        SocialPost nationalPost = new SocialPost();
+        nationalPost.setId(204L);
+        nationalPost.setStatus(com.JanSahayak.AI.enums.PostStatus.ACTIVE);
+
+        // Under user.pincode = "110001", getDistrictPrefix() = "110", getStatePrefix() = "11"
+        when(socialPostRepo.findLocalFeedPosts(eq("110001"), any())).thenReturn(List.of(localPost));
+        when(socialPostRepo.findDistrictViralPosts(eq("110"), any())).thenReturn(List.of(districtPost));
+        when(socialPostRepo.findStateViralPosts(eq("11"), any())).thenReturn(List.of(statePost));
+        when(socialPostRepo.findNationalViralPosts(any())).thenReturn(List.of(nationalPost));
+        when(socialPostRepo.findRecentPostsByUser(anyLong(), any())).thenReturn(Collections.emptyList());
+        when(hligScorer.scoreCold(any(), any())).thenReturn(1.0);
+
+        // Fetch candidates through Cold Feed implementation
+        List<SocialPost> feed = ReflectionTestUtils.invokeMethod(feedService, "getColdFeed", testUser, 10);
+
+        assertNotNull(feed);
+        assertFalse(feed.isEmpty());
+        // Verify all parallel queries were invoked
+        verify(socialPostRepo, times(1)).findLocalFeedPosts(eq("110001"), any());
+        verify(socialPostRepo, times(1)).findDistrictViralPosts(eq("110"), any());
+        verify(socialPostRepo, times(1)).findStateViralPosts(eq("11"), any());
+        verify(socialPostRepo, times(1)).findNationalViralPosts(any());
     }
 }

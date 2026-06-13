@@ -100,8 +100,15 @@ public class CacheConfig {
                 TimeUnit.MINUTES
         );
 
+        CaffeineCache hligFeedCache = buildCache(
+                "hlig_feed",
+                FEED_CACHE_MAX_SIZE_ENTRIES,
+                FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES,
+                TimeUnit.MINUTES
+        );
+
         SimpleCacheManager manager = new SimpleCacheManager();
-        manager.setCaches(List.of(profileCache, geoDistCache, trendingPostsCache, broadcastFeedsCache));
+        manager.setCaches(List.of(profileCache, geoDistCache, trendingPostsCache, broadcastFeedsCache, hligFeedCache));
         return manager;
     }
 

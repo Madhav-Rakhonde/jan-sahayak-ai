@@ -35,7 +35,12 @@ import java.util.stream.Collectors;
         @Index(name = "idx_social_post_community_feed",  columnList = "community_id, community_feed_eligible, community_privacy, engagement_score"),
         // Language-aware feed index — used by language-filtered candidate queries
         // DB migration: ALTER TABLE social_posts ADD INDEX idx_social_post_language (language, status, created_at);
-        @Index(name = "idx_social_post_language",        columnList = "language, status, created_at")
+        @Index(name = "idx_social_post_language",        columnList = "language, status, created_at"),
+        // Optimised composite indexes for geo and viral candidate pre-fetching waterfall queries
+        @Index(name = "idx_social_post_local_feed",      columnList = "pincode, status, is_flagged, quality_score, created_at DESC"),
+        @Index(name = "idx_social_post_district_viral",  columnList = "district_prefix, viral_tier, status, is_flagged, virality_score DESC"),
+        @Index(name = "idx_social_post_state_viral",     columnList = "state_prefix, viral_tier, status, is_flagged, virality_score DESC"),
+        @Index(name = "idx_social_post_national_viral",  columnList = "viral_tier, status, is_flagged, virality_score DESC")
 })
 @Getter
 @Setter
