@@ -16,6 +16,7 @@ import org.springframework.data.domain.PageRequest;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
@@ -374,5 +375,64 @@ public class PostServiceTest {
             }
             assertTrue(found, "Method " + methodName + " should exist in PostService");
         }
+    }
+
+    @Test
+    void testConvertToPostResponse_GovernmentBroadcastMapping() {
+        User govUser = new User();
+        govUser.setId(101L);
+        govUser.setUsername("department_user");
+        com.JanSahayak.AI.model.Role role = new com.JanSahayak.AI.model.Role();
+        role.setName("ROLE_DEPARTMENT");
+        govUser.setRole(role);
+
+        Post post = new Post();
+        post.setId(1L);
+        post.setUser(govUser);
+        post.setContent("Government alert");
+        post.setBroadcastScope(BroadcastScope.STATE);
+        post.setCreatedAt(new Date());
+
+        when(postInteractionService.hasUserLikedPost(eq(post), any())).thenReturn(false);
+        when(postInteractionService.hasUserDislikedPost(eq(post), any())).thenReturn(false);
+        when(postInteractionService.hasSavedBroadcastPost(eq(post), any())).thenReturn(false);
+        when(contentValidationService.checkContent(anyString()))
+                .thenReturn(com.JanSahayak.AI.service.BadWordService.BadWordCheckResult.allow());
+
+        com.JanSahayak.AI.DTO.PostResponse response = postService.convertToPostResponse(post, govUser);
+
+        assertNotNull(response);
+        assertEquals(1L, response.getId());
+        assertEquals("department_user", response.getUsername());
+        assertTrue(response.getIsGovernmentBroadcast(), "Should be identified as government broadcast");
+    }
+
+    @Test
+    void testConvertToPostResponse_NormalUserNotGovernmentBroadcast() {
+        User citizen = new User();
+        citizen.setId(102L);
+        citizen.setUsername("citizen_user");
+        com.JanSahayak.AI.model.Role role = new com.JanSahayak.AI.model.Role();
+        role.setName("ROLE_USER");
+        citizen.setRole(role);
+
+        Post post = new Post();
+        post.setId(2L);
+        post.setUser(citizen);
+        post.setContent("Citizen issue");
+        post.setCreatedAt(new Date());
+
+        when(postInteractionService.hasUserLikedPost(eq(post), any())).thenReturn(false);
+        when(postInteractionService.hasUserDislikedPost(eq(post), any())).thenReturn(false);
+        when(postInteractionService.hasSavedBroadcastPost(eq(post), any())).thenReturn(false);
+        when(contentValidationService.checkContent(anyString()))
+                .thenReturn(com.JanSahayak.AI.service.BadWordService.BadWordCheckResult.allow());
+
+        com.JanSahayak.AI.DTO.PostResponse response = postService.convertToPostResponse(post, citizen);
+
+        assertNotNull(response);
+        assertEquals(2L, response.getId());
+        assertEquals("citizen_user", response.getUsername());
+        assertFalse(response.getIsGovernmentBroadcast(), "Should not be identified as government broadcast");
     }
 }

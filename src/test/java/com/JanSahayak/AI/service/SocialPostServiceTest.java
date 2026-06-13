@@ -221,9 +221,6 @@ public class SocialPostServiceTest {
         when(post.getContent()).thenReturn("Post in community");
         when(post.getCreatedAt()).thenReturn(new Date());
         when(post.getCommunityId()).thenReturn(5L);
-        
-        // Mock getCommunity to throw LazyInitializationException
-        when(post.getCommunity()).thenThrow(new org.hibernate.LazyInitializationException("Lazy initialization failed"));
 
         when(userRepository.findUserRolesByUserIds(anyList())).thenReturn(Collections.emptyList());
         when(communityRepository.findAllById(List.of(5L))).thenReturn(Collections.emptyList());

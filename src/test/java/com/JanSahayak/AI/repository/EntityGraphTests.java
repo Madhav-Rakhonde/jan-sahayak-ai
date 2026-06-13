@@ -6,6 +6,7 @@ import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.Role;
 import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
+import com.JanSahayak.AI.model.Community;
 import org.hibernate.Hibernate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,11 +38,24 @@ class EntityGraphTests {
     private SocialPostRepo socialPostRepo;
 
     @Autowired
+    private CommunityRepo communityRepo;
+
+    @Autowired
+    private CommunityInviteRepo communityInviteRepo;
+
+    @Autowired
+    private CommunityJoinRequestRepo communityJoinRequestRepo;
+
+    @Autowired
+    private CommunityMemberRepo communityMemberRepo;
+
+    @Autowired
     private TransactionTemplate transactionTemplate;
 
     private User savedUser;
     private Long savedPostId;
     private Long savedSocialPostId;
+    private Community savedCommunity;
 
     @BeforeEach
     void setUp() {
@@ -49,6 +63,10 @@ class EntityGraphTests {
             // Cleanup previous test data to prevent interference
             postRepo.deleteAll();
             socialPostRepo.deleteAll();
+            communityInviteRepo.deleteAll();
+            communityJoinRequestRepo.deleteAll();
+            communityMemberRepo.deleteAll();
+            communityRepo.deleteAll();
 
             Role userRole = roleRepo.findByName("ROLE_USER")
                     .orElseGet(() -> {
@@ -65,6 +83,19 @@ class EntityGraphTests {
             user.setPincode("411001");
             user.setIsEmailVerified(true);
             savedUser = userRepo.save(user);
+
+            // Create Community
+            Community community = Community.builder()
+                    .name("Test Community " + UUID.randomUUID().toString().substring(0, 8))
+                    .slug("test-community-" + UUID.randomUUID().toString().substring(0, 8))
+                    .description("Test description")
+                    .owner(savedUser)
+                    .privacy(Community.CommunityPrivacy.PUBLIC)
+                    .status(Community.CommunityStatus.ACTIVE)
+                    .isSystemSeeded(true)
+                    .pincode("411001")
+                    .build();
+            savedCommunity = communityRepo.save(community);
 
             Post post = new Post();
             post.setUser(savedUser);
@@ -84,7 +115,9 @@ class EntityGraphTests {
 
             SocialPost socialPost = SocialPost.builder()
                     .user(savedUser)
+                    .community(savedCommunity)
                     .content("This is a test social post.")
+                    .status(PostStatus.ACTIVE)
                     .pincode("411001")
                     .isViral(false)
                     .reportCount(0)
@@ -99,31 +132,41 @@ class EntityGraphTests {
     }
 
     @Test
-    @DisplayName("Verify PostRepo queries eagerly fetch user association using EntityGraph")
+    @DisplayName("Verify PostRepo queries eagerly fetch user and role associations using EntityGraph and JQL fetch joins")
     void testPostRepoEntityGraph() {
         transactionTemplate.execute(status -> {
             // Test findByUserIdOrderByCreatedAtDesc
             List<Post> postsByUserId = postRepo.findByUserIdOrderByCreatedAtDesc(savedUser.getId());
             assertThat(postsByUserId).isNotEmpty();
             assertThat(Hibernate.isInitialized(postsByUserId.get(0).getUser())).isTrue();
+            assertThat(Hibernate.isInitialized(postsByUserId.get(0).getUser().getRole())).isTrue();
             assertThat(postsByUserId.get(0).getUser().getUsername()).isEqualTo(savedUser.getUsername());
 
             // Test findByBroadcastScopeIsNotNullOrderByCreatedAtDesc
             List<Post> broadcastPosts = postRepo.findByBroadcastScopeIsNotNullOrderByCreatedAtDesc();
             assertThat(broadcastPosts).isNotEmpty();
             assertThat(Hibernate.isInitialized(broadcastPosts.get(0).getUser())).isTrue();
+            assertThat(Hibernate.isInitialized(broadcastPosts.get(0).getUser().getRole())).isTrue();
 
             // Test findByTargetCountry
             List<Post> countryPosts = postRepo.findByTargetCountry("IN");
             assertThat(countryPosts).isNotEmpty();
             assertThat(Hibernate.isInitialized(countryPosts.get(0).getUser())).isTrue();
+            assertThat(Hibernate.isInitialized(countryPosts.get(0).getUser().getRole())).isTrue();
+
+            // Test custom JOIN FETCH query (findByUserIdWithUserAndStatusInOrderByCreatedAtDesc)
+            List<Post> statusPosts = postRepo.findByUserIdWithUserAndStatusInOrderByCreatedAtDesc(
+                    savedUser.getId(), List.of(PostStatus.ACTIVE));
+            assertThat(statusPosts).isNotEmpty();
+            assertThat(Hibernate.isInitialized(statusPosts.get(0).getUser())).isTrue();
+            assertThat(Hibernate.isInitialized(statusPosts.get(0).getUser().getRole())).isTrue();
 
             return null;
         });
     }
 
     @Test
-    @DisplayName("Verify SocialPostRepo queries eagerly fetch user association using EntityGraph")
+    @DisplayName("Verify SocialPostRepo queries eagerly fetch user and community associations using EntityGraph")
     void testSocialPostRepoEntityGraph() {
         transactionTemplate.execute(status -> {
             // Test findRecentPostsByUser
@@ -131,6 +174,21 @@ class EntityGraphTests {
             assertThat(socialPosts).isNotEmpty();
             assertThat(Hibernate.isInitialized(socialPosts.get(0).getUser())).isTrue();
             assertThat(socialPosts.get(0).getUser().getUsername()).isEqualTo(savedUser.getUsername());
+
+            // Test findCommunityPostsCursor
+            List<SocialPost> communityPostsCursor = socialPostRepo.findCommunityPostsCursor(
+                    savedCommunity.getId(), null, PageRequest.of(0, 10));
+            assertThat(communityPostsCursor).isNotEmpty();
+            assertThat(Hibernate.isInitialized(communityPostsCursor.get(0).getUser())).isTrue();
+            assertThat(Hibernate.isInitialized(communityPostsCursor.get(0).getCommunity())).isTrue();
+            assertThat(communityPostsCursor.get(0).getCommunity().getName()).isEqualTo(savedCommunity.getName());
+
+            // Test findCommunityPostsByEngagement
+            List<SocialPost> communityPostsEngagement = socialPostRepo.findCommunityPostsByEngagement(
+                    savedCommunity.getId(), null, null, PageRequest.of(0, 10));
+            assertThat(communityPostsEngagement).isNotEmpty();
+            assertThat(Hibernate.isInitialized(communityPostsEngagement.get(0).getUser())).isTrue();
+            assertThat(Hibernate.isInitialized(communityPostsEngagement.get(0).getCommunity())).isTrue();
 
             return null;
         });

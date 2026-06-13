@@ -224,16 +224,6 @@ public class SocialPostDto implements Serializable {
         if (socialPost.getCommunityId() != null) {
             dto.setVariant("community");
             dto.setCommunityId(socialPost.getCommunityId());
-            try {
-                com.JanSahayak.AI.model.Community c = socialPost.getCommunity();
-                if (c != null) {
-                    dto.setCommunityName(c.getName());
-                    dto.setCommunityAvatar(c.getAvatarUrl());
-                    dto.setCommunityMemberCount(c.getMemberCount());
-                }
-            } catch (Exception ignored) {
-                // lazy-load guard: community fields remain null — safe to ignore
-            }
         }
 
         return dto;

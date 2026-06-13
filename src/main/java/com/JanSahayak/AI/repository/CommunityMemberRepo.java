@@ -28,6 +28,7 @@ public interface CommunityMemberRepo extends JpaRepository<CommunityMember, Long
      *
      * Only returns active, non-banned memberships.
      */
+    @EntityGraph(attributePaths = {"community"})
     @Query("""
             SELECT cm FROM CommunityMember cm
             WHERE cm.user.id       = :userId
@@ -103,6 +104,7 @@ public interface CommunityMemberRepo extends JpaRepository<CommunityMember, Long
             WHERE cm.community.id = :communityId AND cm.isActive = true
             """)
     List<Long> findActiveMemberUserIds(@Param("communityId") Long communityId);
+    @EntityGraph(attributePaths = {"user", "community"})
     @Query("SELECT cm FROM CommunityMember cm " +
             "WHERE cm.user.id IN :userIds AND cm.community.id IN :communityIds AND cm.isActive = true")
     List<CommunityMember> findActiveByUserIdInAndCommunityIdIn(

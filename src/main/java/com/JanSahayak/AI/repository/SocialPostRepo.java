@@ -241,7 +241,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // COMMUNITY DETAIL — RECENCY SORT
     // =========================================================================
 
-    @EntityGraph(attributePaths = {"user"})
+    @EntityGraph(attributePaths = {"user", "community"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.community.id = :communityId
@@ -257,7 +257,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // COMMUNITY DETAIL — ENGAGEMENT SORT ("Top" / "Hot")
     // =========================================================================
 
-    @EntityGraph(attributePaths = {"user"})
+    @EntityGraph(attributePaths = {"user", "community"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.community.id = :communityId
