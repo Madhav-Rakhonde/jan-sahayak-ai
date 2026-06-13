@@ -704,12 +704,14 @@ public class PostService {
         return recordShare(postId, user, ShareType.LINK_COPY);
     }
 
+    @Transactional(readOnly = true)
     public long getShareCount(Long postId) {
         Post post = postRepository.findById(postId).orElse(null);
         if (post == null) return 0L;
         return postInteractionService.getShareCountForPost(post);
     }
 
+    @Transactional(readOnly = true)
     public List<Object[]> getShareBreakdown(Long postId) {
         Post post = postRepository.findById(postId).orElse(null);
         if (post == null) return List.of();
@@ -954,6 +956,7 @@ public class PostService {
     // USER TAGGING
     // =========================================================================
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getPostsTaggedWithUser(Long userId, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUserId(userId);
@@ -982,6 +985,7 @@ public class PostService {
     // FIND / PAGING
     // =========================================================================
 
+    @Transactional(readOnly = true)
     public Post findById(Long postId) {
         try {
             PostUtility.validatePostId(postId);
@@ -995,6 +999,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PostResponse getPostByIdForUser(Long postId, User currentUser) {
         try {
             Post post = findById(postId);
@@ -1037,6 +1042,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getAllPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllPosts", beforeId, limit);
@@ -1052,6 +1058,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getAllActivePosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllActivePosts", beforeId, limit);
@@ -1067,6 +1074,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getAllResolvedPosts(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getAllResolvedPosts", beforeId, limit);
@@ -1082,6 +1090,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getPostsByUser(User user, Long beforeId, Integer limit) {
         try {
             PostUtility.validateUser(user);
@@ -1104,6 +1113,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getActivePostsByUser(Long userId, Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActivePostsByUser", beforeId, limit);
@@ -1122,6 +1132,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getResolvedPostsByUser(User requestingUser, Long userId, Long beforeId, Integer limit) {
         try {
             if (requestingUser == null) throw new SecurityException("Authentication required.");
@@ -1147,6 +1158,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public Long countActivePosts() {
         try {
             Long count = postRepository.countByStatus(PostStatus.ACTIVE);
@@ -1157,6 +1169,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public Long countResolvedPosts() {
         try {
             Long count = postRepository.countByStatus(PostStatus.RESOLVED);
@@ -1167,6 +1180,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getPostsWithMultipleUserTags(Long beforeId, Integer limit) {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getPostsWithMultipleUserTags", beforeId, limit);
@@ -1186,6 +1200,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<Post> getTrendingPosts(int days, Long beforeId, Integer limit) {
         try {
             if (days <= 0) throw new ValidationException("Days must be positive");
@@ -1564,6 +1579,7 @@ public class PostService {
     // LOCAL FEED / RECOMMENDATION
     // =========================================================================
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<PostResponse> getLocalFeed(User user, FeedSort sort, Long beforeId, int limit) {
         try {
             PostUtility.validateUser(user);
@@ -1709,6 +1725,7 @@ public class PostService {
      * Official government feed — exclusively departments/admins, strictly geo-targeted.
      * Waterfall: User's Pincode -> User's District -> User's State -> National.
      */
+    @Transactional(readOnly = true)
     public PaginatedResponse<PostResponse> getOfficialFeed(User user, FeedSort sort, Long beforeId, int limit) {
         try {
             PostUtility.validateUser(user);
@@ -1836,6 +1853,7 @@ public class PostService {
     }
 
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<PostResponse> getIssuePostFeed(User user, Integer limit) {
         try {
             PostUtility.validateUser(user);
@@ -1926,6 +1944,7 @@ public class PostService {
         }
     }
 
+    @Transactional(readOnly = true)
     public PaginatedResponse<PostResponse> getIssueRecommendationFeed(User user, Integer limit) {
         try {
             PostUtility.validateUser(user);

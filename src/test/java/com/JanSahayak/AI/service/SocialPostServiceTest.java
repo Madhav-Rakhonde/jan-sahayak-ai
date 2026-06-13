@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.DTO.SocialPostDto;
+import com.JanSahayak.AI.model.Community;
 import com.JanSahayak.AI.model.Role;
 import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
@@ -17,6 +18,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
+
+import org.springframework.transaction.annotation.Transactional;
 
 @ExtendWith(MockitoExtension.class)
 public class SocialPostServiceTest {
@@ -137,5 +140,98 @@ public class SocialPostServiceTest {
         assertNotNull(dto.getAuthor());
         assertNull(dto.getAuthor().getRoleName(), "Role name should fallback to null on error");
         verify(userRepository, times(1)).findUserRolesByUserIds(List.of(102L));
+    }
+
+    @Test
+    void testTransactionalAnnotationsOnFeedMethods() {
+        Class<SocialPostService> clazz = SocialPostService.class;
+        
+        List<String> feedMethods = List.of(
+            "getBrowseFeed", "getLocalPosts", "getPersonalisedFeed", 
+            "getHotFeed", "getNewFeed", "getTopFeed", "getFollowingFeed"
+        );
+        
+        for (String methodName : feedMethods) {
+            java.lang.reflect.Method method = null;
+            for (java.lang.reflect.Method m : clazz.getDeclaredMethods()) {
+                if (m.getName().equals(methodName)) {
+                    method = m;
+                    break;
+                }
+            }
+            assertNotNull(method, "Method " + methodName + " should exist in SocialPostService");
+            Transactional transactional = method.getAnnotation(Transactional.class);
+            assertNotNull(transactional, "Method " + methodName + " should be annotated with @Transactional");
+            assertTrue(transactional.readOnly(), "Method " + methodName + " should be read-only transaction");
+            assertNotEquals(org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED, transactional.propagation(),
+                    "Method " + methodName + " should NOT suspend transactions");
+        }
+    }
+
+    @Test
+    void testConvertToDto_WithCommunityMappedSuccessfully() {
+        // Arrange
+        User author = new User();
+        author.setId(101L);
+        author.setUsername("author1");
+        author.setIsActive(true);
+
+        Community community = new Community();
+        community.setId(5L);
+        community.setName("Test Community");
+        community.setAvatarUrl("avatar.png");
+        community.setMemberCount(15);
+
+        SocialPost post = new SocialPost();
+        post.setId(1L);
+        post.setUser(author);
+        post.setContent("Post in community");
+        post.setCreatedAt(new Date());
+        post.setCommunity(community);
+
+        when(userRepository.findUserRolesByUserIds(anyList())).thenReturn(Collections.emptyList());
+
+        // Act
+        SocialPostDto dto = socialPostService.convertToDto(post, null);
+
+        // Assert
+        assertNotNull(dto);
+        assertEquals("community", dto.getVariant());
+        assertEquals(5L, dto.getCommunityId());
+        assertEquals("Test Community", dto.getCommunityName());
+        assertEquals("avatar.png", dto.getCommunityAvatar());
+        assertEquals(15, dto.getCommunityMemberCount());
+    }
+
+    @Test
+    void testConvertToDto_WithCommunityLazyInitializationException() {
+        // Arrange
+        User author = new User();
+        author.setId(101L);
+        author.setUsername("author1");
+        author.setIsActive(true);
+
+        SocialPost post = mock(SocialPost.class);
+        when(post.getId()).thenReturn(1L);
+        when(post.getUser()).thenReturn(author);
+        when(post.getContent()).thenReturn("Post in community");
+        when(post.getCreatedAt()).thenReturn(new Date());
+        when(post.getCommunityId()).thenReturn(5L);
+        
+        // Mock getCommunity to throw LazyInitializationException
+        when(post.getCommunity()).thenThrow(new org.hibernate.LazyInitializationException("Lazy initialization failed"));
+
+        when(userRepository.findUserRolesByUserIds(anyList())).thenReturn(Collections.emptyList());
+
+        // Act
+        SocialPostDto dto = socialPostService.convertToDto(post, null);
+
+        // Assert
+        assertNotNull(dto);
+        assertEquals("community", dto.getVariant());
+        assertEquals(5L, dto.getCommunityId());
+        assertNull(dto.getCommunityName());
+        assertNull(dto.getCommunityAvatar());
+        assertNull(dto.getCommunityMemberCount());
     }
 }

@@ -26,6 +26,8 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
+import org.springframework.transaction.annotation.Transactional;
+
 @ExtendWith(MockitoExtension.class)
 public class PostServiceTest {
 
@@ -345,5 +347,32 @@ public class PostServiceTest {
         // Verify that tag service was NEVER called for post1 (content has no '@'), but called for post2
         verify(userTaggingService, never()).getTaggedUsersInPost(eq(post1), any(), anyInt());
         verify(userTaggingService, times(1)).getTaggedUsersInPost(eq(post2), any(), anyInt());
+    }
+
+    @Test
+    void testTransactionalAnnotationsOnFeedAndQueryMethods() {
+        Class<PostService> clazz = PostService.class;
+        List<String> readOnlyMethods = List.of(
+            "getLocalFeed", "getOfficialFeed", "getIssuePostFeed", "getIssueRecommendationFeed",
+            "getAllPosts", "getAllActivePosts", "getAllResolvedPosts", "getPostsByUser",
+            "getActivePostsByUser", "getResolvedPostsByUser", "getPostsTaggedWithUser",
+            "getPostByIdForUser", "findById", "countActivePosts", "countResolvedPosts",
+            "getPostsWithMultipleUserTags", "getTrendingPosts", "getShareCount", "getShareBreakdown"
+        );
+
+        for (String methodName : readOnlyMethods) {
+            boolean found = false;
+            for (java.lang.reflect.Method method : clazz.getDeclaredMethods()) {
+                if (method.getName().equals(methodName)) {
+                    found = true;
+                    Transactional transactional = method.getAnnotation(Transactional.class);
+                    assertNotNull(transactional, "Method " + methodName + " should be annotated with @Transactional");
+                    assertTrue(transactional.readOnly(), "Method " + methodName + " should be read-only transaction");
+                    assertNotEquals(org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED, transactional.propagation(),
+                            "Method " + methodName + " should NOT suspend transactions");
+                }
+            }
+            assertTrue(found, "Method " + methodName + " should exist in PostService");
+        }
     }
 }

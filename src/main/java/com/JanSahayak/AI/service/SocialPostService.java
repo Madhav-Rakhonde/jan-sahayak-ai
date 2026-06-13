@@ -460,7 +460,7 @@ public class SocialPostService {
      * because locality is the primary filter — users browsing "local" care most
      * about what is happening right now near them, not what is trending nationally.
      */
-    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public PaginatedResponse<SocialPostDto> getLocalPosts(
             User user, Long beforeId, Integer limit) {
         int size = (limit != null && limit > 0 && limit <= Constant.MAX_PAGE_SIZE)
@@ -550,7 +550,7 @@ public class SocialPostService {
      * Called by every HLIG tab method. Passes size+1 so buildPagedResponse()
      * can detect hasMore without a separate COUNT query.
      */
-    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public PaginatedResponse<SocialPostDto> getBrowseFeed(
             User user, FeedScope scope, FeedSort sort, Long lastPostId, int size) {
         PostUtility.validateUser(user);
@@ -577,7 +577,7 @@ public class SocialPostService {
      * FOR YOU tab — HLIG personalised pool, hot sort.
      * Cold users (no interactions) receive a geographic fallback inside HLIGFeedService.
      */
-    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public PaginatedResponse<SocialPostDto> getPersonalisedFeed(
             User user, Long lastPostId, int size) {
         return getBrowseFeed(user, FeedScope.FOR_YOU, FeedSort.HOT, lastPostId, size);
@@ -587,7 +587,7 @@ public class SocialPostService {
      * HOT tab — geographic pool (pincode→district→state waterfall), trending in 72 hours.
      * viralityScore DESC within the 72h window; extends to 7-day on sparse areas.
      */
-    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public PaginatedResponse<SocialPostDto> getHotFeed(
             User user, Long lastPostId, int size) {
         return getBrowseFeed(user, FeedScope.LOCATION, FeedSort.HOT, lastPostId, size);
@@ -597,7 +597,7 @@ public class SocialPostService {
      * NEW tab — geographic pool, pure chronological (createdAt DESC).
      * No time window; all active posts in the user's state + national.
      */
-    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public PaginatedResponse<SocialPostDto> getNewFeed(
             User user, Long lastPostId, int size) {
         return getBrowseFeed(user, FeedScope.LOCATION, FeedSort.NEW, lastPostId, size);
@@ -607,7 +607,7 @@ public class SocialPostService {
      * TOP tab — geographic pool, all-time highest engagement.
      * engagementScore DESC, no time window; surfaces the best posts ever in the region.
      */
-    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public PaginatedResponse<SocialPostDto> getTopFeed(
             User user, Long lastPostId, int size) {
         return getBrowseFeed(user, FeedScope.LOCATION, FeedSort.TOP, lastPostId, size);
@@ -618,7 +618,7 @@ public class SocialPostService {
      * Falls back to cold-feed candidates inside HLIGFeedService when the user
      * has not joined any community yet.
      */
-    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public PaginatedResponse<SocialPostDto> getFollowingFeed(
             User user, Long lastPostId, int size) {
         return getBrowseFeed(user, FeedScope.FOLLOWING, FeedSort.HOT, lastPostId, size);

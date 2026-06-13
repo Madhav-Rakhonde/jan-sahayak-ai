@@ -223,10 +223,10 @@ public class SocialPostDto implements Serializable {
         // Derive community variant and populate community context fields
         if (socialPost.getCommunityId() != null) {
             dto.setVariant("community");
+            dto.setCommunityId(socialPost.getCommunityId());
             try {
                 com.JanSahayak.AI.model.Community c = socialPost.getCommunity();
                 if (c != null) {
-                    dto.setCommunityId(c.getId());
                     dto.setCommunityName(c.getName());
                     dto.setCommunityAvatar(c.getAvatarUrl());
                     dto.setCommunityMemberCount(c.getMemberCount());
