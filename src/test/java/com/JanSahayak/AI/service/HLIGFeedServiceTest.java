@@ -95,6 +95,7 @@ class HLIGFeedServiceTest {
         candidate1.setStatus(com.JanSahayak.AI.enums.PostStatus.ACTIVE);
         candidate1.setQualityScore(80.0);
         candidate1.setReportCount(0);
+        candidate1.setCreatedAt(new Date(System.currentTimeMillis() - 1000));
 
         SocialPost candidate2 = new SocialPost();
         candidate2.setId(102L);
@@ -102,6 +103,7 @@ class HLIGFeedServiceTest {
         candidate2.setStatus(com.JanSahayak.AI.enums.PostStatus.ACTIVE);
         candidate2.setQualityScore(80.0);
         candidate2.setReportCount(0);
+        candidate2.setCreatedAt(new Date(System.currentTimeMillis() - 5000));
         List<SocialPost> candidates = Arrays.asList(candidate1, candidate2);
 
         // Stub fetchCandidates indirect calls

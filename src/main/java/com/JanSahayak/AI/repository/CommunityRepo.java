@@ -2,6 +2,7 @@ package com.JanSahayak.AI.repository;
 
 import com.JanSahayak.AI.model.Community;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,7 +18,10 @@ import java.util.Optional;
 public interface CommunityRepo extends JpaRepository<Community, Long> {
 
     // ── Lookup ────────────────────────────────────────────────────────────────
+    @EntityGraph(attributePaths = {"owner"})
     Optional<Community> findBySlug(String slug);
+
+    @EntityGraph(attributePaths = {"owner"})
     Optional<Community> findByName(String name);
     boolean existsByName(String name);
     boolean existsBySlug(String slug);
@@ -27,6 +31,8 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
 
     // ── Hyperlocal seed ───────────────────────────────────────────────────────
     boolean existsByPincodeAndIsSystemSeededTrue(String pincode);
+
+    @EntityGraph(attributePaths = {"owner"})
     Optional<Community> findByPincodeAndIsSystemSeededTrue(String pincode);
 
     @Query("SELECT COUNT(u) FROM User u WHERE u.pincode = :pincode AND u.isActive = true")

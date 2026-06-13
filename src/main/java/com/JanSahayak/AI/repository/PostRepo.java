@@ -5,6 +5,7 @@ import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.model.Post;
 import com.JanSahayak.AI.model.User;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
@@ -55,7 +56,10 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     void decrementSaveCount(@Param("id") Long id);
 
     // ===== Basic Post Query Methods =====
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByUserIdOrderByCreatedAtDesc(Long userId);
+
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByUserIdAndStatusOrderByCreatedAtDesc(Long userId, PostStatus status);
 
     // Find all posts (ACTIVE + RESOLVED) by userId
@@ -91,19 +95,24 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     Long countByUserIdAndCreatedAtAfter(Long userId, Timestamp createdAt);
 
     // ===== Broadcasting Query Methods =====
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullOrderByCreatedAtDesc();
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.status = :status ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullAndStatusOrderByCreatedAtDesc(@Param("status") PostStatus status);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusOrderByCreatedAtDesc(
             BroadcastScope broadcastScope, PostStatus status);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusOrderByCreatedAtDesc(
             BroadcastScope broadcastScope, PostStatus status, Pageable pageable);
 
     // ===== Pincode Prefix Broadcasting Query Methods =====
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
@@ -113,6 +122,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findByBroadcastScopeAndStatusAndTargetStatesContainingOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
@@ -122,6 +132,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findByBroadcastScopeAndStatusAndTargetDistrictsContainingOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("prefix") String prefix);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
@@ -131,6 +142,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope, @Param("status") PostStatus status, @Param("pincode") String pincode);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
@@ -145,6 +157,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable);
 
     // ===== Efficient User Visibility Query Methods =====
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetStates LIKE CONCAT('%,', :userStatePrefix, ',%') OR " +
             "p.targetStates LIKE CONCAT(:userStatePrefix, ',%') OR " +
@@ -156,6 +169,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("status") PostStatus status,
             @Param("userStatePrefix") String userStatePrefix);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetDistricts LIKE CONCAT('%,', :userDistrictPrefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT(:userDistrictPrefix, ',%') OR " +
@@ -167,6 +181,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("status") PostStatus status,
             @Param("userDistrictPrefix") String userDistrictPrefix);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :userPincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT(:userPincode, ',%') OR " +
@@ -209,9 +224,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     Long countByUserIdAndBroadcastScope(Long userId, BroadcastScope scope);
     Long countByUserIdAndBroadcastScopeAndStatusNot(Long userId, BroadcastScope scope, PostStatus status);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL")
     List<Post> findByUserIdAndBroadcastScopeIsNotNull(@Param("userId") Long userId);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL AND p.status != :status")
     List<Post> findByUserIdAndBroadcastScopeIsNotNullAndStatusNot(@Param("userId") Long userId, @Param("status") PostStatus status);
 
@@ -226,22 +243,27 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     Long countByUserIdInAndStatus(List<Long> userIds, PostStatus status);
 
     // ===== Paginated Query Methods (Legacy - keeping for backward compatibility) =====
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.status = :status ORDER BY p.createdAt DESC")
     List<Post> findByStatusWithPageable(@Param("status") PostStatus status, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p ORDER BY p.createdAt DESC")
     List<Post> findAllOrderByCreatedAtDesc(Pageable pageable);
 
     // ===== User Tagging Query Methods =====
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE SIZE(p.userTags) > 1 AND p.status = :status")
     List<Post> findPostsWithMultipleUserTags(@Param("status") PostStatus status);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE SIZE(p.userTags) > 1 AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findPostsWithMultipleUserTagsAndIdLessThan(
             @Param("status") PostStatus status,
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT DISTINCT p FROM Post p " +
             "JOIN p.userTags ut " +
             "WHERE ut.taggedUser.id = :userId " +
@@ -250,10 +272,12 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findPostsTaggedWithUserId(@Param("userId") Long userId);
 
     // ===== Trending and Analytics Methods =====
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate AND p.status = :status " +
             "ORDER BY (p.likeCount + p.commentCount + p.viewCount) DESC")
     List<Post> findTrendingPosts(@Param("startDate") Timestamp startDate, @Param("status") PostStatus status, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate AND p.status = :status AND p.id < :beforeId " +
             "ORDER BY (p.likeCount + p.commentCount + p.viewCount) DESC")
     List<Post> findTrendingPostsWithCursor(
@@ -271,14 +295,23 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     Object[] getTaggedPostsStatistics();
 
     // ===== Search Methods for PostSearchService =====
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByStatusAndContentContainingIgnoreCaseOrderByCreatedAtDesc(PostStatus status, String content);
+
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByUserIdInAndStatusOrderByCreatedAtDesc(List<Long> userIds, PostStatus status);
     // Note: The 3-param versions of findByBroadcastScopeAndStatus*Containing* are defined
     // with @Query above (lines 46‑71). No un-annotated duplicates here.
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByStatusAndCreatedAtAfterOrderByCreatedAtDesc(PostStatus status, Date fromDate);
+
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByStatusOrderByCreatedAtDesc(PostStatus status);
+
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByUserIdInOrderByCreatedAtDesc(List<Long> userIds);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id IN :userIds AND p.status = :status AND " +
             "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\' " +
             "ORDER BY p.createdAt DESC")
@@ -287,6 +320,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("status") PostStatus status,
             @Param("content") String content);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.status = :status AND " +
             "p.content LIKE :hashtag ESCAPE '\\' " +
             "ORDER BY p.createdAt DESC")
@@ -300,6 +334,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("status") PostStatus status,
             @Param("content") String content);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id IN :userIds AND p.status = :status " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByUserIdInAndStatusOrderByCreatedAtDesc(
@@ -307,12 +342,14 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("status") PostStatus status,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IN :scopes AND p.status = :status " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeInAndStatusOrderByCreatedAtDesc(
             @Param("scopes") List<BroadcastScope> scopes,
             @Param("status") PostStatus status);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
             "(p.broadcastScope IS NULL OR " +
             "(p.broadcastScope = :countryScope) OR " +
@@ -332,13 +369,17 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("status") PostStatus status,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndTargetCountryOrderByCreatedAtDesc(BroadcastScope scope, String targetCountry);
+
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusAndTargetCountryOrderByCreatedAtDesc(
             BroadcastScope scope, PostStatus status, String targetCountry);
     Long countByBroadcastScopeAndTargetCountry(BroadcastScope scope, String targetCountry);
     Long countByBroadcastScopeAndTargetCountryAndStatusNot(BroadcastScope scope, String targetCountry, PostStatus status);
     Long countByBroadcastScopeAndStatusAndTargetCountry(BroadcastScope scope, PostStatus status, String targetCountry);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
             "(p.broadcastScope IS NULL OR " +
             "(p.broadcastScope = :countryScope AND p.targetCountry = 'IN') OR " +
@@ -357,10 +398,12 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("pincode") String pincode,
             @Param("status") PostStatus status);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND " +
             "p.targetCountry = 'IN' ORDER BY p.createdAt DESC")
     List<Post> findAllIndiaBroadcastPosts();
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND " +
             "p.targetCountry = 'IN' AND p.status = :status ORDER BY p.createdAt DESC")
     List<Post> findActiveIndiaBroadcastPosts(@Param("status") PostStatus status);
@@ -372,6 +415,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             "p.targetCountry = 'IN' AND p.status = :status")
     Long countActiveIndiaBroadcastPosts(@Param("status") PostStatus status);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :countryScope AND " +
             "p.targetCountry = 'IN' AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') " +
             "ORDER BY p.createdAt DESC")
@@ -418,12 +462,14 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     Long countGovernmentCountryBroadcasts(@Param("countryScope") BroadcastScope countryScope);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByTargetCountry(String targetCountry);
 
     @Query("UPDATE Post p SET p.targetCountry = 'IN' WHERE p.targetCountry IS NULL OR p.targetCountry = ''")
     @Modifying
     int updateNullTargetCountryToIndia();
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.targetCountry IS NULL OR p.targetCountry = ''")
     List<Post> findPostsWithoutTargetCountry();
 
@@ -447,16 +493,19 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     // ===== CURSOR-BASED PAGINATION METHODS =====
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByIdLessThanOrderByCreatedAtDesc(
             @Param("beforeId") Long beforeId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id = :userId AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByUserIdAndIdLessThanOrderByCreatedAtDesc(
             @Param("userId") Long userId,
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id = :userId AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByUserIdAndStatusAndIdLessThanOrderByCreatedAtDesc(
             @Param("userId") Long userId,
@@ -464,19 +513,23 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullAndIdLessThanOrderByCreatedAtDesc(
             @Param("beforeId") Long beforeId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullOrderByCreatedAtDesc(Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullAndStatusAndIdLessThanOrderByCreatedAtDesc(
             @Param("status") PostStatus status,
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.status = :status ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeIsNotNullAndStatusOrderByCreatedAtDesc(
             @Param("status") PostStatus status, Pageable pageable);
@@ -490,16 +543,19 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeAndIdLessThanOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope,
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.targetCountry = :targetCountry AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeAndTargetCountryAndIdLessThanOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope,
@@ -507,12 +563,14 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.targetCountry = :targetCountry ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeAndTargetCountryOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope,
             @Param("targetCountry") String targetCountry,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND p.targetCountry = :targetCountry AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeAndStatusAndTargetCountryAndIdLessThanOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope,
@@ -521,6 +579,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
             "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
@@ -533,6 +592,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
             "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
@@ -545,6 +605,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
@@ -557,6 +618,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT DISTINCT p FROM Post p " +
             "JOIN p.userTags ut " +
             "WHERE ut.taggedUser.id = :userId AND ut.isActive = true AND p.id < :beforeId " +
@@ -566,17 +628,20 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE SIZE(p.userTags) > 1 AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findPostsWithMultipleUserTagsAndIdLessThanLegacy(
             @Param("status") PostStatus status,
             @Param("beforeId") Long beforeId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id = :userId AND p.broadcastScope IS NOT NULL AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByUserIdAndBroadcastScopeIsNotNullAndIdLessThanOrderByCreatedAtDesc(
             @Param("userId") Long userId,
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id IN :userIds AND p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findByUserIdInAndStatusAndIdLessThanOrderByCreatedAtDesc(
             @Param("userIds") List<Long> userIds,
@@ -584,6 +649,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.status = :status AND " +
             "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\' AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
@@ -593,6 +659,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.createdAt >= :startDate AND p.status = :status AND p.id < :beforeId " +
             "ORDER BY (p.likeCount + p.commentCount + p.viewCount) DESC")
     List<Post> findTrendingPostsWithCursorLegacy(
@@ -603,6 +670,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     // ===== ADDITIONAL OPTIMIZED PAGINATION METHODS =====
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT DISTINCT p FROM Post p WHERE " +
             "(p.broadcastScope IS NULL OR " +
             "(p.broadcastScope = :countryScope) OR " +
@@ -623,6 +691,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id IN :userIds AND p.status = :status AND " +
             "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\' AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
@@ -633,6 +702,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.status = :status AND " +
             "p.content LIKE :hashtag ESCAPE '\\' AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
@@ -642,6 +712,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :countryScope AND " +
             "p.user.role.name IN ('ROLE_DEPARTMENT', 'ROLE_ADMIN') AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
@@ -650,11 +721,13 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND " +
             "p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findAllIndiaBroadcastPostsAndIdLessThan(
             @Param("beforeId") Long beforeId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND " +
             "p.status = :status AND p.id < :beforeId ORDER BY p.createdAt DESC")
     List<Post> findActiveIndiaBroadcastPostsAndIdLessThan(
@@ -662,6 +735,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.status = :status AND p.createdAt >= :fromDate AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByStatusAndCreatedAtAfterAndIdLessThanOrderByCreatedAtDesc(
@@ -670,6 +744,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IN :scopes AND p.status = :status AND p.id < :beforeId " +
             "ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeInAndStatusAndIdLessThanOrderByCreatedAtDesc(
@@ -752,6 +827,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     // ===== BATCH OPERATIONS =====
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.id IN :ids ORDER BY p.createdAt DESC")
     List<Post> findPostsByIds(@Param("ids") List<Long> ids);
 
@@ -762,13 +838,16 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     // ===== CLEANUP AND MAINTENANCE METHODS =====
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.createdAt < :cutoffDate ORDER BY p.id DESC")
     List<Post> findOldPostsForMaintenance(
             @Param("cutoffDate") Date cutoffDate, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope IS NOT NULL AND p.targetCountry IS NULL")
     List<Post> findBroadcastPostsWithoutTargetCountry();
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND p.targetCountry = :targetCountry ORDER BY p.createdAt DESC")
     List<Post> findByBroadcastScopeAndStatusAndTargetCountryOrderByCreatedAtDesc(
             @Param("scope") BroadcastScope scope,
@@ -778,9 +857,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     // ===== REQUIRED METHODS FOR POSTSEARCHSERVICE CURSOR-BASED PAGINATION =====
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByStatusAndContentContainingIgnoreCaseOrderByIdDesc(
             PostStatus status, String content, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.status = :status AND " +
             "LOWER(p.content) LIKE LOWER(CONCAT('%', :content, '%')) ESCAPE '\\' AND p.id < :beforeId " +
             "ORDER BY p.id DESC")
@@ -790,9 +871,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByUserIdInAndStatusOrderByIdDesc(
             List<Long> userIds, PostStatus status, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.user.id IN :userIds AND p.status = :status AND p.id < :beforeId " +
             "ORDER BY p.id DESC")
     List<Post> findByUserIdInAndStatusAndIdBeforeOrderByIdDesc(
@@ -801,9 +884,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByIdDesc(
             BroadcastScope scope, PostStatus status, String pincode, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
@@ -817,9 +902,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusAndTargetStatesContainingOrderByIdDesc(
             BroadcastScope scope, PostStatus status, String statePrefix, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
@@ -833,9 +920,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusAndTargetDistrictsContainingOrderByIdDesc(
             BroadcastScope scope, PostStatus status, String districtPrefix, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
@@ -849,9 +938,11 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByStatusAndCreatedAtAfterOrderByIdDesc(
             PostStatus status, Date fromDate, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.status = :status AND p.createdAt >= :fromDate AND p.id < :beforeId " +
             "ORDER BY p.id DESC")
     List<Post> findByStatusAndCreatedAtAfterAndIdBeforeOrderByIdDesc(
@@ -860,14 +951,17 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByUserInAndStatusAndBroadcastScopeIsNullOrderByCreatedAtDesc(
             List<User> users, PostStatus status, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByUserInAndStatusAndBroadcastScopeIsNullAndIdLessThanOrderByCreatedAtDesc(
             List<User> users, PostStatus status, Long beforeId, Pageable pageable);
 
     // ===== GEOGRAPHIC BROADCAST METHODS WITH PAGINATION SUPPORT =====
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
             "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
@@ -879,6 +973,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("prefix") String prefix,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
             "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
@@ -890,6 +985,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("prefix") String prefix,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
@@ -903,6 +999,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
 
     // ===== CURSOR-BASED GEOGRAPHIC BROADCAST METHODS =====
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetStates LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetStates LIKE CONCAT(:prefix, ',%') OR " +
@@ -916,6 +1013,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetDistricts LIKE CONCAT('%,', :prefix, ',%') OR " +
             "p.targetDistricts LIKE CONCAT(:prefix, ',%') OR " +
@@ -929,6 +1027,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             @Param("beforeId") Long beforeId,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT p FROM Post p WHERE p.broadcastScope = :scope AND p.status = :status AND " +
             "(p.targetPincodes LIKE CONCAT('%,', :pincode, ',%') OR " +
             "p.targetPincodes LIKE CONCAT(:pincode, ',%') OR " +
@@ -953,12 +1052,15 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     Long countByBroadcastScopeAndStatusAndTargetPincodesContaining(
             BroadcastScope scope, PostStatus status, String pincode);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusAndTargetStatesContainingOrderByCreatedAtDesc(
             BroadcastScope scope, PostStatus status, String statePrefix, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusAndTargetDistrictsContainingOrderByCreatedAtDesc(
             BroadcastScope scope, PostStatus status, String districtPrefix, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Post> findByBroadcastScopeAndStatusAndTargetPincodesContainingOrderByCreatedAtDesc(
             BroadcastScope scope, PostStatus status, String pincode, Pageable pageable);
 
@@ -966,6 +1068,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     // ===== UNIFIED SEARCH — CURSOR-BASED (used by SearchService) ==============
     // ==========================================================================
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT p FROM Post p
             WHERE p.status = :status
@@ -978,6 +1081,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable
     );
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT p FROM Post p
             WHERE p.status = :status
@@ -992,6 +1096,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable
     );
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT p FROM Post p
             WHERE p.status       = :status
@@ -1006,6 +1111,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
             Pageable pageable
     );
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT p FROM Post p
             WHERE p.status       = :status

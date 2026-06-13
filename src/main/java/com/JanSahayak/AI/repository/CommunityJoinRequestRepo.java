@@ -2,6 +2,7 @@ package com.JanSahayak.AI.repository;
 
 import com.JanSahayak.AI.model.CommunityJoinRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -20,6 +21,7 @@ public interface CommunityJoinRequestRepo extends JpaRepository<CommunityJoinReq
 
     // ── Cursor-based pending requests (PaginationUtils.createPageable(limit+1)) ──
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT jr FROM CommunityJoinRequest jr
             WHERE jr.community.id = :communityId

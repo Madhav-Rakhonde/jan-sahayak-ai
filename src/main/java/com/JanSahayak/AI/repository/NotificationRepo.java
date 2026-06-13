@@ -3,6 +3,7 @@ package com.JanSahayak.AI.repository;
 import com.JanSahayak.AI.model.Notification;
 import com.JanSahayak.AI.model.User;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -18,21 +19,25 @@ public interface NotificationRepo extends JpaRepository<Notification, Long> {
     /**
      * Find all notifications for a user ordered by creation date
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     List<Notification> findByUserOrderByCreatedAtDesc(User user, Pageable pageable);
 
     /**
      * Find notifications with cursor-based pagination
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     List<Notification> findByUserAndIdLessThanOrderByCreatedAtDesc(User user, Long beforeId, Pageable pageable);
 
     /**
      * Find unread notifications for a user
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     List<Notification> findByUserAndIsReadFalseOrderByCreatedAtDesc(User user);
 
     /**
      * Find unread notifications (limited)
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     List<Notification> findByUserAndIsReadFalse(User user);
 
     /**
@@ -48,6 +53,7 @@ public interface NotificationRepo extends JpaRepository<Notification, Long> {
     /**
      * Find notifications by type
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     List<Notification> findByUserAndNotificationTypeOrderByCreatedAtDesc(
             User user,
             com.JanSahayak.AI.enums.NotificationType type,
@@ -56,6 +62,7 @@ public interface NotificationRepo extends JpaRepository<Notification, Long> {
     /**
      * Find notifications by reference
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     List<Notification> findByUserAndReferenceIdAndReferenceType(
             User user,
             Long referenceId,
@@ -78,6 +85,7 @@ public interface NotificationRepo extends JpaRepository<Notification, Long> {
     /**
      * Find notifications created after a specific date
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     List<Notification> findByUserAndCreatedAtAfterOrderByCreatedAtDesc(
             User user,
             Date afterDate);
@@ -92,6 +100,7 @@ public interface NotificationRepo extends JpaRepository<Notification, Long> {
     /**
      * Get recent notifications for user (last N days)
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     @Query("SELECT n FROM Notification n WHERE n.user = :user AND n.createdAt >= :since ORDER BY n.createdAt DESC")
     List<Notification> findRecentNotifications(
             @Param("user") User user,
@@ -110,6 +119,7 @@ public interface NotificationRepo extends JpaRepository<Notification, Long> {
     /**
      * Find latest notification by type
      */
+    @EntityGraph(attributePaths = {"triggeredBy"})
     Notification findFirstByUserAndNotificationTypeOrderByCreatedAtDesc(
             User user,
             com.JanSahayak.AI.enums.NotificationType type);

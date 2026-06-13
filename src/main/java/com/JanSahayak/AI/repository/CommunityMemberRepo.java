@@ -2,6 +2,7 @@ package com.JanSahayak.AI.repository;
 
 import com.JanSahayak.AI.model.CommunityMember;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -40,6 +41,7 @@ public interface CommunityMemberRepo extends JpaRepository<CommunityMember, Long
 
 
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT cm FROM CommunityMember cm
             WHERE cm.community.id = :communityId
@@ -55,6 +57,7 @@ public interface CommunityMemberRepo extends JpaRepository<CommunityMember, Long
 
     // ── User's communities (cursor-based) ─────────────────────────────────────
 
+    @EntityGraph(attributePaths = {"community"})
     @Query("""
             SELECT cm FROM CommunityMember cm
             WHERE cm.user.id   = :userId

@@ -3,6 +3,7 @@ package com.JanSahayak.AI.repository;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.model.SocialPost;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -124,6 +125,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // Used by SocialPostService.getHomeFeed() for non-HLIG users.
     // =========================================================================
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -142,6 +144,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
                                                  @Param("districtPrefix") String districtPrefix,
                                                  Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -181,6 +184,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // COMMUNITY FEED — LOCAL / PERSONALIZED
     // =========================================================================
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -213,6 +217,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // COMMUNITY FEED — NATIONAL / EXPLORE
     // =========================================================================
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -236,6 +241,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // COMMUNITY DETAIL — RECENCY SORT
     // =========================================================================
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.community.id = :communityId
@@ -251,6 +257,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // COMMUNITY DETAIL — ENGAGEMENT SORT ("Top" / "Hot")
     // =========================================================================
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.community.id = :communityId
@@ -293,6 +300,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // ==========================================================================
 
     /** Keyword search across content + hashtags — FIRST page (no cursor). */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
@@ -306,6 +314,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             Pageable pageable);
 
     /** Keyword search — NEXT pages. */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
@@ -321,6 +330,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             Pageable pageable);
 
     /** Pincode-scoped keyword search — FIRST page. */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status  = :status
@@ -336,6 +346,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             Pageable pageable);
 
     /** Pincode-scoped keyword search — NEXT pages. */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status  = :status
@@ -353,6 +364,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             Pageable pageable);
 
     /** Hashtag-exact search — FIRST page. */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
@@ -365,6 +377,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             Pageable pageable);
 
     /** Hashtag-exact search — NEXT pages. */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
@@ -408,6 +421,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * First pool in HLIGFeedService.fetchCandidates().
      * Only quality-scored active posts from the user's own pincode.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.pincode = :pincode
@@ -424,6 +438,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * FOR YOU tab — district-viral candidates.
      * Second pool in HLIGFeedService.fetchCandidates().
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.districtPrefix = :districtPrefix
@@ -439,6 +454,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     /**
      * FOR YOU tab — state-viral candidates.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.statePrefix = :statePrefix
@@ -455,6 +471,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * FOR YOU tab — national-viral candidates.
      * Shown to all users regardless of location.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.viralTier = 'NATIONAL_VIRAL'
@@ -469,6 +486,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * Cold-area fallback: recent quality posts nationwide.
      * Used when the user's local pool is too small (< 50 candidates).
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -488,6 +506,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * This query has none of those filters, guaranteeing cross-area users always
      * see each other's posts regardless of viral tier, quality score, or geo match.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -504,6 +523,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * every other fallback is exhausted. Unlike findRecentPostsNational, this query
      * has NO qualityScore filter, so even brand-new posts with qualityScore=0 surface.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -527,6 +547,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * Index hint: idx_social_post_virality_created on (status, viralityScore, createdAt)
      * covers the WHERE and ORDER BY clauses at scale.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -553,6 +574,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * Used by HLIGFeedService.fetchBrowsePool() for scope=LOCATION + sort=NEW,
      * and by widenToState() when the state-level NEW pool is sparse.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -577,6 +599,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * qualityScore >= 50 guards against brand-new zero-engagement posts
      * from cluttering the all-time leaderboard.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -596,6 +619,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      * FOLLOWING tab — posts from communities the user has joined.
      * Only ACTIVE posts from communities where user has an active membership.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.community.id IN (
@@ -628,6 +652,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      *
      * Index hint: idx_social_post_virality_created on (status, viralityScore, createdAt)
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -652,6 +677,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      *
      * Index hint: idx_social_post_engagement on (status, engagementScore DESC)
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = 'ACTIVE'
@@ -679,6 +705,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
      *
      * Capped to 3 posts (HLIG_OWN_POST_INJECT_LIMIT) by the caller.
      */
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.user.id = :userId
@@ -691,6 +718,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
 
 
     // Used by language-aware widening in HLIGFeedService + fetchCandidates
+    @EntityGraph(attributePaths = {"user"})
     @Query("""
   SELECT p FROM SocialPost p
   WHERE p.status = 'ACTIVE'

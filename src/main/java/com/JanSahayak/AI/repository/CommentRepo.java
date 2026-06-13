@@ -112,18 +112,24 @@ public interface CommentRepo extends JpaRepository<Comment, Long> {
     @Query("SELECT c FROM Comment c LEFT JOIN FETCH c.user WHERE c.parentComment = :parentComment AND c.id < :beforeId ORDER BY c.createdAt DESC")
     List<Comment> findByParentCommentAndIdLessThanOrderByCreatedAtDesc(@Param("parentComment") Comment parentComment, @Param("beforeId") Long beforeId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Comment> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT c FROM Comment c WHERE c.id < :beforeId ORDER BY c.createdAt DESC")
     List<Comment> findByIdLessThanOrderByCreatedAtDesc(@Param("beforeId") Long beforeId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Comment> findByCreatedAtAfterOrderByCreatedAtDesc(Date fromDate, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT c FROM Comment c WHERE c.createdAt > :fromDate AND c.id < :beforeId ORDER BY c.createdAt DESC")
     List<Comment> findByCreatedAtAfterAndIdLessThanOrderByCreatedAtDesc(@Param("fromDate") Date fromDate, @Param("beforeId") Long beforeId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     List<Comment> findByTextContainingIgnoreCaseOrderByCreatedAtDesc(String searchTerm, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user"})
     @Query("SELECT c FROM Comment c WHERE LOWER(c.text) LIKE LOWER(CONCAT('%', :searchTerm, '%')) AND c.id < :beforeId ORDER BY c.createdAt DESC")
     List<Comment> findByTextContainingIgnoreCaseAndIdLessThanOrderByCreatedAtDesc(@Param("searchTerm") String searchTerm, @Param("beforeId") Long beforeId, Pageable pageable);
 
