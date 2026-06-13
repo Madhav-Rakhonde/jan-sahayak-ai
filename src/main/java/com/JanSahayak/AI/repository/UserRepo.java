@@ -226,6 +226,9 @@ public interface UserRepo extends JpaRepository<User, Long> {
 
     List<User> findByUsernameIn(List<String> usernames);
 
+    @Query("SELECT u.id, r.name FROM User u JOIN u.role r WHERE u.id IN :userIds")
+    List<Object[]> findUserRolesByUserIds(@Param("userIds") List<Long> userIds);
+
     // =========================================================================
     // SEARCH / SUGGESTION
     // =========================================================================

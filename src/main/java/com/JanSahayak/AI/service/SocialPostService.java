@@ -731,6 +731,31 @@ public class SocialPostService {
         final Set<Long>             fvp       = votedPollIds;
         final Map<Long, List<Long>> fvo       = votedOptionsMap;
 
+        // Batch load author roles to avoid LazyInitializationException outside transactional boundaries
+        Map<Long, String> userRoleMap = new HashMap<>();
+        try {
+            List<Long> userIds = posts.stream()
+                    .filter(p -> p != null && p.getUser() != null)
+                    .map(p -> p.getUser().getId())
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+            if (!userIds.isEmpty()) {
+                List<Object[]> rolesData = userRepository.findUserRolesByUserIds(userIds);
+                for (Object[] row : rolesData) {
+                    if (row != null && row.length >= 2) {
+                        Long uid = ((Number) row[0]).longValue();
+                        String rName = (String) row[1];
+                        userRoleMap.put(uid, rName);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to batch load user roles in convertToDtoBatch: {}", e.getMessage());
+        }
+
+        final Map<Long, String> fUserRoles = userRoleMap;
+
         List<SocialPostDto> dtos = posts.stream()
                 .map(post -> {
                     try {
@@ -743,8 +768,9 @@ public class SocialPostService {
                         List<Long> votedIds = hasVoted
                                 ? fvo.getOrDefault(poll.getId(), List.of())
                                 : List.of();
+                        String roleName = fUserRoles.get(post.getUser().getId());
                         SocialPostDto dto = SocialPostDto.fromSocialPostWithInteractions(
-                                post, isLiked, isSaved, isViewed, poll, hasVoted, votedIds);
+                                post, isLiked, isSaved, isViewed, poll, hasVoted, votedIds, roleName);
                         if (dto != null) {
                             dto.setCanDelete(SocialPostUtility.canUserDeleteSocialPost(post, user));
                         }
@@ -819,12 +845,36 @@ public class SocialPostService {
     private List<SocialPostDto> convertToDtoSimple(List<SocialPost> posts) {
         if (posts == null || posts.isEmpty()) return Collections.emptyList();
         Map<Long, Poll> pollMap = loadPollMap(posts);
+
+        Map<Long, String> userRoleMap = new HashMap<>();
+        try {
+            List<Long> userIds = posts.stream()
+                    .filter(p -> p != null && p.getUser() != null)
+                    .map(p -> p.getUser().getId())
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+            if (!userIds.isEmpty()) {
+                List<Object[]> rolesData = userRepository.findUserRolesByUserIds(userIds);
+                for (Object[] row : rolesData) {
+                    if (row != null && row.length >= 2) {
+                        Long uid = ((Number) row[0]).longValue();
+                        String rName = (String) row[1];
+                        userRoleMap.put(uid, rName);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to batch load user roles in convertToDtoSimple: {}", e.getMessage());
+        }
+
         return posts.stream()
                 .map(post -> {
                     if (post == null) return null;
                     Poll poll = pollMap.get(post.getId());
+                    String roleName = userRoleMap.get(post.getUser().getId());
                     return SocialPostDto.fromSocialPostWithInteractions(
-                            post, false, false, false, poll, false, List.of());
+                            post, false, false, false, poll, false, List.of(), roleName);
                 })
                 .filter(Objects::nonNull).collect(Collectors.toList());
     }

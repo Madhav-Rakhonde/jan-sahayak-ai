@@ -41,12 +41,27 @@ public class AuthorDto implements Serializable {
     public static AuthorDto fromUser(User user) {
         if (user == null) return null;
 
+        String roleName = null;
+        try {
+            if (user.getRole() != null && org.hibernate.Hibernate.isInitialized(user.getRole())) {
+                roleName = user.getRole().getName();
+            }
+        } catch (Exception ignored) {
+            // Defensive guard against LazyInitializationException when accessing proxy outside session
+        }
+
+        return fromUser(user, roleName);
+    }
+
+    public static AuthorDto fromUser(User user, String roleName) {
+        if (user == null) return null;
+
         return AuthorDto.builder()
                 .id(user.getId())
                 .username(user.getActualUsername())   // display name, NOT email
                 .profileImage(user.getProfileImage())
                 .pincode(user.getPincode())
-                .roleName(user.getRole() != null ? user.getRole().getName() : null)
+                .roleName(roleName)
                 .isActive(user.getIsActive())
                 .build();
     }

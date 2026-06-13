@@ -148,6 +148,10 @@ public class SocialPostDto implements Serializable {
      * Basic conversion — no interactions, no poll.  variant defaults to "social".
      */
     public static SocialPostDto fromSocialPost(SocialPost socialPost) {
+        return fromSocialPost(socialPost, null);
+    }
+
+    public static SocialPostDto fromSocialPost(SocialPost socialPost, String roleName) {
         if (socialPost == null) return null;
 
         return SocialPostDto.builder()
@@ -155,7 +159,7 @@ public class SocialPostDto implements Serializable {
                 .content(socialPost.getContent())
                 .createdAt(socialPost.getCreatedAt())
                 .updatedAt(socialPost.getUpdatedAt())
-                .author(AuthorDto.fromUser(socialPost.getUser()))
+                .author(AuthorDto.fromUser(socialPost.getUser(), roleName))
                 .mediaUrls(socialPost.getMediaUrlsList())
                 .mediaCount(socialPost.getMediaCount())
                 .hasMedia(socialPost.hasMedia())
@@ -199,8 +203,17 @@ public class SocialPostDto implements Serializable {
             Boolean isLiked,
             Boolean isSaved,
             Boolean isViewed) {
+        return fromSocialPostWithInteractions(socialPost, isLiked, isSaved, isViewed, null);
+    }
 
-        SocialPostDto dto = fromSocialPost(socialPost);
+    public static SocialPostDto fromSocialPostWithInteractions(
+            SocialPost socialPost,
+            Boolean isLiked,
+            Boolean isSaved,
+            Boolean isViewed,
+            String roleName) {
+
+        SocialPostDto dto = fromSocialPost(socialPost, roleName);
         if (dto == null) return null;
 
         dto.setIsLikedByCurrentUser(isLiked);
@@ -258,10 +271,22 @@ public class SocialPostDto implements Serializable {
             Poll poll,
             boolean userHasVoted,
             List<Long> votedOptionIds) {
+        return fromSocialPostWithInteractions(socialPost, isLiked, isSaved, isViewed, poll, userHasVoted, votedOptionIds, null);
+    }
+
+    public static SocialPostDto fromSocialPostWithInteractions(
+            SocialPost socialPost,
+            Boolean isLiked,
+            Boolean isSaved,
+            Boolean isViewed,
+            Poll poll,
+            boolean userHasVoted,
+            List<Long> votedOptionIds,
+            String roleName) {
 
         // Start from the base conversion
         SocialPostDto dto = fromSocialPostWithInteractions(
-                socialPost, isLiked, isSaved, isViewed);
+                socialPost, isLiked, isSaved, isViewed, roleName);
         if (dto == null) return null;
 
         if (poll != null) {
