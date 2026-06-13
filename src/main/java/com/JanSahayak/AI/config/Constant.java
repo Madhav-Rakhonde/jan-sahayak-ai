@@ -230,6 +230,22 @@ public final class Constant {
     public static final int    HLIG_MAX_NEIGHBOURS = 50;
 
     // =========================================================================
+    // PERFORMANCE CACHE NAMES — used in @Cacheable / @CacheEvict annotations
+    // =========================================================================
+
+    /** Unread notification count — polled every 60 s by frontend, cached 30 s. */
+    public static final String CACHE_NOTIF_UNREAD_COUNT = "notif-unread-count";
+
+    /** User profile — loaded on every authenticated request, cached 10 min. */
+    public static final String CACHE_USER_PROFILE       = "user-profiles";
+
+    /** Pincode reference data (states/districts) — static, cached 24 h. */
+    public static final String CACHE_PINCODE_DATA       = "pincode-data";
+
+    /** Community list for browse page — cached 5 min. */
+    public static final String CACHE_COMMUNITY_LIST     = "community-list";
+
+    // =========================================================================
     // HLIG INTEREST PROFILE — phase thresholds
     // =========================================================================
     // getUserPhase() in InterestProfileService uses these to decide which

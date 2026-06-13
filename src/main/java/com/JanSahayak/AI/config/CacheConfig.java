@@ -70,6 +70,39 @@ public class CacheConfig {
     private static final int  FEED_CACHE_MAX_SIZE_ENTRIES = 5_000;
     private static final long FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES = 5L;
 
+    // ── New caches targeting hot frontend polling patterns ────────────────────
+
+    /**
+     * Notification unread count — polled every 60 s by useUnreadNotificationsCount hook.
+     * With 1000 DAU this is 1000 DB SELECTs/min on a simple COUNT(*). Cache for 30 s.
+     * Evicted eagerly by @CacheEvict in NotificationService on mark-read / delete.
+     */
+    private static final int  NOTIF_COUNT_MAX_SIZE  = 100_000;
+    private static final long NOTIF_COUNT_TTL_SECS  = 30L;
+
+    /**
+     * User profiles — GET /api/users/me called on every page render.
+     * Most frequent DB lookup in the entire system. Cache for 10 min.
+     * Evicted on profile update / password change.
+     */
+    private static final int  USER_PROFILE_MAX_SIZE   = 50_000;
+    private static final long USER_PROFILE_TTL_MINUTES = 10L;
+
+    /**
+     * Pincode reference data — getStates() / getDistricts() are called from
+     * broadcast creation and Settings page. Data is read-only government reference;
+     * virtually never changes. Cache for 24 h.
+     */
+    private static final int  PINCODE_MAX_SIZE     = 200_000;
+    private static final long PINCODE_TTL_HOURS    = 24L;
+
+    /**
+     * Community list — browse page calls GET /api/communities on every mount.
+     * Cache for 5 min; evicted on community create/archive.
+     */
+    private static final int  COMMUNITY_LIST_MAX_SIZE   = 10_000;
+    private static final long COMMUNITY_LIST_TTL_MINUTES = 5L;
+
     @Bean
     public CacheManager cacheManager() {
         CaffeineCache profileCache = buildCache(
@@ -107,8 +140,42 @@ public class CacheConfig {
                 TimeUnit.MINUTES
         );
 
+        // ── New performance caches ────────────────────────────────────────────
+
+        CaffeineCache notifCountCache = buildCache(
+                Constant.CACHE_NOTIF_UNREAD_COUNT,
+                NOTIF_COUNT_MAX_SIZE,
+                NOTIF_COUNT_TTL_SECS,
+                TimeUnit.SECONDS
+        );
+
+        CaffeineCache userProfileCache = buildCache(
+                Constant.CACHE_USER_PROFILE,
+                USER_PROFILE_MAX_SIZE,
+                USER_PROFILE_TTL_MINUTES,
+                TimeUnit.MINUTES
+        );
+
+        CaffeineCache pincodeCache = buildCache(
+                Constant.CACHE_PINCODE_DATA,
+                PINCODE_MAX_SIZE,
+                PINCODE_TTL_HOURS,
+                TimeUnit.HOURS
+        );
+
+        CaffeineCache communityListCache = buildCache(
+                Constant.CACHE_COMMUNITY_LIST,
+                COMMUNITY_LIST_MAX_SIZE,
+                COMMUNITY_LIST_TTL_MINUTES,
+                TimeUnit.MINUTES
+        );
+
         SimpleCacheManager manager = new SimpleCacheManager();
-        manager.setCaches(List.of(profileCache, geoDistCache, trendingPostsCache, broadcastFeedsCache, hligFeedCache));
+        manager.setCaches(List.of(
+                profileCache, geoDistCache,
+                trendingPostsCache, broadcastFeedsCache, hligFeedCache,
+                notifCountCache, userProfileCache, pincodeCache, communityListCache
+        ));
         return manager;
     }
 

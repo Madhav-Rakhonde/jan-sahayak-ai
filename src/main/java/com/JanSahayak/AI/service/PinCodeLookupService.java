@@ -9,6 +9,7 @@ import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.payload.PostUtility;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -486,15 +487,30 @@ public class PinCodeLookupService {
     }
 
 
+    /**
+     * All active states — cached 24 h.
+     * Called on every broadcast-creation form and Settings page.
+     * State names virtually never change. No @CacheEvict needed.
+     */
+    @Cacheable(value = Constant.CACHE_PINCODE_DATA, key = "'all-states'")
     public List<String> getAllStates() {
         // Note: State/district lists don't need pagination as they're typically small
         return pincodeLookupRepository.findDistinctStatesByIsActiveTrue();
     }
 
+    /**
+     * All active districts — cached 24 h.
+     */
+    @Cacheable(value = Constant.CACHE_PINCODE_DATA, key = "'all-districts'")
     public List<String> getAllDistricts() {
         return pincodeLookupRepository.findDistinctDistrictsByIsActiveTrue();
     }
 
+    /**
+     * Districts for a given state — cached 24 h.
+     * Called each time the user selects a state in broadcast targeting.
+     */
+    @Cacheable(value = Constant.CACHE_PINCODE_DATA, key = "'districts-' + #state.toLowerCase()")
     public List<String> getDistrictsByState(String state) {
         if (state == null || state.trim().isEmpty()) {
             return List.of();

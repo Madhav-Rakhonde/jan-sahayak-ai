@@ -607,8 +607,17 @@ public class CommunityService {
                 setup.getSanitizedCursor(), pageable)
                 : communityRepo.findDiscoverable(setup.getSanitizedCursor(), pageable);
 
-        List<CommunitySummaryResponse> mapped = raw.stream()
-                .map(c -> toSummaryResponse(c, requesterId)).collect(Collectors.toList());
+        List<CommunitySummaryResponse> mapped;
+        if (requesterId != null && raw != null && !raw.isEmpty()) {
+            List<Long> communityIds = raw.stream().map(Community::getId).collect(Collectors.toList());
+            Set<Long> memberCommunityIds = memberRepo.findActiveByUserIdAndCommunityIdIn(requesterId, communityIds)
+                    .stream().map(cm -> cm.getCommunity().getId()).collect(Collectors.toSet());
+            mapped = raw.stream()
+                    .map(c -> toSummaryResponse(c, requesterId, memberCommunityIds)).collect(Collectors.toList());
+        } else {
+            mapped = raw.stream()
+                    .map(c -> toSummaryResponse(c, requesterId, Collections.emptySet())).collect(Collectors.toList());
+        }
         return PaginationUtils.createIdBasedResponse(mapped, setup.getValidatedLimit(),
                 cr -> raw.get(mapped.indexOf(cr)).getId());
     }
@@ -622,8 +631,17 @@ public class CommunityService {
                 Constant.MAX_COMMUNITY_LIST_LIMIT);
         Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
         List<Community> raw = communityRepo.searchCommunities(query.trim(), setup.getSanitizedCursor(), pageable);
-        List<CommunitySummaryResponse> mapped = raw.stream()
-                .map(c -> toSummaryResponse(c, requesterId)).collect(Collectors.toList());
+        List<CommunitySummaryResponse> mapped;
+        if (requesterId != null && raw != null && !raw.isEmpty()) {
+            List<Long> communityIds = raw.stream().map(Community::getId).collect(Collectors.toList());
+            Set<Long> memberCommunityIds = memberRepo.findActiveByUserIdAndCommunityIdIn(requesterId, communityIds)
+                    .stream().map(cm -> cm.getCommunity().getId()).collect(Collectors.toSet());
+            mapped = raw.stream()
+                    .map(c -> toSummaryResponse(c, requesterId, memberCommunityIds)).collect(Collectors.toList());
+        } else {
+            mapped = raw.stream()
+                    .map(c -> toSummaryResponse(c, requesterId, Collections.emptySet())).collect(Collectors.toList());
+        }
         return PaginationUtils.createIdBasedResponse(mapped, setup.getValidatedLimit(),
                 cr -> raw.get(mapped.indexOf(cr)).getId());
     }
@@ -636,8 +654,17 @@ public class CommunityService {
                 Constant.MAX_COMMUNITY_LIST_LIMIT);
         Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
         List<Community> raw = communityRepo.findByCategory(category, setup.getSanitizedCursor(), pageable);
-        List<CommunitySummaryResponse> mapped = raw.stream()
-                .map(c -> toSummaryResponse(c, requesterId)).collect(Collectors.toList());
+        List<CommunitySummaryResponse> mapped;
+        if (requesterId != null && raw != null && !raw.isEmpty()) {
+            List<Long> communityIds = raw.stream().map(Community::getId).collect(Collectors.toList());
+            Set<Long> memberCommunityIds = memberRepo.findActiveByUserIdAndCommunityIdIn(requesterId, communityIds)
+                    .stream().map(cm -> cm.getCommunity().getId()).collect(Collectors.toSet());
+            mapped = raw.stream()
+                    .map(c -> toSummaryResponse(c, requesterId, memberCommunityIds)).collect(Collectors.toList());
+        } else {
+            mapped = raw.stream()
+                    .map(c -> toSummaryResponse(c, requesterId, Collections.emptySet())).collect(Collectors.toList());
+        }
         return PaginationUtils.createIdBasedResponse(mapped, setup.getValidatedLimit(),
                 cr -> raw.get(mapped.indexOf(cr)).getId());
     }
@@ -663,7 +690,24 @@ public class CommunityService {
         List<CommunityMember> raw = memberRepo.findUserCommunitiesCursor(
                 userId, setup.getSanitizedCursor(), pageable);
         List<CommunitySummaryResponse> mapped = raw.stream()
-                .map(cm -> toSummaryResponse(cm.getCommunity(), userId)).collect(Collectors.toList());
+                .map(cm -> {
+                    Community c = cm.getCommunity();
+                    return CommunitySummaryResponse.builder()
+                            .id(c.getId()).name(c.getName()).slug(c.getSlug())
+                            .description(CommunityValidationUtil.truncate(c.getDescription(), 200))
+                            .category(c.getCategory()).avatarUrl(c.getAvatarUrl()).coverImageUrl(c.getCoverImageUrl())
+                            .privacy(c.getPrivacy() != null ? c.getPrivacy().name() : null)
+                            .locationName(c.getLocationName())
+                            .memberCount(c.getMemberCount()).postCount(c.getPostCount())
+                            .isMember(true) // Always true since this is the user's community list
+                            .isOwner(c.isOwnedBy(userId))
+                            .createdAt(c.getCreatedAt())
+                            .feedEligible(c.isFeedEligible())
+                            .feedSurfaceCount(c.getFeedSurfaceCount())
+                            .healthScore(c.getHealthScore()).healthTier(c.getHealthTier()).healthTierEmoji(c.getHealthTierEmoji())
+                            .isSystemSeeded(Boolean.TRUE.equals(c.getIsSystemSeeded())).wardName(c.getWardName())
+                            .build();
+                }).collect(Collectors.toList());
         return PaginationUtils.createIdBasedResponse(mapped, setup.getValidatedLimit(),
                 cr -> raw.get(mapped.indexOf(cr)).getId());
     }
@@ -671,8 +715,19 @@ public class CommunityService {
     @Transactional(readOnly = true)
     public List<CommunitySummaryResponse> getOwnedCommunities(Long ownerId) {
         CommunityValidationUtil.validateUserId(ownerId);
-        return communityRepo.findByOwnerIdAndStatusNot(ownerId, Community.CommunityStatus.DELETED)
-                .stream().map(c -> toSummaryResponse(c, ownerId)).collect(Collectors.toList());
+        List<Community> raw = communityRepo.findByOwnerIdAndStatusNot(ownerId, Community.CommunityStatus.DELETED);
+        List<CommunitySummaryResponse> mapped;
+        if (ownerId != null && !raw.isEmpty()) {
+            List<Long> communityIds = raw.stream().map(Community::getId).collect(Collectors.toList());
+            Set<Long> memberCommunityIds = memberRepo.findActiveByUserIdAndCommunityIdIn(ownerId, communityIds)
+                    .stream().map(cm -> cm.getCommunity().getId()).collect(Collectors.toSet());
+            mapped = raw.stream()
+                    .map(c -> toSummaryResponse(c, ownerId, memberCommunityIds)).collect(Collectors.toList());
+        } else {
+            mapped = raw.stream()
+                    .map(c -> toSummaryResponse(c, ownerId, Collections.emptySet())).collect(Collectors.toList());
+        }
+        return mapped;
     }
 
     // =========================================================================
@@ -881,6 +936,19 @@ public class CommunityService {
     // =========================================================================
 
     private CommunitySummaryResponse toSummaryResponse(Community c, Long requesterId) {
+        return toSummaryResponse(c, requesterId, null);
+    }
+
+    private CommunitySummaryResponse toSummaryResponse(Community c, Long requesterId, Set<Long> memberCommunityIds) {
+        boolean isMember = false;
+        if (requesterId != null) {
+            if (memberCommunityIds != null) {
+                isMember = memberCommunityIds.contains(c.getId());
+            } else {
+                isMember = isMember(c.getId(), requesterId);
+            }
+        }
+
         return CommunitySummaryResponse.builder()
                 .id(c.getId()).name(c.getName()).slug(c.getSlug())
                 .description(CommunityValidationUtil.truncate(c.getDescription(), 200))
@@ -888,7 +956,7 @@ public class CommunityService {
                 .privacy(c.getPrivacy() != null ? c.getPrivacy().name() : null)
                 .locationName(c.getLocationName())
                 .memberCount(c.getMemberCount()).postCount(c.getPostCount())
-                .isMember(requesterId != null && isMember(c.getId(), requesterId))
+                .isMember(isMember)
                 .isOwner(requesterId != null && c.isOwnedBy(requesterId))
                 .createdAt(c.getCreatedAt())
                 .feedEligible(c.isFeedEligible())

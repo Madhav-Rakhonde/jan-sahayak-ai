@@ -41,6 +41,10 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     @Modifying @Query("UPDATE Post p SET p.viewCount = p.viewCount + 1 WHERE p.id = :id")
     void incrementViewCount(@Param("id") Long id);
 
+    /** Batch increment — used by ViewCountFlusher to flush accumulated view counts in one UPDATE. */
+    @Modifying @Query("UPDATE Post p SET p.viewCount = p.viewCount + :count WHERE p.id = :id")
+    void incrementViewCountBy(@Param("id") Long id, @Param("count") int count);
+
     @Modifying @Query("UPDATE Post p SET p.shareCount = p.shareCount + 1 WHERE p.id = :id")
     void incrementShareCount(@Param("id") Long id);
 
