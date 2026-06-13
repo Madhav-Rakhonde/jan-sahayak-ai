@@ -69,6 +69,9 @@ public class SocialPostServiceTest {
     @Mock
     private HLIGFeedService hligFeedService;
 
+    @Mock
+    private CommunityRepo communityRepository;
+
     @InjectMocks
     private SocialPostService socialPostService;
 
@@ -190,6 +193,7 @@ public class SocialPostServiceTest {
         post.setCommunity(community);
 
         when(userRepository.findUserRolesByUserIds(anyList())).thenReturn(Collections.emptyList());
+        when(communityRepository.findAllById(List.of(5L))).thenReturn(List.of(community));
 
         // Act
         SocialPostDto dto = socialPostService.convertToDto(post, null);
@@ -222,6 +226,7 @@ public class SocialPostServiceTest {
         when(post.getCommunity()).thenThrow(new org.hibernate.LazyInitializationException("Lazy initialization failed"));
 
         when(userRepository.findUserRolesByUserIds(anyList())).thenReturn(Collections.emptyList());
+        when(communityRepository.findAllById(List.of(5L))).thenReturn(Collections.emptyList());
 
         // Act
         SocialPostDto dto = socialPostService.convertToDto(post, null);

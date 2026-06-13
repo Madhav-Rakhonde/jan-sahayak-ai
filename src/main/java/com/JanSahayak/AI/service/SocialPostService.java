@@ -18,6 +18,7 @@ import com.JanSahayak.AI.payload.PostUtility;
 import com.JanSahayak.AI.payload.SocialPostUtility;
 import com.JanSahayak.AI.repository.PollRepository;
 import com.JanSahayak.AI.repository.CommunityMemberRepo;
+import com.JanSahayak.AI.repository.CommunityRepo;
 import com.JanSahayak.AI.repository.PollVoteRepository;
 import com.JanSahayak.AI.repository.SocialPostRepo;
 import com.JanSahayak.AI.repository.UserRepo;
@@ -46,6 +47,7 @@ public class SocialPostService {
     private final PollRepository           pollRepository;
     private final PollVoteRepository       pollVoteRepository;
     private final CommunityMemberRepo      communityMemberRepository;
+    private final CommunityRepo            communityRepository;
 
 
     private final ContentValidationService contentValidationService;
@@ -756,6 +758,29 @@ public class SocialPostService {
 
         final Map<Long, String> fUserRoles = userRoleMap;
 
+        // Batch load communities to avoid LazyInitializationException on detached entities
+        Map<Long, com.JanSahayak.AI.model.Community> communityMap = new HashMap<>();
+        try {
+            List<Long> communityIds = posts.stream()
+                    .filter(p -> p != null && p.getCommunityId() != null)
+                    .map(SocialPost::getCommunityId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .collect(Collectors.toList());
+            if (!communityIds.isEmpty()) {
+                List<com.JanSahayak.AI.model.Community> communities = communityRepository.findAllById(communityIds);
+                for (com.JanSahayak.AI.model.Community c : communities) {
+                    if (c != null) {
+                        communityMap.put(c.getId(), c);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to batch load communities in convertToDtoBatch: {}", e.getMessage());
+        }
+
+        final Map<Long, com.JanSahayak.AI.model.Community> fCommunities = communityMap;
+
         List<SocialPostDto> dtos = posts.stream()
                 .map(post -> {
                     try {
@@ -773,6 +798,14 @@ public class SocialPostService {
                                 post, isLiked, isSaved, isViewed, poll, hasVoted, votedIds, roleName);
                         if (dto != null) {
                             dto.setCanDelete(SocialPostUtility.canUserDeleteSocialPost(post, user));
+                            if (post.getCommunityId() != null) {
+                                com.JanSahayak.AI.model.Community c = fCommunities.get(post.getCommunityId());
+                                if (c != null) {
+                                    dto.setCommunityName(c.getName());
+                                    dto.setCommunityAvatar(c.getAvatarUrl());
+                                    dto.setCommunityMemberCount(c.getMemberCount());
+                                }
+                            }
                         }
                         return dto;
                     } catch (Exception e) {

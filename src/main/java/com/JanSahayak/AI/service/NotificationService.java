@@ -71,7 +71,7 @@ public class NotificationService {
 
             String title = "New Like on Your Post";
             String message = String.format("%s liked your post", actionUser.getActualUsername());
-            String actionUrl = "/posts/" + post.getId();
+            String actionUrl = "/post/" + post.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -116,7 +116,7 @@ public class NotificationService {
 
             String title = "New Like on Your Post";
             String message = String.format("%s liked your social post", actionUser.getActualUsername());
-            String actionUrl = "/social-posts/" + socialPost.getId();
+            String actionUrl = "/post/" + socialPost.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -163,7 +163,7 @@ public class NotificationService {
             String message = String.format("%s commented: \"%s\"",
                     actionUser.getActualUsername(),
                     truncateText(comment.getText(), 50));
-            String actionUrl = "/posts/" + post.getId() + "#comment-" + comment.getId();
+            String actionUrl = "/post/" + post.getId() + "#comment-" + comment.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -210,7 +210,7 @@ public class NotificationService {
             String message = String.format("%s commented: \"%s\"",
                     actionUser.getActualUsername(),
                     truncateText(comment.getText(), 50));
-            String actionUrl = "/social-posts/" + socialPost.getId() + "#comment-" + comment.getId();
+            String actionUrl = "/post/" + socialPost.getId() + "#comment-" + comment.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -262,10 +262,10 @@ public class NotificationService {
             String actionUrl;
             Long referenceId;
             if (originalComment.getPost() != null) {
-                actionUrl = "/posts/" + originalComment.getPost().getId() + "#comment-" + reply.getId();
+                actionUrl = "/post/" + originalComment.getPost().getId() + "#comment-" + reply.getId();
                 referenceId = originalComment.getPost().getId();
             } else if (originalComment.getSocialPost() != null) {
-                actionUrl = "/social-posts/" + originalComment.getSocialPost().getId() + "#comment-" + reply.getId();
+                actionUrl = "/post/" + originalComment.getSocialPost().getId() + "#comment-" + reply.getId();
                 referenceId = originalComment.getSocialPost().getId();
             } else {
                 log.warn("Comment has no associated post or social post");
@@ -317,7 +317,7 @@ public class NotificationService {
 
             String title = "You Were Tagged in a Post";
             String message = String.format("%s tagged you in their post", actionUser.getActualUsername());
-            String actionUrl = "/posts/" + post.getId();
+            String actionUrl = "/post/" + post.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -383,7 +383,7 @@ public class NotificationService {
             String message = actionUser != null
                     ? String.format("Your post was marked as resolved by %s", actionUser.getActualUsername())
                     : "Your post was marked as resolved";
-            String actionUrl = "/posts/" + post.getId();
+            String actionUrl = "/post/" + post.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -429,7 +429,7 @@ public class NotificationService {
             String title = "Issue Reopened";
             String reasonText = (reason != null && !reason.trim().isEmpty()) ? reason : "No reason provided";
             String message = String.format("Issue reopened by %s: %s", actionUser.getActualUsername(), truncateText(reasonText, 50));
-            String actionUrl = "/posts/" + post.getId();
+            String actionUrl = "/post/" + post.getId();
 
             for (UserTag tag : tags) {
                 User targetUser = tag.getTaggedUser();
@@ -473,7 +473,7 @@ public class NotificationService {
             String message = String.format("New broadcast from %s: %s",
                     actionUser.getActualUsername(),
                     truncateText(broadcastPost.getContent(), 100));
-            String actionUrl = "/posts/" + broadcastPost.getId();
+            String actionUrl = "/post/" + broadcastPost.getId();
 
             // FIX MEMORY LEAK #9 — previously built the entire List<Notification> in heap
             // before calling saveAll().  For country-level broadcasts this can be tens of
@@ -704,7 +704,7 @@ public class NotificationService {
 
             String title = "Post Requires Attention";
             String message = String.format("A post requires your attention. Reason: %s", reason);
-            String actionUrl = "/posts/" + post.getId();
+            String actionUrl = "/post/" + post.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -799,7 +799,7 @@ public class NotificationService {
             String message = String.format("%s posted: \"%s\"",
                     actionUser.getActualUsername(),
                     truncateText(socialPost.getContent(), 50));
-            String actionUrl = "/social-posts/" + socialPost.getId();
+            String actionUrl = "/post/" + socialPost.getId();
 
             final int BATCH_SIZE = 500;
             int totalSent = 0;
