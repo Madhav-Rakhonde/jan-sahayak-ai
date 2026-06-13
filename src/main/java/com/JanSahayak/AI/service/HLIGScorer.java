@@ -115,7 +115,7 @@ public class HLIGScorer {
             User                 user,
             SocialPost           post,
             Map<String, Double>  userProfile,
-            List<Long>           neighbours,
+            int                  neighbourLikeCount,
             Map<String, Integer> sessionTopics,
             long                 sessionRng,
             Map<String, Double>  ptf,
@@ -129,7 +129,8 @@ public class HLIGScorer {
         double interestMatch  = normalisedDotProduct(userProfile, ptf);
         double geo            = geoProximity(user, post);
         double freshness      = freshness(post);
-        double neighbourBoost = neighbourBoost(post.getId(), neighbours);
+        double neighbourBoost = Math.min(Constant.HLIG_NEIGHBOUR_BOOST_MAX,
+                1.0 + (Constant.HLIG_NEIGHBOUR_LIKE_STEP * neighbourLikeCount));
         double trendingBoost  = trendingBoost(post);
         double sessionPenalty = sessionPenalty(ptf, sessionTopics);
         double qualityMult    = quality / 100.0;
@@ -138,6 +139,19 @@ public class HLIGScorer {
         return Math.max(0.0,
                 interestMatch * geo * freshness * neighbourBoost
                         * trendingBoost * sessionPenalty * qualityMult * langBoost);
+    }
+
+    public double scoreWarmWithPtf(
+            User                 user,
+            SocialPost           post,
+            Map<String, Double>  userProfile,
+            List<Long>           neighbours,
+            Map<String, Integer> sessionTopics,
+            long                 sessionRng,
+            Map<String, Double>  ptf,
+            List<String>         preferredLangs) {
+        int count = (neighbours == null || neighbours.isEmpty()) ? 0 : repo.countNeighbourLikes(post.getId(), neighbours);
+        return scoreWarmWithPtf(user, post, userProfile, count, sessionTopics, sessionRng, ptf, preferredLangs);
     }
 
     /**

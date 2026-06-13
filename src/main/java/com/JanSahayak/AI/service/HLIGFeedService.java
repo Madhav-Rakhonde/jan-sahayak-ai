@@ -506,13 +506,35 @@ public class HLIGFeedService {
 
         boolean bubbleRisk = profile.values().stream().anyMatch(w -> w > 20.0);
 
+        Map<Long, Integer> neighbourLikesMap = new HashMap<>();
+        if (neighbours != null && !neighbours.isEmpty() && !candidates.isEmpty()) {
+            try {
+                List<Long> candidateIds = candidates.stream().map(SocialPost::getId).collect(Collectors.toList());
+                List<Object[]> rows = postRepo.countNeighbourLikesForPosts(candidateIds, neighbours);
+                if (rows != null) {
+                    for (Object[] row : rows) {
+                        if (row != null && row.length >= 2) {
+                            Number postIdNum = (Number) row[0];
+                            Number countNum = (Number) row[1];
+                            if (postIdNum != null && countNum != null) {
+                                neighbourLikesMap.put(postIdNum.longValue(), countNum.intValue());
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("[HLIG] Failed to batch query countNeighbourLikesForPosts: {}", e.getMessage());
+            }
+        }
+
         List<ScoredPost> scored = candidates.stream()
                 .filter(p -> ownPostIds.contains(p.getId())
                         || (!seen.contains(p.getId()) && p.isEligibleForRecommendation()))
                 .map(p -> {
                     Map<String, Double> ptf = ptfCache.getOrDefault(p.getId(), Collections.emptyMap());
-                    // Pass preferred language list into the full WARM scorer
-                    double s = scorer.scoreWarmWithPtf(user, p, profile, neighbours, sessionTopics,
+                    int neighbourLikeCount = neighbourLikesMap.getOrDefault(p.getId(), 0);
+                    // Pass preferred language list and batched count into the full WARM scorer
+                    double s = scorer.scoreWarmWithPtf(user, p, profile, neighbourLikeCount, sessionTopics,
                             sessionRng, ptf, preferredLangs);
                     if (ownPostIds.contains(p.getId()) && s <= Constant.HLIG_SCORE_MIN_THRESHOLD) {
                         s = Constant.HLIG_SCORE_MIN_THRESHOLD + 0.001;

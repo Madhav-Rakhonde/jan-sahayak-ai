@@ -1363,12 +1363,17 @@ public class PostService {
     // =========================================================================
 
     public PostResponse convertToPostResponse(Post post, User currentUser) {
+        if (post == null) return null;
+        boolean isLiked    = currentUser != null && postInteractionService.hasUserLikedPost(post, currentUser);
+        boolean isDisliked = currentUser != null && postInteractionService.hasUserDislikedPost(post, currentUser);
+        boolean isSaved    = currentUser != null && postInteractionService.hasSavedBroadcastPost(post, currentUser);
+        return convertToPostResponseWithInteractions(post, currentUser, isLiked, isDisliked, isSaved);
+    }
+
+    public PostResponse convertToPostResponseWithInteractions(
+            Post post, User currentUser, boolean isLiked, boolean isDisliked, boolean isSaved) {
         try {
             if (post == null) return null;
-
-            boolean isLiked    = currentUser != null && postInteractionService.hasUserLikedPost(post, currentUser);
-            boolean isDisliked = currentUser != null && postInteractionService.hasUserDislikedPost(post, currentUser);
-            boolean isSaved    = currentUser != null && postInteractionService.hasSavedBroadcastPost(post, currentUser);
 
             int shareCount = post.getShareCount();
 
@@ -1430,15 +1435,28 @@ public class PostService {
                     .timeAgo(PostUtility.calculateTimeAgo(post.getCreatedAt()))
                     .isVisibleToCurrentUser(currentUser != null);
 
-            try {
-                PaginatedResponse<User> taggedUsersResponse = userTaggingService.getTaggedUsersInPost(post, null, Constant.MAX_TAGS_PER_POST * 10);
-                builder.taggedUsernames(taggedUsersResponse.getData().stream().map(User::getActualUsername).collect(Collectors.toList()));
-                builder.taggedUsers(convertToTaggedUserInfos(post));
-            } catch (Exception e) {
-                log.warn("Failed to get tagged users for post: {}", post.getId(), e);
-                builder.taggedUsernames(Collections.emptyList());
-                builder.taggedUsers(Collections.emptyList());
+            List<String> taggedUsernames = Collections.emptyList();
+            List<PostResponse.TaggedUserInfo> taggedUsers = Collections.emptyList();
+            if (post.getContent() != null && post.getContent().contains("@")) {
+                try {
+                    PaginatedResponse<User> taggedUsersResponse = userTaggingService.getTaggedUsersInPost(post, null, Constant.MAX_TAGS_PER_POST * 10);
+                    if (taggedUsersResponse != null && taggedUsersResponse.getData() != null) {
+                        List<User> data = taggedUsersResponse.getData();
+                        taggedUsernames = data.stream().map(User::getActualUsername).collect(Collectors.toList());
+                        taggedUsers = data.stream()
+                                .map(u -> PostResponse.TaggedUserInfo.builder()
+                                        .userId(u.getId())
+                                        .username(u.getActualUsername())
+                                        .profileImage(u.getProfileImage())
+                                        .build())
+                                .collect(Collectors.toList());
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to get tagged users for post: {}", post.getId(), e);
+                }
             }
+            builder.taggedUsernames(taggedUsernames);
+            builder.taggedUsers(taggedUsers);
 
             // =========================================================================
             // FEED FILTERING & MODERATION CHECK
@@ -1482,30 +1500,36 @@ public class PostService {
         }
     }
 
-    private List<PostResponse.TaggedUserInfo> convertToTaggedUserInfos(Post post) {
-        try {
-            return userTaggingService.getTaggedUsersInPost(post, null, Constant.MAX_TAGS_PER_POST * 10)
-                    .getData().stream()
-                    .map(u -> PostResponse.TaggedUserInfo.builder()
-                            .userId(u.getId())
-                            .username(u.getActualUsername())
-                            .profileImage(u.getProfileImage())
-                            .build())
-                    .collect(Collectors.toList());
-        } catch (Exception e) {
-            log.warn("Failed to convert tagged users for post: {}", post.getId(), e);
+    public List<PostResponse> convertToPostResponseBatch(List<Post> posts, User currentUser) {
+        if (posts == null || posts.isEmpty()) {
             return Collections.emptyList();
         }
+
+        List<Long> postIds = posts.stream()
+                .filter(Objects::nonNull)
+                .map(Post::getId)
+                .collect(Collectors.toList());
+
+        Set<Long> likedPostIds = currentUser != null ? postInteractionService.getBatchLikedPostIds(currentUser, postIds) : Collections.emptySet();
+        Set<Long> dislikedPostIds = currentUser != null ? postInteractionService.getBatchDislikedPostIds(currentUser, postIds) : Collections.emptySet();
+        Set<Long> savedPostIds = currentUser != null ? postInteractionService.getBatchSavedPostIds(currentUser, postIds) : Collections.emptySet();
+
+        return posts.stream()
+                .filter(Objects::nonNull)
+                .map(p -> {
+                    boolean isLiked = likedPostIds.contains(p.getId());
+                    boolean isDisliked = dislikedPostIds.contains(p.getId());
+                    boolean isSaved = savedPostIds.contains(p.getId());
+                    return convertToPostResponseWithInteractions(p, currentUser, isLiked, isDisliked, isSaved);
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public PaginatedResponse<PostResponse> convertToPostResponses(List<Post> posts, User currentUser, int limit) {
         if (posts == null || posts.isEmpty()) return PaginationUtils.createEmptyResponse(limit);
-        List<PostResponse> postResponses = posts.stream()
-                .filter(Objects::nonNull)
-                .map(p -> convertToPostResponse(p, currentUser))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        List<PostResponse> postResponses = convertToPostResponseBatch(posts, currentUser);
                 
         // ── Batch Auto-Translate ──
         if (currentUser != null && Boolean.TRUE.equals(currentUser.getAutoTranslate()) && currentUser.getPreferredLanguage() != null) {
@@ -1522,11 +1546,7 @@ public class PostService {
     @Transactional(readOnly = true)
     public PaginatedResponse<PostResponse> convertPaginatedPostsToResponses(PaginatedResponse<Post> paginatedPosts, User currentUser) {
         if (paginatedPosts == null || paginatedPosts.getData() == null) return PaginationUtils.createEmptyResponse(0);
-        List<PostResponse> postResponses = paginatedPosts.getData().stream()
-                .filter(Objects::nonNull)
-                .map(p -> convertToPostResponse(p, currentUser))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        List<PostResponse> postResponses = convertToPostResponseBatch(paginatedPosts.getData(), currentUser);
                 
         // ── Batch Auto-Translate ──
         if (currentUser != null && Boolean.TRUE.equals(currentUser.getAutoTranslate()) && currentUser.getPreferredLanguage() != null) {

@@ -30,6 +30,8 @@ import java.util.List;
  *   STATE    (same state)     >=  40
  *   NATIONAL (all India)      >= 100
  */
+import org.hibernate.annotations.BatchSize;
+
 @Entity
 @Table(name = "communities", indexes = {
         @Index(name = "idx_community_owner",      columnList = "owner_id"),
@@ -47,6 +49,7 @@ import java.util.List;
 })
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+@BatchSize(size = 50)
 public class Community {
 
     // ── Identity ──────────────────────────────────────────────────────────────

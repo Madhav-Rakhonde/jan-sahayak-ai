@@ -99,6 +99,15 @@ public interface PostLikeRepo extends JpaRepository<PostLike, Long> {
             @Param("postIds") List<Long> postIds,
             @Param("reactionType") PostLike.ReactionType reactionType);
 
+    @Query("SELECT p.post.id FROM PostLike p " +
+            "WHERE p.user.id = :userId " +
+            "AND p.post.id IN :postIds " +
+            "AND p.reactionType = :reactionType")
+    List<Long> findDislikedPostIdsByUser(
+            @Param("userId") Long userId,
+            @Param("postIds") List<Long> postIds,
+            @Param("reactionType") PostLike.ReactionType reactionType);
+
     // =========================================================================
     // USER ACTIVITY LOOKUPS
     // =========================================================================

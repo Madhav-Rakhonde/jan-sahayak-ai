@@ -18,6 +18,8 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import org.hibernate.annotations.BatchSize;
+
 @Entity
 @Table(
         name = "users",
@@ -40,6 +42,7 @@ import java.util.stream.Collectors;
 @Setter
 @Builder
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+@BatchSize(size = 50)
 public class User implements UserDetails {
 
     @Id

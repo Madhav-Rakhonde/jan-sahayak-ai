@@ -112,4 +112,14 @@ public interface SavedPostRepo extends JpaRepository<SavedPost, Long> {
     List<Long> findSavedSocialPostIdsByUser(
             @Param("userId") Long userId,
             @Param("postIds") List<Long> postIds);
+
+    /**
+     * Returns IDs of regular posts (from given list) that the user has SAVED.
+     */
+    @Query("SELECT s.post.id FROM SavedPost s " +
+            "WHERE s.user.id = :userId " +
+            "AND s.post.id IN :postIds")
+    List<Long> findSavedPostIdsByUser(
+            @Param("userId") Long userId,
+            @Param("postIds") List<Long> postIds);
 }

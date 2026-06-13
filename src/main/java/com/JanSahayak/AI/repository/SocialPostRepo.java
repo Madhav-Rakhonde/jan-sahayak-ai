@@ -696,4 +696,16 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     List<SocialPost> findActivePostsByLanguages(
             @Param("languages") List<String> languages, Pageable pageable);
 
+    @Query(value = """
+            SELECT social_post_id, COUNT(*)
+            FROM post_likes
+            WHERE social_post_id IN (:postIds)
+              AND user_id IN (:nids)
+              AND reaction_type = 'LIKE'
+            GROUP BY social_post_id
+            """, nativeQuery = true)
+    List<Object[]> countNeighbourLikesForPosts(
+            @Param("postIds") List<Long> socialPostIds,
+            @Param("nids")    List<Long> neighbourIds);
+
 }

@@ -17,10 +17,13 @@ import org.springframework.data.domain.PageRequest;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -34,6 +37,21 @@ public class PostServiceTest {
 
     @Mock
     private TextSimilarityService textSimilarityService;
+
+    @Mock
+    private PostInteractionService postInteractionService;
+
+    @Mock
+    private UserTaggingService userTaggingService;
+
+    @Mock
+    private PinCodeLookupService pinCodeLookupService;
+
+    @Mock
+    private ContentValidationService contentValidationService;
+
+    @Mock
+    private TranslationService translationService;
 
     @InjectMocks
     private PostService postService;
@@ -265,5 +283,67 @@ public class PostServiceTest {
         assertEquals(5.0, analytics.get("averageComments"));
 
         verify(postRepository).countByUserIdAndBroadcastScopeIsNotNullAndStatusNot(userId, PostStatus.DELETED);
+    }
+
+    @Test
+    void testConvertToPostResponses_BatchesInteractions() {
+        User currentUser = new User();
+        currentUser.setId(10L);
+        currentUser.setUsername("currentUser");
+
+        Post post1 = new Post();
+        post1.setId(1L);
+        post1.setContent("Hello India #citizen");
+        post1.setLikeCount(5);
+
+        Post post2 = new Post();
+        post2.setId(2L);
+        post2.setContent("Issue with water supply @dept1");
+        post2.setLikeCount(10);
+
+        List<Post> posts = Arrays.asList(post1, post2);
+
+        // Mock batch interaction calls
+        when(postInteractionService.getBatchLikedPostIds(eq(currentUser), anyList()))
+                .thenReturn(Collections.singleton(1L)); // post 1 is liked
+        when(postInteractionService.getBatchDislikedPostIds(eq(currentUser), anyList()))
+                .thenReturn(Collections.emptySet());
+        when(postInteractionService.getBatchSavedPostIds(eq(currentUser), anyList()))
+                .thenReturn(Collections.singleton(2L)); // post 2 is saved
+
+        // Mock content validation check
+        when(contentValidationService.checkContent(anyString()))
+                .thenReturn(com.JanSahayak.AI.service.BadWordService.BadWordCheckResult.allow());
+
+        // Mock tagging service call for post2 because its content contains '@'
+        com.JanSahayak.AI.DTO.PaginatedResponse<User> taggedUsersResp = 
+                com.JanSahayak.AI.DTO.PaginatedResponse.of(Collections.emptyList(), false, null, 10);
+        when(userTaggingService.getTaggedUsersInPost(eq(post2), any(), anyInt()))
+                .thenReturn(taggedUsersResp);
+
+        com.JanSahayak.AI.DTO.PaginatedResponse<com.JanSahayak.AI.DTO.PostResponse> result =
+                postService.convertToPostResponses(posts, currentUser, 10);
+
+        assertNotNull(result);
+        assertEquals(2, result.getData().size());
+
+        com.JanSahayak.AI.DTO.PostResponse resp1 = result.getData().get(0);
+        assertEquals(1L, resp1.getId());
+        assertTrue(resp1.getIsLikedByCurrentUser());
+        assertFalse(resp1.getIsSavedByCurrentUser());
+
+        com.JanSahayak.AI.DTO.PostResponse resp2 = result.getData().get(1);
+        assertEquals(2L, resp2.getId());
+        assertFalse(resp2.getIsLikedByCurrentUser());
+        assertTrue(resp2.getIsSavedByCurrentUser());
+
+        // Verify the interaction batch queries are called
+        verify(postInteractionService, times(1)).getBatchLikedPostIds(eq(currentUser), anyList());
+        verify(postInteractionService, times(1)).getBatchDislikedPostIds(eq(currentUser), anyList());
+        verify(postInteractionService, times(1)).getBatchSavedPostIds(eq(currentUser), anyList());
+
+        // Verify that tag service was NEVER called for post1 (content has no '@'), but called for post2
+        verify(userTaggingService, never()).getTaggedUsersInPost(eq(post1), any(), anyInt());
+        verify(userTaggingService, times(1)).getTaggedUsersInPost(eq(post2), any(), anyInt());
     }
 }

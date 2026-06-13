@@ -518,6 +518,36 @@ public class PostInteractionService {
                 postViewRepository.findViewedSocialPostIdsByUser(user.getId(), postIds));
     }
 
+    /**
+     * Returns IDs of regular posts (from given list) that the user has LIKED.
+     */
+    public Set<Long> getBatchLikedPostIds(User user, List<Long> postIds) {
+        if (user == null || postIds == null || postIds.isEmpty())
+            return Collections.emptySet();
+        return new HashSet<>(
+                postLikeRepository.findLikedPostIdsByUser(user.getId(), postIds, PostLike.ReactionType.LIKE));
+    }
+
+    /**
+     * Returns IDs of regular posts (from given list) that the user has DISLIKED.
+     */
+    public Set<Long> getBatchDislikedPostIds(User user, List<Long> postIds) {
+        if (user == null || postIds == null || postIds.isEmpty())
+            return Collections.emptySet();
+        return new HashSet<>(
+                postLikeRepository.findDislikedPostIdsByUser(user.getId(), postIds, PostLike.ReactionType.DISLIKE));
+    }
+
+    /**
+     * Returns IDs of regular posts (from given list) that the user has SAVED.
+     */
+    public Set<Long> getBatchSavedPostIds(User user, List<Long> postIds) {
+        if (user == null || postIds == null || postIds.isEmpty())
+            return Collections.emptySet();
+        return new HashSet<>(
+                savedPostRepo.findSavedPostIdsByUser(user.getId(), postIds));
+    }
+
     // =========================================================================
     // SAVE — SOCIAL POST
     // =========================================================================
