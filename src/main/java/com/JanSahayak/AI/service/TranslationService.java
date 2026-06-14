@@ -15,6 +15,12 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.Collections;
+import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -40,30 +46,67 @@ public class TranslationService {
                 .findByReferenceIdInAndReferenceTypeAndTargetLanguage(postIds, "SOCIAL_POST", targetLanguage);
         
         Map<Long, String> cacheMap = cachedTranslations.stream()
-                .collect(Collectors.toMap(PostTranslation::getReferenceId, PostTranslation::getTranslatedText));
+                .collect(Collectors.toMap(PostTranslation::getReferenceId, PostTranslation::getTranslatedText, (a, b) -> a));
 
-        for (SocialPostDto dto : dtos) {
-            if (dto.getContent() == null || dto.getContent().trim().isEmpty()) continue;
+        List<PostTranslation> newTranslations = Collections.synchronizedList(new ArrayList<>());
 
-            if (cacheMap.containsKey(dto.getId())) {
-                dto.setTranslatedContent(cacheMap.get(dto.getId()));
-                dto.setIsTranslated(true);
-            } else {
-                // Call API
-                String translated = translateText(dto.getContent(), targetLanguage);
-                if (!translated.equals(dto.getContent())) {
-                    dto.setTranslatedContent(translated);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<?>> futures = new ArrayList<>();
+            for (SocialPostDto dto : dtos) {
+                if (dto.getContent() == null || dto.getContent().trim().isEmpty()) continue;
+
+                if (cacheMap.containsKey(dto.getId())) {
+                    dto.setTranslatedContent(cacheMap.get(dto.getId()));
                     dto.setIsTranslated(true);
-                    
-                    // Save to DB cache
-                    PostTranslation pt = PostTranslation.builder()
-                            .referenceId(dto.getId())
-                            .referenceType("SOCIAL_POST")
-                            .targetLanguage(targetLanguage)
-                            .translatedText(translated)
-                            .build();
-                    postTranslationRepository.save(pt);
+                } else {
+                    futures.add(executor.submit(() -> {
+                        try {
+                            String translated = translateText(dto.getContent(), targetLanguage);
+                            if (translated != null && !translated.equals(dto.getContent())) {
+                                dto.setTranslatedContent(translated);
+                                dto.setIsTranslated(true);
+                                
+                                PostTranslation pt = PostTranslation.builder()
+                                        .referenceId(dto.getId())
+                                        .referenceType("SOCIAL_POST")
+                                        .targetLanguage(targetLanguage)
+                                        .translatedText(translated)
+                                        .build();
+                                newTranslations.add(pt);
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to translate social post {}: {}", dto.getId(), e.getMessage());
+                        }
+                    }));
                 }
+            }
+            
+            // Wait for all tasks to complete or timeout (total timeout of 2 seconds)
+            long startTime = System.currentTimeMillis();
+            for (Future<?> future : futures) {
+                long timeLeft = 2000 - (System.currentTimeMillis() - startTime);
+                if (timeLeft <= 0) {
+                    future.cancel(true);
+                    continue;
+                }
+                try {
+                    future.get(timeLeft, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException e) {
+                    future.cancel(true);
+                } catch (Exception e) {
+                    log.warn("Translation future failed: {}", e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Virtual thread execution failed for social post translations", e);
+        }
+
+        // Save all new translations in batch
+        if (!newTranslations.isEmpty()) {
+            try {
+                postTranslationRepository.saveAll(newTranslations);
+            } catch (Exception e) {
+                log.error("Failed to save translation batch to database", e);
             }
         }
     }
@@ -83,30 +126,67 @@ public class TranslationService {
                 .findByReferenceIdInAndReferenceTypeAndTargetLanguage(postIds, "POST", targetLanguage);
         
         Map<Long, String> cacheMap = cachedTranslations.stream()
-                .collect(Collectors.toMap(PostTranslation::getReferenceId, PostTranslation::getTranslatedText));
+                .collect(Collectors.toMap(PostTranslation::getReferenceId, PostTranslation::getTranslatedText, (a, b) -> a));
 
-        for (PostResponse dto : dtos) {
-            if (dto.getContent() == null || dto.getContent().trim().isEmpty()) continue;
+        List<PostTranslation> newTranslations = Collections.synchronizedList(new ArrayList<>());
 
-            if (cacheMap.containsKey(dto.getId())) {
-                dto.setTranslatedContent(cacheMap.get(dto.getId()));
-                dto.setIsTranslated(true);
-            } else {
-                // Call API
-                String translated = translateText(dto.getContent(), targetLanguage);
-                if (!translated.equals(dto.getContent())) {
-                    dto.setTranslatedContent(translated);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<?>> futures = new ArrayList<>();
+            for (PostResponse dto : dtos) {
+                if (dto.getContent() == null || dto.getContent().trim().isEmpty()) continue;
+
+                if (cacheMap.containsKey(dto.getId())) {
+                    dto.setTranslatedContent(cacheMap.get(dto.getId()));
                     dto.setIsTranslated(true);
-                    
-                    // Save to DB cache
-                    PostTranslation pt = PostTranslation.builder()
-                            .referenceId(dto.getId())
-                            .referenceType("POST")
-                            .targetLanguage(targetLanguage)
-                            .translatedText(translated)
-                            .build();
-                    postTranslationRepository.save(pt);
+                } else {
+                    futures.add(executor.submit(() -> {
+                        try {
+                            String translated = translateText(dto.getContent(), targetLanguage);
+                            if (translated != null && !translated.equals(dto.getContent())) {
+                                dto.setTranslatedContent(translated);
+                                dto.setIsTranslated(true);
+                                
+                                PostTranslation pt = PostTranslation.builder()
+                                        .referenceId(dto.getId())
+                                        .referenceType("POST")
+                                        .targetLanguage(targetLanguage)
+                                        .translatedText(translated)
+                                        .build();
+                                newTranslations.add(pt);
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to translate broadcast post {}: {}", dto.getId(), e.getMessage());
+                        }
+                    }));
                 }
+            }
+            
+            // Wait for all tasks to complete or timeout (total timeout of 2 seconds)
+            long startTime = System.currentTimeMillis();
+            for (Future<?> future : futures) {
+                long timeLeft = 2000 - (System.currentTimeMillis() - startTime);
+                if (timeLeft <= 0) {
+                    future.cancel(true);
+                    continue;
+                }
+                try {
+                    future.get(timeLeft, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException e) {
+                    future.cancel(true);
+                } catch (Exception e) {
+                    log.warn("Translation future failed: {}", e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Virtual thread execution failed for broadcast post translations", e);
+        }
+
+        // Save all new translations in batch
+        if (!newTranslations.isEmpty()) {
+            try {
+                postTranslationRepository.saveAll(newTranslations);
+            } catch (Exception e) {
+                log.error("Failed to save translation batch to database", e);
             }
         }
     }

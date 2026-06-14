@@ -76,6 +76,9 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     List<SocialPost> findByStatusAndIdLessThanOrderByCreatedAtDesc(
             PostStatus status, Long id, Pageable pageable);
 
+    @Query("SELECT p FROM SocialPost p JOIN FETCH p.user LEFT JOIN FETCH p.community WHERE p.id IN :ids")
+    List<SocialPost> findAllByIdsWithUserAndCommunity(@Param("ids") List<Long> ids);
+
     // =========================================================================
     // VIRAL & TRENDING
     // =========================================================================

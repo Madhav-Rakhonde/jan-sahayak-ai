@@ -435,4 +435,49 @@ public class PostServiceTest {
         assertEquals("citizen_user", response.getUsername());
         assertFalse(response.getIsGovernmentBroadcast(), "Should not be identified as government broadcast");
     }
+
+    @Test
+    void testGetOfficialFeed_UsesBatchMappingAndTranslation() {
+        // Arrange
+        User user = new User();
+        user.setId(10L);
+        user.setUsername("currentUser");
+        user.setPincode("411001");
+        user.setAutoTranslate(true);
+        user.setPreferredLanguage("hi");
+
+        com.JanSahayak.AI.model.Role role = new com.JanSahayak.AI.model.Role();
+        role.setName("ROLE_USER");
+        user.setRole(role);
+
+        Post post = new Post();
+        post.setId(1L);
+        post.setContent("Official warning");
+        post.setUser(user);
+        post.setStatus(PostStatus.ACTIVE);
+
+        when(postRepository.findOfficialAreaBroadcasts(eq(BroadcastScope.AREA), eq(PostStatus.ACTIVE), eq("411001")))
+                .thenReturn(Collections.singletonList(post));
+
+        when(postInteractionService.getBatchLikedPostIds(eq(user), anyList()))
+                .thenReturn(Collections.emptySet());
+        when(postInteractionService.getBatchDislikedPostIds(eq(user), anyList()))
+                .thenReturn(Collections.emptySet());
+        when(postInteractionService.getBatchSavedPostIds(eq(user), anyList()))
+                .thenReturn(Collections.emptySet());
+
+        when(contentValidationService.checkContent(anyString()))
+                .thenReturn(com.JanSahayak.AI.service.BadWordService.BadWordCheckResult.allow());
+
+        // Act
+        com.JanSahayak.AI.DTO.PaginatedResponse<com.JanSahayak.AI.DTO.PostResponse> response = 
+                postService.getOfficialFeed(user, com.JanSahayak.AI.enums.FeedSort.NEW, null, 10);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(1, response.getData().size());
+        // Verify batch mapping and batch translation called
+        verify(postInteractionService, times(1)).getBatchLikedPostIds(eq(user), anyList());
+        verify(translationService, times(1)).translatePosts(anyList(), eq("hi"));
+    }
 }

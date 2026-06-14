@@ -1,6 +1,8 @@
 package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.DTO.SocialPostDto;
+import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.model.Community;
 import com.JanSahayak.AI.model.Role;
 import com.JanSahayak.AI.model.SocialPost;
@@ -235,5 +237,94 @@ public class SocialPostServiceTest {
         assertNull(dto.getCommunityName());
         assertNull(dto.getCommunityAvatar());
         assertNull(dto.getCommunityMemberCount());
+    }
+
+    @Test
+    void testGetUserPosts_UsesBatchMapping() {
+        // Arrange
+        User author = new User();
+        author.setId(101L);
+        author.setUsername("author1");
+        author.setIsActive(true);
+
+        SocialPost p1 = new SocialPost();
+        p1.setId(1L);
+        p1.setUser(author);
+        p1.setStatus(PostStatus.ACTIVE);
+        p1.setContent("User post 1");
+
+        SocialPost p2 = new SocialPost();
+        p2.setId(2L);
+        p2.setUser(author);
+        p2.setStatus(PostStatus.ACTIVE);
+        p2.setContent("User post 2");
+
+        List<SocialPost> posts = List.of(p1, p2);
+        when(socialPostRepository.findByUserIdAndStatusInOrderByCreatedAtDesc(eq(101L), anyList(), any()))
+                .thenReturn(posts);
+
+        // We mock eager refetching in convertToDtoBatch
+        when(socialPostRepository.findAllByIdsWithUserAndCommunity(List.of(1L, 2L)))
+                .thenReturn(posts);
+
+        when(userRepository.findUserRolesByUserIds(List.of(101L)))
+                .thenReturn(Collections.emptyList());
+
+        // Act
+        PaginatedResponse<SocialPostDto> response = socialPostService.getUserPosts(101L, author, null, 10);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(2, response.getData().size());
+        verify(userRepository, times(1)).findUserRolesByUserIds(anyList()); // should be batched (1 invocation)
+    }
+
+    @Test
+    void testGetSavedPosts_UsesBatchMapping() {
+        // Arrange
+        User user = new User();
+        user.setId(201L);
+        user.setUsername("testuser");
+        user.setIsActive(true);
+
+        com.JanSahayak.AI.DTO.SavedPostDto sd1 = new com.JanSahayak.AI.DTO.SavedPostDto();
+        sd1.setSocialPostId(10L);
+        com.JanSahayak.AI.DTO.SavedPostDto sd2 = new com.JanSahayak.AI.DTO.SavedPostDto();
+        sd2.setSocialPostId(11L);
+
+        org.springframework.data.domain.Page<com.JanSahayak.AI.DTO.SavedPostDto> page = 
+                new org.springframework.data.domain.PageImpl<>(List.of(sd1, sd2));
+
+        when(postInteractionService.getSavedPostsForUser(eq(user), eq(0), anyInt()))
+                .thenReturn(page);
+
+        SocialPost sp1 = new SocialPost();
+        sp1.setId(10L);
+        sp1.setUser(user);
+        sp1.setStatus(PostStatus.ACTIVE);
+        sp1.setContent("Saved post 1");
+
+        SocialPost sp2 = new SocialPost();
+        sp2.setId(11L);
+        sp2.setUser(user);
+        sp2.setStatus(PostStatus.ACTIVE);
+        sp2.setContent("Saved post 2");
+
+        when(socialPostRepository.findAllById(List.of(10L, 11L)))
+                .thenReturn(List.of(sp1, sp2));
+
+        // Mock eager refetching in convertToDtoBatch
+        when(socialPostRepository.findAllByIdsWithUserAndCommunity(List.of(10L, 11L)))
+                .thenReturn(List.of(sp1, sp2));
+
+        when(userRepository.findUserRolesByUserIds(anyList())).thenReturn(Collections.emptyList());
+
+        // Act
+        PaginatedResponse<SocialPostDto> response = socialPostService.getSavedPosts(user, null, 10);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(2, response.getData().size());
+        verify(userRepository, times(1)).findUserRolesByUserIds(anyList()); // batch mapping verified
     }
 }

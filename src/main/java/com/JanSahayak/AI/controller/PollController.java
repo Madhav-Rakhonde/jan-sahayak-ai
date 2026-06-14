@@ -14,6 +14,8 @@ import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import com.JanSahayak.AI.payload.request.CreatePollRequest;  // specific
 import com.JanSahayak.AI.payload.request.PollResponse;      // correct package
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/polls")
@@ -37,6 +39,20 @@ public class PollController {
             @AuthenticationPrincipal User currentUser) {
 
         PollResponse response = pollService.createPollPost(request, currentUser);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * CREATE POLL WITH MULTIMEDIA
+     * POST /api/polls/create-with-media
+     * Consumes: multipart/form-data
+     */
+    @PostMapping(value = "/create-with-media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<PollResponse> createPollWithMedia(
+            @RequestPart("poll") @Valid CreatePollRequest request,
+            @RequestPart(value = "media", required = false) List<MultipartFile> mediaFiles,
+            @AuthenticationPrincipal User currentUser) {
+        PollResponse response = pollService.createPollPostWithMedia(request, mediaFiles, currentUser);
         return ResponseEntity.ok(response);
     }
 

@@ -1711,13 +1711,19 @@ public class PostService {
         log.debug("[LocalFeed] userId={} pincode={} scope={} pool={} returned={}",
                 user.getId(), userPincode, scopeLabel, pool.size(), ranked.size());
 
-        List<PostResponse> responses = ranked.stream()
-                .map(p -> convertToPostResponse(p, user))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        List<PostResponse> responses = convertToPostResponseBatch(ranked, user);
+
+        // ── Batch Auto-Translate ──
+        if (user != null && Boolean.TRUE.equals(user.getAutoTranslate()) && user.getPreferredLanguage() != null) {
+            try {
+                translationService.translatePosts(responses, user.getPreferredLanguage());
+            } catch (Exception e) {
+                log.warn("Failed to batch translate posts: {}", e.getMessage());
+            }
+        }
 
         boolean hasMore    = responses.size() == validLimit;
-        Long    nextCursor = hasMore ? responses.get(responses.size() - 1).getId() : null;
+        Long    nextCursor = hasMore && !responses.isEmpty() ? responses.get(responses.size() - 1).getId() : null;
         return PaginatedResponse.of(responses, hasMore, nextCursor, validLimit);
     }
 
@@ -1837,13 +1843,19 @@ public class PostService {
                     .limit(validLimit)
                     .collect(Collectors.toList());
 
-            List<PostResponse> responses = finalPosts.stream()
-                    .map(p -> convertToPostResponse(p, user))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+            List<PostResponse> responses = convertToPostResponseBatch(finalPosts, user);
+
+            // ── Batch Auto-Translate ──
+            if (user != null && Boolean.TRUE.equals(user.getAutoTranslate()) && user.getPreferredLanguage() != null) {
+                try {
+                    translationService.translatePosts(responses, user.getPreferredLanguage());
+                } catch (Exception e) {
+                    log.warn("Failed to batch translate posts: {}", e.getMessage());
+                }
+            }
 
             boolean hasMore = responses.size() == validLimit;
-            Long nextCursor = hasMore ? responses.get(responses.size() - 1).getId() : null;
+            Long nextCursor = hasMore && !responses.isEmpty() ? responses.get(responses.size() - 1).getId() : null;
             return PaginatedResponse.of(responses, hasMore, nextCursor, validLimit);
 
         } catch (Exception e) {
@@ -1920,10 +1932,16 @@ public class PostService {
                     .limit(validLimit)
                     .collect(Collectors.toList());
 
-            List<PostResponse> responses = ranked.stream()
-                    .map(p -> convertToPostResponse(p, user))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+            List<PostResponse> responses = convertToPostResponseBatch(ranked, user);
+
+            // ── Batch Auto-Translate ──
+            if (user != null && Boolean.TRUE.equals(user.getAutoTranslate()) && user.getPreferredLanguage() != null) {
+                try {
+                    translationService.translatePosts(responses, user.getPreferredLanguage());
+                } catch (Exception e) {
+                    log.warn("Failed to batch translate posts: {}", e.getMessage());
+                }
+            }
 
             log.info("[IssueFeed] user={} pincode={} candidates={} deduped={} returned={}",
                     user.getActualUsername(), userPincode != null ? userPincode : "none",
@@ -2045,10 +2063,16 @@ public class PostService {
                     .limit(validLimit)
                     .collect(Collectors.toList());
 
-            List<PostResponse> responses = ranked.stream()
-                    .map(p -> convertToPostResponse(p, user))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+            List<PostResponse> responses = convertToPostResponseBatch(ranked, user);
+
+            // ── Batch Auto-Translate ──
+            if (user != null && Boolean.TRUE.equals(user.getAutoTranslate()) && user.getPreferredLanguage() != null) {
+                try {
+                    translationService.translatePosts(responses, user.getPreferredLanguage());
+                } catch (Exception e) {
+                    log.warn("Failed to batch translate posts: {}", e.getMessage());
+                }
+            }
 
             log.info("[IssueRec] user={} pincode={} merged={} returned={}",
                     user.getActualUsername(), userPincode != null ? userPincode : "none",

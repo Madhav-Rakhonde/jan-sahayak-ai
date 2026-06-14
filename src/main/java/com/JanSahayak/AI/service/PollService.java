@@ -10,6 +10,10 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+import com.JanSahayak.AI.service.SocialPostMediaService;
+import com.JanSahayak.AI.payload.SocialPostUtility;
+import com.JanSahayak.AI.exception.ServiceException;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -27,6 +31,7 @@ public class PollService {
     private final PollVoteRepository    pollVoteRepository;
     private final SocialPostRepo        socialPostRepository;
     private final UserRepo              userRepository;
+    private final SocialPostMediaService mediaService;
 
     // @Lazy breaks the circular dependency: CommunityService → SocialPostRepo,
     // PollService → CommunityService.
@@ -70,6 +75,57 @@ public class PollService {
                 savedPoll.getId(), req.getOptions().size(), savedSocialPost.getId());
 
         return PollResponse.from(savedPoll, false, true, List.of());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public PollResponse createPollPostWithMedia(CreatePollRequest req, List<MultipartFile> mediaFiles, User creator) {
+        validatePollRequest(req);
+        // 1. Upload media files with validation
+        List<String> uploadedMediaUrls = new ArrayList<>();
+        if (mediaFiles != null && !mediaFiles.isEmpty()) {
+            uploadedMediaUrls = uploadMediaFilesWithValidation(mediaFiles, creator.getId());
+        }
+        // 2. Build the parent SocialPost
+        SocialPost socialPost = SocialPost.builder()
+                .content(req.getQuestion())
+                .user(creator)
+                .status(PostStatus.ACTIVE)
+                .allowComments(true)
+                .build();
+        socialPost.inheritLocationFromUser(creator);
+        // 3. Attach media URLs if uploaded
+        if (!uploadedMediaUrls.isEmpty()) {
+            socialPost.setMediaUrlsList(uploadedMediaUrls);
+        }
+        SocialPost savedSocialPost = socialPostRepository.save(socialPost);
+        log.info("Auto-created SocialPost {} with {} media files for poll by user {}", 
+                savedSocialPost.getId(), savedSocialPost.getMediaCount(), creator.getId());
+        // 4. Trigger community published event if post belongs to a community
+        if (savedSocialPost.getCommunityId() != null) {
+            try {
+                communityService.onPostPublished(savedSocialPost, savedSocialPost.getCommunityId());
+            } catch (Exception e) {
+                log.warn("[Community] onPostPublished failed for poll post={} community={}: {}",
+                        savedSocialPost.getId(), savedSocialPost.getCommunityId(), e.getMessage());
+            }
+        }
+        // 5. Build and attach the Poll object to the SocialPost
+        Poll poll = buildPoll(req, creator, savedSocialPost);
+        Poll savedPoll = pollRepository.save(poll);
+        attachOptions(savedPoll, req.getOptions());
+        log.info("Created Poll {} with {} options for SocialPost {}",
+                savedPoll.getId(), req.getOptions().size(), savedSocialPost.getId());
+        return PollResponse.from(savedPoll, false, true, List.of());
+    }
+
+    private List<String> uploadMediaFilesWithValidation(List<MultipartFile> files, Long userId) {
+        try {
+            SocialPostUtility.validateMediaFiles(files);
+            return mediaService.uploadMediaFiles(files, userId);
+        } catch (Exception e) {
+            log.error("Failed to upload media files for user: {}", userId, e);
+            throw new ServiceException("Failed to upload media files: " + e.getMessage(), e);
+        }
     }
 
 

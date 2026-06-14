@@ -341,13 +341,12 @@ public class SocialPostService {
                     .collect(Collectors.toList());
 
             // Batch-fetch the actual SocialPost entities and convert to DTOs
-            List<SocialPostDto> dtos = socialPostIds.isEmpty()
-                    ? new java.util.ArrayList<>()
+            List<SocialPost> activeSavedPosts = socialPostIds.isEmpty()
+                    ? Collections.emptyList()
                     : socialPostRepository.findAllById(socialPostIds).stream()
                             .filter(sp -> sp.getStatus() == PostStatus.ACTIVE)
-                            .map(sp -> convertToDto(sp, user))
-                            .filter(Objects::nonNull)
                             .collect(Collectors.toList());
+            List<SocialPostDto> dtos = convertToDtoBatch(activeSavedPosts, user);
 
             boolean hasMore    = page.hasNext();
             Long    nextCursor = hasMore && !dtos.isEmpty()
@@ -480,13 +479,13 @@ public class SocialPostService {
 
             List<SocialPost> posts = fetchUserPosts(userId, setup);
 
-            List<SocialPostDto> postDtos = posts.stream()
+            List<SocialPost> activeUserPosts = posts.stream()
                     .filter(post -> post.getStatus() == PostStatus.ACTIVE)
-                    .map(post -> currentUser != null
-                            ? convertToDto(post, currentUser)
-                            : SocialPostDto.fromSocialPost(post))
-                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
+
+            List<SocialPostDto> postDtos = currentUser != null
+                    ? convertToDtoBatch(activeUserPosts, currentUser)
+                    : convertToDtoSimple(activeUserPosts);
 
             PaginatedResponse<SocialPostDto> response = PaginationUtils
                     .createSocialPostDtoResponse(postDtos, setup.getValidatedLimit());
@@ -687,8 +686,31 @@ public class SocialPostService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
+        // Re-fetch posts eagerly with their user and community associations
+        // to avoid LazyInitializationException when accessing lazy proxies on detached entities (e.g. cached posts).
+        List<SocialPost> attachedPosts;
+        try {
+            List<SocialPost> fetched = socialPostRepository.findAllByIdsWithUserAndCommunity(postIds);
+            if (fetched != null && !fetched.isEmpty()) {
+                Map<Long, SocialPost> fetchedMap = fetched.stream()
+                        .collect(Collectors.toMap(SocialPost::getId, p -> p, (p1, p2) -> p1));
+                attachedPosts = postIds.stream()
+                        .map(fetchedMap::get)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+                if (attachedPosts.isEmpty()) {
+                    attachedPosts = posts;
+                }
+            } else {
+                attachedPosts = posts;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to eagerly fetch posts with user/community: {}. Falling back to input posts.", e.getMessage());
+            attachedPosts = posts;
+        }
+
         // ── Load polls (already batched correctly) ────────────────────────────
-        Map<Long, Poll> pollMap = loadPollMap(posts);
+        Map<Long, Poll> pollMap = loadPollMap(attachedPosts);
 
         // ── BATCH load interactions (was: 3 queries × N posts = N*3 queries) ──
         // Now: exactly 3 queries regardless of feed size
@@ -736,7 +758,7 @@ public class SocialPostService {
         // Batch load author roles to avoid LazyInitializationException outside transactional boundaries
         Map<Long, String> userRoleMap = new HashMap<>();
         try {
-            List<Long> userIds = posts.stream()
+            List<Long> userIds = attachedPosts.stream()
                     .filter(p -> p != null && p.getUser() != null)
                     .map(p -> p.getUser().getId())
                     .filter(Objects::nonNull)
@@ -761,7 +783,7 @@ public class SocialPostService {
         // Batch load communities to avoid LazyInitializationException on detached entities
         Map<Long, com.JanSahayak.AI.model.Community> communityMap = new HashMap<>();
         try {
-            List<Long> communityIds = posts.stream()
+            List<Long> communityIds = attachedPosts.stream()
                     .filter(p -> p != null && p.getCommunityId() != null)
                     .map(SocialPost::getCommunityId)
                     .filter(Objects::nonNull)
@@ -781,7 +803,7 @@ public class SocialPostService {
 
         final Map<Long, com.JanSahayak.AI.model.Community> fCommunities = communityMap;
 
-        List<SocialPostDto> dtos = posts.stream()
+        List<SocialPostDto> dtos = attachedPosts.stream()
                 .map(post -> {
                     try {
                         if (post == null) return null;
@@ -835,7 +857,7 @@ public class SocialPostService {
                     // ═════════════════════════════════════════════════════════════════════════
                     // BATCH ENRICHMENT: Author roles in communities
                     // ═════════════════════════════════════════════════════════════════════════
-                    List<Long> authorIds = posts.stream()
+                    List<Long> authorIds = attachedPosts.stream()
                             .map(p -> p.getUser().getId())  // Fixed: getUser() instead of getAuthor()
                             .distinct()
                             .toList();
