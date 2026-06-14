@@ -399,6 +399,9 @@ public class UserService implements UserDetailsService {
             }
 
             // Map new localization and moderation fields
+            if (user.getInterfaceLanguage() != null) {
+                existingUser.setInterfaceLanguage(user.getInterfaceLanguage());
+            }
             if (user.getPreferredLanguage() != null) {
                 existingUser.setPreferredLanguage(user.getPreferredLanguage());
             }

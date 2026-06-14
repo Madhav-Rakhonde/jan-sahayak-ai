@@ -322,6 +322,7 @@ public class UserController {
                     .bio(updateRequest.getBio())
                     .pincode(updateRequest.getPincode())
                     .preferredLanguage(updateRequest.getPreferredLanguage())
+                    .interfaceLanguage(updateRequest.getInterfaceLanguage())
                     .autoTranslate(updateRequest.getAutoTranslate())
                     .profanityFilterLevel(updateRequest.getProfanityFilterLevel())
                     .mutedWords(updateRequest.getMutedWords())
@@ -620,6 +621,9 @@ public class UserController {
         @Size(max = 10, message = "Preferred language cannot exceed 10 characters")
         private String preferredLanguage;
 
+        @Size(max = 10, message = "Interface language cannot exceed 10 characters")
+        private String interfaceLanguage;
+
         private Boolean autoTranslate;
 
         @Size(max = 20, message = "Profanity filter level cannot exceed 20 characters")
@@ -639,6 +643,9 @@ public class UserController {
 
         public String getPreferredLanguage() { return preferredLanguage; }
         public void setPreferredLanguage(String preferredLanguage) { this.preferredLanguage = preferredLanguage; }
+
+        public String getInterfaceLanguage() { return interfaceLanguage; }
+        public void setInterfaceLanguage(String interfaceLanguage) { this.interfaceLanguage = interfaceLanguage; }
 
         public Boolean getAutoTranslate() { return autoTranslate; }
         public void setAutoTranslate(Boolean autoTranslate) { this.autoTranslate = autoTranslate; }

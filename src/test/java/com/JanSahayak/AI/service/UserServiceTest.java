@@ -136,4 +136,24 @@ public class UserServiceTest {
         assertTrue(savedUser.getActualUsername().length() <= 100, "Username length should not exceed 100 characters");
         assertTrue(savedUser.getActualUsername().contains("_del_"));
     }
+
+    @Test
+    void updateUser_ShouldUpdateInterfaceLanguage() {
+        // Arrange
+        User updateInfo = User.builder()
+                .id(1L)
+                .interfaceLanguage("hi")
+                .build();
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(testUser));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act
+        User result = userService.updateUser(updateInfo);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals("hi", result.getInterfaceLanguage(), "Interface language should be updated to 'hi'");
+        verify(userRepository).save(testUser);
+    }
 }

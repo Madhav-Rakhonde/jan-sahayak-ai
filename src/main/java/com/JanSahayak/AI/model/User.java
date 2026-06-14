@@ -95,6 +95,10 @@ public class User implements UserDetails {
     private Boolean hasInvalidPincode;
 
     // ===== Localization & Moderation Settings =====
+    @Column(name = "interface_language", length = 10)
+    @Builder.Default
+    private String interfaceLanguage = "en";
+
     @Column(name = "preferred_language", length = 10)
     @Builder.Default
     private String preferredLanguage = "en";

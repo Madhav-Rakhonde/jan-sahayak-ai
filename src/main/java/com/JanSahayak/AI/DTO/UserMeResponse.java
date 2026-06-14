@@ -25,6 +25,7 @@ public class UserMeResponse {
     private String pincode;
     private Boolean hasInvalidPincode;
     private String preferredLanguage;
+    private String interfaceLanguage;
     private Boolean autoTranslate;
     private String profanityFilterLevel;
     private String mutedWords;
@@ -47,6 +48,7 @@ public class UserMeResponse {
         this.pincode = user.getPincode();
         this.hasInvalidPincode = user.getHasInvalidPincode();
         this.preferredLanguage = user.getPreferredLanguage();
+        this.interfaceLanguage = user.getInterfaceLanguage();
         this.autoTranslate = user.getAutoTranslate();
         this.profanityFilterLevel = user.getProfanityFilterLevel();
         this.mutedWords = user.getMutedWords();
