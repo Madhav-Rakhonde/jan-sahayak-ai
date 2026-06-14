@@ -39,6 +39,7 @@ public class TranslationServiceTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        translationService.setSelf(translationService);
     }
 
     @Test
@@ -146,5 +147,24 @@ public class TranslationServiceTest {
         // Slow post should not be translated (graceful degradation)
         assertNull(p1.getTranslatedContent());
         assertFalse(Boolean.TRUE.equals(p1.getIsTranslated()));
+    }
+
+    @Test
+    void testSaveTranslationsInNewTransaction_HandlesDatabaseErrorGracefully() {
+        // Arrange
+        PostTranslation pt1 = PostTranslation.builder()
+                .referenceId(1L)
+                .referenceType("POST")
+                .targetLanguage("hi")
+                .translatedText("नमस्ते")
+                .build();
+        List<PostTranslation> list = List.of(pt1);
+        
+        when(translationRepository.saveAll(anyList()))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate key violation"));
+        
+        // Act & Assert
+        assertDoesNotThrow(() -> translationService.saveTranslationsInNewTransaction(list));
+        verify(translationRepository, times(1)).saveAll(list);
     }
 }

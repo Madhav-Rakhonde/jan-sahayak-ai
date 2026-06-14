@@ -31,6 +31,13 @@ public class TranslationService {
     private final ObjectMapper objectMapper;
     private final PostTranslationRepository postTranslationRepository;
 
+    private TranslationService self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy TranslationService self) {
+        this.self = self;
+    }
+
     /**
      * Translates a batch of SocialPostDto.
      */
@@ -101,12 +108,12 @@ public class TranslationService {
             log.error("Virtual thread execution failed for social post translations", e);
         }
 
-        // Save all new translations in batch
+        // Save all new translations in batch via isolated transaction
         if (!newTranslations.isEmpty()) {
             try {
-                postTranslationRepository.saveAll(newTranslations);
+                self.saveTranslationsInNewTransaction(newTranslations);
             } catch (Exception e) {
-                log.error("Failed to save translation batch to database", e);
+                log.warn("[Translation] Failed to save translation batch in isolated transaction: {}", e.getMessage());
             }
         }
     }
@@ -181,12 +188,12 @@ public class TranslationService {
             log.error("Virtual thread execution failed for broadcast post translations", e);
         }
 
-        // Save all new translations in batch
+        // Save all new translations in batch via isolated transaction
         if (!newTranslations.isEmpty()) {
             try {
-                postTranslationRepository.saveAll(newTranslations);
+                self.saveTranslationsInNewTransaction(newTranslations);
             } catch (Exception e) {
-                log.error("Failed to save translation batch to database", e);
+                log.warn("[Translation] Failed to save translation batch in isolated transaction: {}", e.getMessage());
             }
         }
     }
@@ -238,5 +245,18 @@ public class TranslationService {
         }
 
         return text;
+    }
+
+    @org.springframework.transaction.annotation.Transactional(
+            propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW,
+            rollbackFor = Exception.class
+    )
+    public void saveTranslationsInNewTransaction(List<PostTranslation> translations) {
+        if (translations == null || translations.isEmpty()) return;
+        try {
+            postTranslationRepository.saveAll(translations);
+        } catch (Exception e) {
+            log.warn("[Translation] Failed to save translation batch in isolated transaction (likely duplicate key/race): {}", e.getMessage());
+        }
     }
 }
