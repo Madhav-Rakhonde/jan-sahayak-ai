@@ -141,6 +141,15 @@ public class Community {
     /** Always true — JanSahayak is fully anonymous. Enforced in lifecycle hooks. */
     @Column(name = "allow_anonymous_posts", nullable = false, columnDefinition = "boolean") @Builder.Default private Boolean allowAnonymousPosts = true;
 
+    @Column(name = "chat_retention_days", nullable = false, columnDefinition = "integer default 0")
+    @Builder.Default
+    private Integer chatRetentionDays = 0;
+
+    @Column(name = "is_group_chat_enabled", nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean isGroupChatEnabled = true;
+
+
     // ── Engagement Counters ───────────────────────────────────────────────────
 
     @Column(name = "member_count",        nullable = false) @Builder.Default private Integer memberCount       = 0;

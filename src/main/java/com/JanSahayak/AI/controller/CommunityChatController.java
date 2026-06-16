@@ -1,0 +1,193 @@
+package com.JanSahayak.AI.controller;
+
+import com.JanSahayak.AI.DTO.CommunityMessageDto;
+import com.JanSahayak.AI.exception.ApiResponse;
+import com.JanSahayak.AI.model.User;
+import com.JanSahayak.AI.service.CommunityChatService;
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.security.Principal;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/communities")
+@RequiredArgsConstructor
+@Slf4j
+public class CommunityChatController {
+
+    private final CommunityChatService communityChatService;
+    private final SimpMessagingTemplate messagingTemplate;
+
+    // ── REST Endpoints ────────────────────────────────────────────────────────
+
+    /**
+     * GET /api/communities/{id}/chat/messages
+     * Fetches message history using cursor-based pagination.
+     */
+    @GetMapping("/{id}/chat/messages")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<List<CommunityMessageDto>>> getChatHistory(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(defaultValue = "50") int limit) {
+        try {
+            List<CommunityMessageDto> history = communityChatService.getChatHistory(id, user.getId(), cursor, limit);
+            return ResponseEntity.ok(ApiResponse.success("Chat history retrieved", history));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(ApiResponse.error("Access Denied", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error retrieving chat history for community {}", id, e);
+            return ResponseEntity.internalServerError().body(ApiResponse.error("Error", "Failed to retrieve history"));
+        }
+    }
+
+    /**
+     * PUT /api/communities/{id}/chat/settings
+     * Updates group chat configurations (disappearing timer and active toggle state).
+     */
+    @PutMapping("/{id}/chat/settings")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> updateChatSettings(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user,
+            @RequestBody SettingsRequest req) {
+        try {
+            if (req.getIsGroupChatEnabled() != null) {
+                communityChatService.toggleGroupChat(id, user.getId(), req.getIsGroupChatEnabled());
+            }
+            if (req.getChatRetentionDays() != null) {
+                communityChatService.updateRetentionDays(id, user.getId(), req.getChatRetentionDays());
+            }
+            return ResponseEntity.ok(ApiResponse.success("Settings updated successfully", null));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(ApiResponse.error("Access Denied", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error updating chat settings for community {}", id, e);
+            return ResponseEntity.badRequest().body(ApiResponse.error("Update failed", e.getMessage()));
+        }
+    }
+
+    // ── WebSocket Endpoint Handlers ───────────────────────────────────────────
+
+    /**
+     * Handles new incoming message events.
+     * Receives messages over STOMP from `/app/community.{communityId}.send`.
+     */
+    @MessageMapping("/community.{communityId}.send")
+    public void sendMessage(
+            @DestinationVariable Long communityId,
+            @Payload SendMessageRequest payload,
+            Principal principal) {
+        
+        User user = getUserFromPrincipal(principal);
+        if (user == null) {
+            log.warn("WS send rejected: Could not extract user from principal");
+            return;
+        }
+
+        try {
+            communityChatService.processNewMessage(
+                    communityId, 
+                    user.getId(), 
+                    payload.getContent(), 
+                    payload.getSharedPostId(), 
+                    payload.getReplyToId()
+            );
+        } catch (Exception e) {
+            log.error("Error processing WS community message from user {} in community {}", user.getId(), communityId, e);
+            // Send error notification directly back to the specific user via their personal queue
+            Map<String, String> err = new HashMap<>();
+            err.put("error", e.getMessage());
+            messagingTemplate.convertAndSendToUser(user.getEmail(), "/queue/errors", err);
+        }
+    }
+
+    /**
+     * Broadcasts typing events to `/topic/community.{communityId}.typing`.
+     */
+    @MessageMapping("/community.{communityId}.typing")
+    public void sendTyping(
+            @DestinationVariable Long communityId,
+            Principal principal) {
+        
+        User user = getUserFromPrincipal(principal);
+        if (user == null) return;
+
+        Map<String, Object> typingPayload = new HashMap<>();
+        typingPayload.put("userId", user.getId());
+        typingPayload.put("username", user.getActualUsername());
+        typingPayload.put("typing", true);
+
+        messagingTemplate.convertAndSend("/topic/community." + communityId + ".typing", typingPayload);
+    }
+
+    /**
+     * POST /api/communities/{id}/chat/messages/{messageId}/report
+     * Reports a message for content violations.
+     */
+    @PostMapping("/{id}/chat/messages/{messageId}/report")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> reportMessage(
+            @PathVariable Long id,
+            @PathVariable Long messageId,
+            @AuthenticationPrincipal User user,
+            @RequestBody ReportRequest req) {
+        try {
+            if (req.getCategory() == null) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("Report failed", "Category is required"));
+            }
+            communityChatService.reportMessage(id, messageId, user.getId(), req.getCategory(), req.getDescription());
+            return ResponseEntity.ok(ApiResponse.success("Message reported successfully", null));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(ApiResponse.error("Access Denied", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error reporting chat message {} in community {}", messageId, id, e);
+            return ResponseEntity.badRequest().body(ApiResponse.error("Report failed", e.getMessage()));
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private User getUserFromPrincipal(Principal principal) {
+        if (principal instanceof UsernamePasswordAuthenticationToken auth) {
+            Object p = auth.getPrincipal();
+            if (p instanceof User u) return u;
+        }
+        return null;
+    }
+
+    // ── Request Payloads ──────────────────────────────────────────────────────
+
+    @Data
+    public static class SettingsRequest {
+        private Boolean isGroupChatEnabled;
+        private Integer chatRetentionDays;
+    }
+
+    @Data
+    public static class SendMessageRequest {
+        private String content;
+        private Long sharedPostId;
+        private Long replyToId;
+    }
+
+    @Data
+    public static class ReportRequest {
+        private com.JanSahayak.AI.enums.ReportCategory category;
+        private String description;
+    }
+}

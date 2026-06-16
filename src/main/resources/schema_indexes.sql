@@ -156,4 +156,23 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_comments_post_created
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_comments_user_created
     ON comments (user_id, created_at DESC);
 
+-- =============================================================================
+-- COMMUNITY CHAT MESSAGES
+-- =============================================================================
+
+-- Cursor pagination (hottest query path for chat history)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_community_messages_query
+    ON community_messages (community_id, created_at DESC, id DESC);
+
+-- Pinned messages lookup
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_community_messages_pinned
+    ON community_messages (community_id)
+    WHERE is_pinned = true;
+
+-- Expiry pruner query
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_community_messages_expiry
+    ON community_messages (expires_at)
+    WHERE expires_at IS NOT NULL;
+
+
 
