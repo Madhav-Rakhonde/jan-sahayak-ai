@@ -89,6 +89,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,  "/api/users/search").permitAll()
                         .requestMatchers(HttpMethod.GET,  "/api/users/{userId}").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/recommendations/posts").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/feedback").permitAll()
 
                         // ── Communities ───────────────────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET,  "/api/communities").permitAll()
