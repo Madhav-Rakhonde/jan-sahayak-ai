@@ -76,7 +76,7 @@ public class SocialPostService {
     // =========================================================================
 
     public Long countSocialPostsByUserId(Long userId) {
-        return socialPostRepository.countByUserId(userId);
+        return socialPostRepository.countByUserIdAndStatus(userId, PostStatus.ACTIVE);
     }
 
     // =========================================================================

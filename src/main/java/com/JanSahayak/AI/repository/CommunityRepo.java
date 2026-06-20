@@ -29,6 +29,22 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
     // ── Owner ─────────────────────────────────────────────────────────────────
     List<Community> findByOwnerIdAndStatusNot(Long ownerId, Community.CommunityStatus status);
 
+    @Query("""
+            SELECT COUNT(DISTINCT c.id) FROM Community c
+            WHERE c.status <> com.JanSahayak.AI.model.Community.CommunityStatus.DELETED
+              AND (
+                c.owner.id = :userId
+                OR EXISTS (
+                  SELECT 1 FROM CommunityMember cm
+                  WHERE cm.community = c
+                    AND cm.user.id = :userId
+                    AND cm.isActive = true
+                    AND cm.isBanned = false
+                )
+              )
+            """)
+    long countMyCommunities(@Param("userId") Long userId);
+
     // ── Hyperlocal seed ───────────────────────────────────────────────────────
     boolean existsByPincodeAndIsSystemSeededTrue(String pincode);
 

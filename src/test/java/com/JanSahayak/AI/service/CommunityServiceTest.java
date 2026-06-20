@@ -30,6 +30,18 @@ class CommunityServiceTest {
     private CommunityService communityService;
 
     @Test
+    void testGetMyCommunitiesCount() {
+        Long userId = 101L;
+
+        when(communityRepo.countMyCommunities(userId)).thenReturn(5L);
+
+        long count = communityService.getMyCommunitiesCount(userId);
+
+        assertEquals(5L, count);
+        verify(communityRepo, times(1)).countMyCommunities(userId);
+    }
+
+    @Test
     void testToSummaryResponse_AnonymousRequester() {
         Community c = Community.builder()
                 .id(10L)

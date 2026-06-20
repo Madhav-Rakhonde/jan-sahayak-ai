@@ -133,6 +133,15 @@ public class CommunityController {
                 communityService.getCommunityByCategory(category, uid, cursor, limit)));
     }
 
+    @GetMapping("/count/me")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Long>> getMyCommunitiesCount(
+            @AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Your communities count retrieved successfully",
+                communityService.getMyCommunitiesCount(currentUser.getId())));
+    }
+
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PaginatedResponse<CommunitySummaryResponse>>> myCommunities(

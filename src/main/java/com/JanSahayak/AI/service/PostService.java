@@ -1301,7 +1301,8 @@ public class PostService {
     public Map<String, Object> getMediaConstraints() { return PostUtility.createMediaConstraints(maxImageSize, maxVideoSize); }
     
     public Long countPostsByUser(User user) {
-        return postRepository.countByUserId(user.getId());
+        java.util.List<PostStatus> visibleStatuses = java.util.Arrays.asList(PostStatus.ACTIVE, PostStatus.RESOLVED);
+        return postRepository.countByUserIdAndStatusIn(user.getId(), visibleStatuses);
     }
 
     // =========================================================================

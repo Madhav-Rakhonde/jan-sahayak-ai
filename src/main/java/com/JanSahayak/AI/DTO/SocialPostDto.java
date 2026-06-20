@@ -4,6 +4,7 @@ import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.model.Poll;
 import com.JanSahayak.AI.model.PollOption;
 import com.JanSahayak.AI.model.SocialPost;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -45,34 +46,34 @@ public class SocialPostDto implements Serializable {
     // Hashtags & Mentions
     private List<String> hashtags;
     private Integer hashtagCount;
-    private List<Long> mentionedUserIds;
-    private Integer mentionCount;
+    @JsonIgnore private List<Long> mentionedUserIds;
+    @JsonIgnore private Integer mentionCount;
 
     // Engagement Metrics
     private Integer likeCount;
     private Integer commentCount;
     private Integer shareCount;
-    private Integer saveCount;
+    @JsonIgnore private Integer saveCount;
     private Integer viewCount;
-    private Integer totalEngagementCount;
+    @JsonIgnore private Integer totalEngagementCount;
 
-    // Recommendation Scores
-    private Double engagementScore;
-    private Double viralityScore;
-    private Double qualityScore;
+    // Recommendation Scores (internal — not used by frontend)
+    @JsonIgnore private Double engagementScore;
+    @JsonIgnore private Double viralityScore;
+    @JsonIgnore private Double qualityScore;
 
-    // Viral Status
-    private Boolean isViral;
-    private String viralTier;
-    private Integer expansionLevel;
-    private String viralStatusDescription;
-    private Date viralReachedAt;
+    // Viral Status (internal — not used by frontend)
+    @JsonIgnore private Boolean isViral;
+    @JsonIgnore private String viralTier;
+    @JsonIgnore private Integer expansionLevel;
+    @JsonIgnore private String viralStatusDescription;
+    @JsonIgnore private Date viralReachedAt;
 
     // Status
     private PostStatus status;
     private Boolean allowComments;
     private Boolean isFlagged;
-    private Integer reportCount;
+    @JsonIgnore private Integer reportCount;
 
     // User Interaction Flags (set per request)
     private Boolean isLikedByCurrentUser;
@@ -80,9 +81,9 @@ public class SocialPostDto implements Serializable {
     private Boolean isViewedByCurrentUser;
     private Boolean canDelete;
 
-    // Timestamps
-    private Date lastEngagedAt;
-    private Long ageInHours;
+    // Timestamps (internal — not used by frontend)
+    @JsonIgnore private Date lastEngagedAt;
+    @JsonIgnore private Long ageInHours;
 
     // ── Post variant & poll payload ────────────────────────────────────────────
     // variant tells the frontend PostCard HOW to render this post.

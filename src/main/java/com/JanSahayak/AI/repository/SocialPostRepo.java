@@ -173,6 +173,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // =========================================================================
 
     Long countByUserId(Long userId);
+    Long countByUserIdAndStatus(Long userId, PostStatus status);
     Long countByUserIdAndStatusNot(Long userId, PostStatus status);
 
     Long countByStatus(PostStatus status);

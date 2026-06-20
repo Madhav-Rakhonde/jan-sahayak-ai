@@ -713,6 +713,12 @@ public class CommunityService {
     }
 
     @Transactional(readOnly = true)
+    public long getMyCommunitiesCount(Long userId) {
+        CommunityValidationUtil.validateUserId(userId);
+        return communityRepo.countMyCommunities(userId);
+    }
+
+    @Transactional(readOnly = true)
     public List<CommunitySummaryResponse> getOwnedCommunities(Long ownerId) {
         CommunityValidationUtil.validateUserId(ownerId);
         List<Community> raw = communityRepo.findByOwnerIdAndStatusNot(ownerId, Community.CommunityStatus.DELETED);

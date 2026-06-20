@@ -217,12 +217,12 @@ public class PostServiceTest {
         User user = new User();
         user.setId(userId);
 
-        when(postRepository.countByUserId(userId)).thenReturn(42L);
+        when(postRepository.countByUserIdAndStatusIn(eq(userId), any())).thenReturn(42L);
 
         Long count = postService.countPostsByUser(user);
 
         assertEquals(42L, count);
-        verify(postRepository, times(1)).countByUserId(userId);
+        verify(postRepository, times(1)).countByUserIdAndStatusIn(eq(userId), any());
     }
     @Test
     void testGetBroadcastStatistics_FiltersDeletedPosts() {

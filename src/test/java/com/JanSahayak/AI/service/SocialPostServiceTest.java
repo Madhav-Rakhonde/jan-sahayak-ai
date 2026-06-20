@@ -78,6 +78,18 @@ public class SocialPostServiceTest {
     private SocialPostService socialPostService;
 
     @Test
+    void testCountSocialPostsByUserId() {
+        Long userId = 101L;
+
+        when(socialPostRepository.countByUserIdAndStatus(userId, PostStatus.ACTIVE)).thenReturn(15L);
+
+        Long count = socialPostService.countSocialPostsByUserId(userId);
+
+        assertEquals(15L, count);
+        verify(socialPostRepository, times(1)).countByUserIdAndStatus(userId, PostStatus.ACTIVE);
+    }
+
+    @Test
     void testConvertToDtoBatch_WithPreFetchedRoles() {
         // Arrange
         User author = new User();

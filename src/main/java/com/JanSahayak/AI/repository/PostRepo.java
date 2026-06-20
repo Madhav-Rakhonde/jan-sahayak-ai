@@ -92,6 +92,7 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     Long countByStatus(PostStatus status);
     Long countByUserId(Long userId);
     Long countByUserIdAndStatus(Long userId, PostStatus status);
+    Long countByUserIdAndStatusIn(Long userId, java.util.Collection<PostStatus> statuses);
     Long countByUserIdAndCreatedAtAfter(Long userId, Timestamp createdAt);
 
     // ===== Broadcasting Query Methods =====

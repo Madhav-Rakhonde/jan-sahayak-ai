@@ -11,12 +11,14 @@ import com.JanSahayak.AI.service.PostService;
 import com.JanSahayak.AI.service.SocialPostService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import com.JanSahayak.AI.security.CurrentUser;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * FeedController
@@ -108,8 +110,10 @@ public class FeedController {
         size = clampSize(size);
         log.debug("[Feed] FOR-YOU sort={}: userId={} lastPostId={} size={}",
                 sort, userId(user), lastPostId, size);
-        return ResponseEntity.ok(
-                socialPostService.getBrowseFeed(user, FeedScope.FOR_YOU, sort, lastPostId, size));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
+                        .staleWhileRevalidate(30, TimeUnit.SECONDS))
+                .body(socialPostService.getBrowseFeed(user, FeedScope.FOR_YOU, sort, lastPostId, size));
     }
 
     // =========================================================================
@@ -134,8 +138,10 @@ public class FeedController {
         size = clampSize(size);
         log.debug("[Feed] LOCATION sort={}: userId={} lastPostId={} size={}",
                 sort, userId(user), lastPostId, size);
-        return ResponseEntity.ok(
-                socialPostService.getBrowseFeed(user, FeedScope.LOCATION, sort, lastPostId, size));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
+                        .staleWhileRevalidate(30, TimeUnit.SECONDS))
+                .body(socialPostService.getBrowseFeed(user, FeedScope.LOCATION, sort, lastPostId, size));
     }
 
     // =========================================================================
@@ -160,8 +166,10 @@ public class FeedController {
         size = clampSize(size);
         log.debug("[Feed] FOLLOWING sort={}: userId={} lastPostId={} size={}",
                 sort, userId(user), lastPostId, size);
-        return ResponseEntity.ok(
-                socialPostService.getBrowseFeed(user, FeedScope.FOLLOWING, sort, lastPostId, size));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
+                        .staleWhileRevalidate(30, TimeUnit.SECONDS))
+                .body(socialPostService.getBrowseFeed(user, FeedScope.FOLLOWING, sort, lastPostId, size));
     }
 
     // =========================================================================
@@ -219,7 +227,10 @@ public class FeedController {
 
         limit = clampSize(limit);
         log.debug("[Feed] LOCAL sort={}: userId={} beforeId={} limit={}", sort, userId(user), beforeId, limit);
-        return ResponseEntity.ok(postService.getLocalFeed(user, sort, beforeId, limit));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
+                        .staleWhileRevalidate(30, TimeUnit.SECONDS))
+                .body(postService.getLocalFeed(user, sort, beforeId, limit));
     }
 
     /**
@@ -237,7 +248,10 @@ public class FeedController {
 
         limit = clampSize(limit);
         log.debug("[Feed] OFFICIAL sort={}: userId={} beforeId={} limit={}", sort, userId(user), beforeId, limit);
-        return ResponseEntity.ok(postService.getOfficialFeed(user, sort, beforeId, limit));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
+                        .staleWhileRevalidate(30, TimeUnit.SECONDS))
+                .body(postService.getOfficialFeed(user, sort, beforeId, limit));
     }
 
 
