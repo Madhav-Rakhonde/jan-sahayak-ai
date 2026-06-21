@@ -103,6 +103,9 @@ public class CacheConfig {
     private static final int  COMMUNITY_LIST_MAX_SIZE   = 10_000;
     private static final long COMMUNITY_LIST_TTL_MINUTES = 5L;
 
+    private static final int  COMMUNITIES_MAX_SIZE   = 5_000;
+    private static final long COMMUNITIES_TTL_MINUTES = 60L;
+
     @Bean
     public CacheManager cacheManager() {
         CaffeineCache profileCache = buildCache(
@@ -170,11 +173,19 @@ public class CacheConfig {
                 TimeUnit.MINUTES
         );
 
+        CaffeineCache communitiesCache = buildCache(
+                "communities",
+                COMMUNITIES_MAX_SIZE,
+                COMMUNITIES_TTL_MINUTES,
+                TimeUnit.MINUTES
+        );
+
         SimpleCacheManager manager = new SimpleCacheManager();
         manager.setCaches(List.of(
                 profileCache, geoDistCache,
                 trendingPostsCache, broadcastFeedsCache, hligFeedCache,
-                notifCountCache, userProfileCache, pincodeCache, communityListCache
+                notifCountCache, userProfileCache, pincodeCache, communityListCache,
+                communitiesCache
         ));
         return manager;
     }

@@ -27,6 +27,9 @@ import java.util.ArrayList;
 @Slf4j
 public class TranslationService {
 
+    // Limit to exactly 1 concurrent translation request to avoid 429s from free API
+    private final java.util.concurrent.Semaphore googleApiSemaphore = new java.util.concurrent.Semaphore(1);
+
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final PostTranslationRepository postTranslationRepository;
@@ -88,10 +91,10 @@ public class TranslationService {
                 }
             }
             
-            // Wait for all tasks to complete or timeout (total timeout of 2 seconds)
+            // Wait for all tasks to complete or timeout (total timeout of 5 seconds)
             long startTime = System.currentTimeMillis();
             for (Future<?> future : futures) {
-                long timeLeft = 2000 - (System.currentTimeMillis() - startTime);
+                long timeLeft = 5000 - (System.currentTimeMillis() - startTime);
                 if (timeLeft <= 0) {
                     future.cancel(true);
                     continue;
@@ -171,7 +174,7 @@ public class TranslationService {
             // Wait for all tasks to complete or timeout (total timeout of 2 seconds)
             long startTime = System.currentTimeMillis();
             for (Future<?> future : futures) {
-                long timeLeft = 2000 - (System.currentTimeMillis() - startTime);
+                long timeLeft = 5000 - (System.currentTimeMillis() - startTime);
                 if (timeLeft <= 0) {
                     future.cancel(true);
                     continue;
@@ -207,6 +210,9 @@ public class TranslationService {
         }
 
         try {
+            googleApiSemaphore.acquire();
+            Thread.sleep(300);
+
             String url = UriComponentsBuilder.fromHttpUrl("https://translate.googleapis.com/translate_a/single")
                     .queryParam("client", "gtx")
                     .queryParam("sl", "auto")
@@ -242,6 +248,8 @@ public class TranslationService {
             log.warn("Translation returned empty or invalid structure for target language: {}", targetLanguage);
         } catch (Exception e) {
             log.error("Failed to translate text to language: {}. Error: {}", targetLanguage, e.getMessage());
+        } finally {
+            googleApiSemaphore.release();
         }
 
         return text;

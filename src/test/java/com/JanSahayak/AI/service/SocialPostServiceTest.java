@@ -339,4 +339,38 @@ public class SocialPostServiceTest {
         assertEquals(2, response.getData().size());
         verify(userRepository, times(1)).findUserRolesByUserIds(anyList()); // batch mapping verified
     }
+
+    @Test
+    void testCreateSocialPost_WithMediaFiles_Success() {
+        // Arrange
+        User author = new User();
+        author.setId(101L);
+        author.setUsername("author1");
+        author.setIsActive(true);
+
+        com.JanSahayak.AI.DTO.SocialPostCreateDto createDto = new com.JanSahayak.AI.DTO.SocialPostCreateDto();
+        createDto.setContent("Check out these media files!");
+
+        org.springframework.web.multipart.MultipartFile mockFile = new org.springframework.mock.web.MockMultipartFile("file", "test.jpg", "image/jpeg", "image".getBytes());
+        List<org.springframework.web.multipart.MultipartFile> mediaFiles = List.of(mockFile);
+
+        when(contentValidationService.sanitizeAndValidateContent(anyString())).thenReturn("Check out these media files!");
+        when(mediaService.uploadMediaFiles(anyList(), eq(101L))).thenReturn(List.of("https://res.cloudinary.com/test.jpg"));
+
+        SocialPost savedPost = new SocialPost();
+        savedPost.setId(1L);
+        savedPost.setUser(author);
+        savedPost.setContent("Check out these media files!");
+        savedPost.setMediaUrlsList(List.of("https://res.cloudinary.com/test.jpg"));
+
+        when(socialPostRepository.save(any(SocialPost.class))).thenReturn(savedPost);
+
+        // Act
+        SocialPostDto result = socialPostService.createSocialPost(createDto, mediaFiles, author);
+
+        // Assert
+        assertNotNull(result);
+        verify(mediaService, times(1)).uploadMediaFiles(mediaFiles, 101L);
+        verify(socialPostRepository, times(1)).save(any(SocialPost.class));
+    }
 }
