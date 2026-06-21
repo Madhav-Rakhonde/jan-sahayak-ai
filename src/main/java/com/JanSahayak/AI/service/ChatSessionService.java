@@ -56,6 +56,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ChatSessionService {
 
     private final UserRepo userRepository;
+    private final com.JanSahayak.AI.repository.ChatSessionAuditRepo chatSessionAuditRepo;
 
     // @Lazy breaks the circular dependency:
     // ChatSessionService → ChatMessagingService → ChatSessionService
@@ -63,8 +64,10 @@ public class ChatSessionService {
 
     public ChatSessionService(
             UserRepo userRepository,
+            com.JanSahayak.AI.repository.ChatSessionAuditRepo chatSessionAuditRepo,
             @Lazy ChatMessagingService chatMessagingService) {
         this.userRepository      = userRepository;
+        this.chatSessionAuditRepo = chatSessionAuditRepo;
         this.chatMessagingService = chatMessagingService;
     }
 
@@ -73,6 +76,19 @@ public class ChatSessionService {
 
     // userId → sessionId   (maintained for both ACTIVE and DISCONNECTED sessions)
     private final Map<Long, String> userSessionMap = new ConcurrentHashMap<>();
+
+    // userId → ipAddress (tracked from WebSocket CONNECT)
+    private final Map<Long, String> userIpMap = new ConcurrentHashMap<>();
+
+    public void trackUserIp(Long userId, String ipAddress) {
+        if (ipAddress != null) {
+            userIpMap.put(userId, ipAddress);
+        }
+    }
+
+    public String getTrackedIp(Long userId) {
+        return userIpMap.get(userId);
+    }
 
     /**
      * FIX MEMORY LEAK #1 — recentMessages cap.
@@ -130,6 +146,21 @@ public class ChatSessionService {
         // FIX MEMORY LEAK #2 — pre-populate email cache so WebSocket sends are DB-free
         try { emailCache.put(user1Id, fetchEmail(user1Id)); } catch (Exception e) { log.warn("Failed to pre-fetch email for user {}", user1Id, e); }
         try { emailCache.put(user2Id, fetchEmail(user2Id)); } catch (Exception e) { log.warn("Failed to pre-fetch email for user {}", user2Id, e); }
+
+        // Legal Audit: Create immutable session record with IPs
+        try {
+            com.JanSahayak.AI.model.ChatSessionAudit audit = com.JanSahayak.AI.model.ChatSessionAudit.builder()
+                    .sessionId(sessionId)
+                    .user1Id(user1Id)
+                    .user2Id(user2Id)
+                    .user1Ip(userIpMap.get(user1Id))
+                    .user2Ip(userIpMap.get(user2Id))
+                    .startedAt(new java.util.Date())
+                    .build();
+            chatSessionAuditRepo.save(audit);
+        } catch (Exception e) {
+            log.error("Failed to create ChatSessionAudit for session {}", sessionId, e);
+        }
 
         log.info("Chat session {} created successfully", sessionId);
         return session;
@@ -337,6 +368,16 @@ public class ChatSessionService {
         
         // TELEGRAM-STYLE CLEANUP: Wipe all standard media from RAM
         cleanupSessionMedia(sessionId);
+
+        // Legal Audit: Close session record
+        try {
+            chatSessionAuditRepo.findBySessionId(sessionId).ifPresent(audit -> {
+                audit.setEndedAt(new java.util.Date());
+                chatSessionAuditRepo.save(audit);
+            });
+        } catch (Exception e) {
+            log.error("Failed to update ChatSessionAudit endedAt for session {}", sessionId, e);
+        }
     }
 
     // ── Reconnect flow ────────────────────────────────────────────────────────

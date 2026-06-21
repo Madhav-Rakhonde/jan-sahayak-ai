@@ -118,6 +118,7 @@ public class PostService {
             post.setImageName(fileName);   // stores Cloudinary URL or null
             post.setStatus(PostStatus.ACTIVE);
             post.setCreatedAt(new Date());
+            post.setIpAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext());
 
             if (PostUtility.isNormalUser(user) || PostUtility.isDepartment(user) || PostUtility.isAdmin(user)) {
                 post.setBroadcastScope(BroadcastScope.AREA);
@@ -259,6 +260,7 @@ public class PostService {
             post.setStatus(PostStatus.ACTIVE);
             post.setCreatedAt(new Date());
             post.setBroadcastScope(broadcastScope);
+            post.setIpAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext());
 
             // targetCountry is no longer used for geographic targeting - relying strictly on broadcastScope
             post.setTargetCountry(null);

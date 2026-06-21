@@ -192,6 +192,10 @@ public class Community {
     @JoinColumn(name = "owner_id", nullable = false, foreignKey = @ForeignKey(name = "fk_community_owner"))
     private User owner;
 
+    @Column(name = "ip_address", length = 45)
+    @JsonIgnore
+    private String ipAddress;
+
     @OneToMany(mappedBy = "community", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     @JsonIgnore private List<CommunityMember> members = new ArrayList<>();

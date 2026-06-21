@@ -50,6 +50,7 @@ public class PollService {
                 .user(creator)
                 .status(PostStatus.ACTIVE)
                 .allowComments(true)
+                .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())
                 .build();
 
         socialPost.inheritLocationFromUser(creator);
@@ -91,6 +92,7 @@ public class PollService {
                 .user(creator)
                 .status(PostStatus.ACTIVE)
                 .allowComments(true)
+                .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())
                 .build();
         socialPost.inheritLocationFromUser(creator);
         // 3. Attach media URLs if uploaded
@@ -265,6 +267,7 @@ public class PollService {
                 .expiresAt(expiresAt)
                 .allowMultipleVotes(Boolean.TRUE.equals(req.getAllowMultipleVotes()))
                 .showResultsBeforeExpiry(req.getShowResultsBeforeExpiry() == null || req.getShowResultsBeforeExpiry())
+                .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())
                 .build();
     }
 

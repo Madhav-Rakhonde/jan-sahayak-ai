@@ -24,6 +24,13 @@ import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBr
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
+import org.springframework.web.socket.server.support.HttpSessionHandshakeInterceptor;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.web.socket.WebSocketHandler;
+import com.JanSahayak.AI.util.IpUtils;
+import java.util.Map;
 
 import java.security.Principal;
 
@@ -81,6 +88,20 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer,
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns("*")
+                .addInterceptors(new HttpSessionHandshakeInterceptor() {
+                    @Override
+                    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                                                   WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
+                        if (request instanceof ServletServerHttpRequest) {
+                            jakarta.servlet.http.HttpServletRequest servletRequest = ((ServletServerHttpRequest) request).getServletRequest();
+                            String ipAddress = IpUtils.extractIp(servletRequest);
+                            if (ipAddress != null) {
+                                attributes.put("WS_CLIENT_IP", ipAddress);
+                            }
+                        }
+                        return super.beforeHandshake(request, response, wsHandler, attributes);
+                    }
+                })
                 .withSockJS();
     }
 
@@ -138,6 +159,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer,
 
                     log.info("WebSocket authenticated: username={} principalName(email)={}",
                             usernameFromJwt, user.getEmail());
+
+                    String ipAddress = null;
+                    if (accessor.getSessionAttributes() != null) {
+                        ipAddress = (String) accessor.getSessionAttributes().get("WS_CLIENT_IP");
+                    }
+                    chatSessionService.trackUserIp(user.getId(), ipAddress);
 
                 } catch (io.jsonwebtoken.ExpiredJwtException e) {
                     log.error("WebSocket CONNECT rejected: token expired");

@@ -36,6 +36,9 @@ public class CommunityMessage {
     @JoinColumn(name = "sender_id", nullable = false, foreignKey = @ForeignKey(name = "fk_message_sender"))
     private User sender;
 
+    @Column(name = "ip_address", length = 45)
+    private String ipAddress;
+
     @Column(length = 3000)
     private String content;
 

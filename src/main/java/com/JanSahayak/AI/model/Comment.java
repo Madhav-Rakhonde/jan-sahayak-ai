@@ -69,6 +69,10 @@ public class Comment {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @Column(name = "ip_address", length = 45)
+    @JsonIgnore
+    private String ipAddress;
+
     /**
      * Parent comment — non-null when this is a reply.
      */

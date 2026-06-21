@@ -81,6 +81,7 @@ public class CommentService {
             comment.setUser(user);
             comment.setPost(post);
             comment.setCreatedAt(new Date());
+            comment.setIpAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext());
 
             if (commentDto.getParentCommentId() != null) {
                 Comment parentComment = findById(commentDto.getParentCommentId());
@@ -156,6 +157,7 @@ public class CommentService {
             comment.setUser(user);
             comment.setSocialPost(socialPost);
             comment.setCreatedAt(new Date());
+            comment.setIpAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext());
 
             if (commentDto.getParentCommentId() != null) {
                 Comment parentComment = findById(commentDto.getParentCommentId());

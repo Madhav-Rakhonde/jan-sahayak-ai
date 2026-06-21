@@ -192,4 +192,53 @@ public class SearchServiceTest {
         assertTrue(response.isHasMore());
         assertEquals(3L, response.getNextCursor()); // nextCursor stores nextPage (2+1 = 3)
     }
+
+    @Test
+    void testSearchSocialPostMappingWithPoll() {
+        // Arrange
+        String query = "poll";
+        SearchDto.Request request = new SearchDto.Request();
+        request.setQuery(query);
+        request.setLimit(5);
+        request.setPage(0);
+        request.setTypes(Collections.singleton("SOCIAL_POST"));
+
+        // Create SocialPost with Poll
+        SocialPost spWithPoll = new SocialPost();
+        spWithPoll.setId(101L);
+        com.JanSahayak.AI.model.Poll poll = new com.JanSahayak.AI.model.Poll();
+        poll.setId(10L);
+        poll.setQuestion("Do you like polls?");
+        poll.setOptions(new ArrayList<>());
+        poll.setTotalVotes(0);
+        spWithPoll.setPoll(poll);
+
+        // Create SocialPost without Poll
+        SocialPost spWithoutPoll = new SocialPost();
+        spWithoutPoll.setId(102L);
+        spWithoutPoll.setPoll(null);
+
+        when(socialPostRepo.searchPage(eq(query), eq(PostStatus.ACTIVE), any(Pageable.class)))
+                .thenReturn(List.of(spWithPoll, spWithoutPoll));
+
+        // Act
+        SearchDto.Response response = searchService.search(request);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(2, response.getData().size());
+        
+        // Assert first post has poll variant and poll data
+        SearchDto.Result result1 = response.getData().get(0);
+        assertEquals("SOCIAL_POST", result1.getResultType());
+        assertEquals("poll", result1.getSocialPost().getVariant());
+        assertNotNull(result1.getSocialPost().getPoll());
+        assertEquals("Do you like polls?", result1.getSocialPost().getPoll().getQuestion());
+
+        // Assert second post has default social variant and no poll data
+        SearchDto.Result result2 = response.getData().get(1);
+        assertEquals("SOCIAL_POST", result2.getResultType());
+        assertEquals("social", result2.getSocialPost().getVariant());
+        assertNull(result2.getSocialPost().getPoll());
+    }
 }

@@ -111,7 +111,8 @@ public class CloudinaryStorageService {
                     "resource_type", resourceType,
                     "use_filename", true,
                     "unique_filename", true,
-                    "overwrite", false);
+                    "overwrite", false,
+                    "moderation", "aws_rek");
 
             Map<?, ?> result = cloudinary.uploader().upload(file.getBytes(), params);
 

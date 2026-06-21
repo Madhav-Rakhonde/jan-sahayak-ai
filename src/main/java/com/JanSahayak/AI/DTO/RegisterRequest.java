@@ -27,7 +27,9 @@ public class RegisterRequest {
     @NotBlank(message = "Location is required" )
     private String pincode;
 
-
+    @jakarta.validation.constraints.NotNull(message = "You must confirm you are 18 or older")
+    @jakarta.validation.constraints.AssertTrue(message = "You must be 18 or older to register")
+    private Boolean isAdult;
 
 }
 

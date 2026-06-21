@@ -117,6 +117,7 @@ public class SocialPostService {
 
             SocialPost socialPost = buildSocialPost(
                     createDto, user, extractedHashtags, mentionedUserIds, uploadedMediaUrls);
+            socialPost.setIpAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext());
             SocialPost savedPost = socialPostRepository.save(socialPost);
 
             // HLIG v2: post creation is the strongest interest signal (+5.0 weight).

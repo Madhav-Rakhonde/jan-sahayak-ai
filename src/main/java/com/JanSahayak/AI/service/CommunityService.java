@@ -93,6 +93,7 @@ public class CommunityService {
                 .allowAnonymousPosts(true)
                 .owner(creator)
                 .memberCount(1)
+                .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())
                 .build();
 
         // ── LOCATION PATCH ────────────────────────────────────────────────────

@@ -58,9 +58,13 @@ public class Post {
     private String content;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false,
-            foreignKey = @ForeignKey(name = "fk_post_user"))
+    @JoinColumn(name = "user_id", nullable = false, foreignKey = @ForeignKey(name = "fk_post_user"))
+    @JsonIgnore
     private User user;
+
+    @Column(name = "ip_address", length = 45)
+    @JsonIgnore
+    private String ipAddress;
 
     @Column(name = "image_name", length = 2000)
     private String imageName;

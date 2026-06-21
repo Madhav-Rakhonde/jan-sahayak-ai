@@ -94,6 +94,9 @@ public class User implements UserDetails {
     @JsonIgnore
     private Boolean hasInvalidPincode;
 
+    @Column(name = "is_adult", columnDefinition = "boolean")
+    private Boolean isAdult;
+
     // ===== Localization & Moderation Settings =====
     @Column(name = "interface_language", length = 10)
     @Builder.Default

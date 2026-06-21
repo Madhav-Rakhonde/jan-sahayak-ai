@@ -131,6 +131,7 @@ public class CommunityChatService {
                 .expiresAt(expiresAt)
                 .isFlagged(flagged)
                 .isQuarantined(flagged)
+                .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())
                 .build();
 
         communityMessageRepo.save(message);

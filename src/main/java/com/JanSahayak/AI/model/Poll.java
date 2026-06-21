@@ -55,6 +55,10 @@ public class Poll {
             foreignKey = @ForeignKey(name = "fk_poll_created_by"))
     private User createdBy;
 
+    @Column(name = "ip_address", length = 45)
+    @JsonIgnore
+    private String ipAddress;
+
     // ===== Options =====
 
     /** 2 to 4 options */

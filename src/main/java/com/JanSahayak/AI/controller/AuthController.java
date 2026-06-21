@@ -126,6 +126,9 @@ public class AuthController {
             user.setRole(CitizenRole);
             user.setPincode(request.getPincode());
             user.setHasInvalidPincode(hasInvalidPincode);
+            
+            // Age gating applied only to citizens
+            user.setIsAdult(request.getIsAdult());
 
             // Email Verification Setup
             String verificationToken = UUID.randomUUID().toString();

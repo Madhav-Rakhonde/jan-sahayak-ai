@@ -347,6 +347,10 @@ public class SocialPost {
     @JoinColumn(name = "user_id", nullable = false, foreignKey = @ForeignKey(name = "fk_social_post_user"))
     private User user;
 
+    @Column(name = "ip_address", length = 45)
+    @JsonIgnore
+    private String ipAddress;
+
     @OneToMany(mappedBy = "socialPost", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     @Builder.Default
     @JsonManagedReference

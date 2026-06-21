@@ -67,8 +67,8 @@ public class ContentReportService {
         // isEmergency is set automatically in @PrePersist
         report = reportRepo.save(report);
 
-        // Virality suppression & auto-flag if threshold exceeded
-        applyAutoModeration(targetType.toUpperCase(), targetId);
+        // Virality suppression & auto-flag if threshold exceeded or emergency
+        applyAutoModeration(targetType.toUpperCase(), targetId, report.getIsEmergency());
 
         log.info("Report filed: type={} id={} category={} emergency={}",
                 targetType, targetId, category, report.getIsEmergency());
@@ -76,7 +76,7 @@ public class ContentReportService {
         return report;
     }
 
-    private void applyAutoModeration(String targetType, Long targetId) {
+    private void applyAutoModeration(String targetType, Long targetId, Boolean isEmergency) {
         long pendingCount = reportRepo.countByTargetTypeAndTargetIdAndStatus(
                 targetType, targetId, "PENDING");
 
@@ -95,12 +95,18 @@ public class ContentReportService {
                 post.setViralityScore(0.0);
             }
 
-            // Auto-flag & hide when threshold crossed
-            if (pendingCount >= AUTO_FLAG_THRESHOLD && !Boolean.TRUE.equals(post.getIsFlagged())) {
+            boolean thresholdMet = pendingCount >= AUTO_FLAG_THRESHOLD;
+            boolean isHighSeverity = Boolean.TRUE.equals(isEmergency);
+
+            // Auto-flag & hide when threshold crossed or if EMERGENCY
+            if ((thresholdMet || isHighSeverity) && !Boolean.TRUE.equals(post.getIsFlagged())) {
                 post.setIsFlagged(true);
                 post.setFlaggedAt(new Date());
-                post.setFlagReason("Auto-flagged: " + pendingCount + " pending reports");
-                log.warn("SOCIAL_POST {} auto-flagged after {} reports", targetId, pendingCount);
+                String reason = isHighSeverity 
+                    ? "Emergency Takedown: High severity report received" 
+                    : "Auto-flagged: " + pendingCount + " pending reports";
+                post.setFlagReason(reason);
+                log.warn("SOCIAL_POST {} {}", targetId, reason);
             }
 
             socialPostRepo.save(post);

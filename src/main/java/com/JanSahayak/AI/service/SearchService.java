@@ -230,7 +230,20 @@ public class SearchService {
     }
 
     private SearchDto.Result mapSocialPost(SocialPost sp) {
-        SocialPostDto dto = SocialPostDto.fromSocialPost(sp);
+        SocialPostDto dto;
+        if (sp.hasPoll()) {
+            dto = SocialPostDto.fromSocialPostWithInteractions(
+                    sp, 
+                    false, // isLikedByCurrentUser
+                    false, // isSavedByCurrentUser
+                    false, // isViewedByCurrentUser
+                    sp.getPoll(), // Poll entity reference
+                    false, // userHasVoted
+                    java.util.Collections.emptyList() // votedOptionIds
+            );
+        } else {
+            dto = SocialPostDto.fromSocialPost(sp);
+        }
         return SearchDto.Result.builder()
                 .resultType("SOCIAL_POST")
                 .id(sp.getId())
