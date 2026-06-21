@@ -48,10 +48,10 @@ public class TranslationServiceTest {
         when(translationRepository.findByReferenceIdInAndReferenceTypeAndTargetLanguage(anyList(), eq("POST"), anyString()))
                 .thenReturn(Collections.emptyList());
 
-        // Mock RestTemplate response
-        String mockGoogleResponse = "[[[\"नमस्ते दुनिया\",\"Hello world\",null,null,1]],null,\"en\",null,null,null,1,[]]";
-        when(restTemplate.getForObject(anyString(), eq(String.class)))
-                .thenReturn(mockGoogleResponse);
+        // Mock RestTemplate response for Lingva API
+        String mockLingvaResponse = "{\"translation\":\"नमस्ते दुनिया\"}";
+        when(restTemplate.getForObject(eq("https://lingva.ml/api/v1/auto/{target}/{query}"), eq(String.class), anyString(), anyString()))
+                .thenReturn(mockLingvaResponse);
 
         List<PostResponse> posts = new ArrayList<>();
         PostResponse post = new PostResponse();
@@ -79,10 +79,10 @@ public class TranslationServiceTest {
         when(translationRepository.findByReferenceIdInAndReferenceTypeAndTargetLanguage(anyList(), eq("POST"), eq("hi")))
                 .thenReturn(cachedList);
 
-        // Mock RestTemplate response for Post 2
-        String mockGoogleResponse = "[[[\"अलविदा\",\"Goodbye\",null,null,1]],null,\"en\",null,null,null,1,[]]";
-        when(restTemplate.getForObject(contains("Goodbye"), eq(String.class)))
-                .thenReturn(mockGoogleResponse);
+        // Mock RestTemplate response for Post 2 (Lingva API)
+        String mockLingvaResponse = "{\"translation\":\"अलविदा\"}";
+        when(restTemplate.getForObject(eq("https://lingva.ml/api/v1/auto/{target}/{query}"), eq(String.class), eq("hi"), eq("Goodbye")))
+                .thenReturn(mockLingvaResponse);
 
         List<PostResponse> posts = new ArrayList<>();
         PostResponse p1 = PostResponse.builder().id(1L).content("Hello").build();
@@ -116,37 +116,41 @@ public class TranslationServiceTest {
         when(translationRepository.findByReferenceIdInAndReferenceTypeAndTargetLanguage(anyList(), eq("POST"), eq("hi")))
                 .thenReturn(Collections.emptyList());
 
-        // Mock P1 to hang (take 3 seconds, exceeding the 2-second timeout)
-        when(restTemplate.getForObject(contains("SlowPost"), eq(String.class)))
+        // P1 takes 3000ms
+        when(restTemplate.getForObject(eq("https://lingva.ml/api/v1/auto/{target}/{query}"), eq(String.class), eq("hi"), eq("Post1")))
                 .thenAnswer(invocation -> {
                     Thread.sleep(3000);
-                    return "[[[\"धीमा\",\"SlowPost\",null,null,1]],null,\"en\",null,null,null,1,[]]";
+                    return "{\"translation\":\"पोस्ट1\"}";
                 });
 
-        // Mock P2 to return immediately
-        when(restTemplate.getForObject(contains("FastPost"), eq(String.class)))
-                .thenReturn("[[[\"तेज\",\"FastPost\",null,null,1]],null,\"en\",null,null,null,1,[]]");
+        // P2 takes 3000ms
+        when(restTemplate.getForObject(eq("https://lingva.ml/api/v1/auto/{target}/{query}"), eq(String.class), eq("hi"), eq("Post2")))
+                .thenAnswer(invocation -> {
+                    Thread.sleep(3000);
+                    return "{\"translation\":\"पोस्ट2\"}";
+                });
 
         List<PostResponse> posts = new ArrayList<>();
-        PostResponse p1 = PostResponse.builder().id(1L).content("SlowPost").build();
-        PostResponse p2 = PostResponse.builder().id(2L).content("FastPost").build();
+        PostResponse p1 = PostResponse.builder().id(1L).content("Post1").build();
+        PostResponse p2 = PostResponse.builder().id(2L).content("Post2").build();
         posts.add(p1);
         posts.add(p2);
 
-        // Run the translation and verify it completes within 2.5 seconds (gracefully handles timeout)
         long startTime = System.currentTimeMillis();
         translationService.translatePosts(posts, "hi");
         long duration = System.currentTimeMillis() - startTime;
 
-        assertTrue(duration < 2500, "Method should complete before 2.5 seconds despite one task taking 3 seconds");
+        // Total timeout is 5000ms, so it should finish in around 5000ms
+        assertTrue(duration < 5500, "Method should complete before 5.5 seconds due to timeout");
+        assertTrue(duration >= 4900, "Method should take around 5 seconds due to timeout");
 
-        // Fast post should be successfully translated
-        assertEquals("तेज", p2.getTranslatedContent());
-        assertTrue(p2.getIsTranslated());
+        // P1 should be translated (completes in 3s < 5s)
+        assertEquals("पोस्ट1", p1.getTranslatedContent());
+        assertTrue(p1.getIsTranslated());
 
-        // Slow post should not be translated (graceful degradation)
-        assertNull(p1.getTranslatedContent());
-        assertFalse(Boolean.TRUE.equals(p1.getIsTranslated()));
+        // P2 should not be translated (started at 3s, takes 3s, times out at 2s remaining)
+        assertNull(p2.getTranslatedContent());
+        assertFalse(Boolean.TRUE.equals(p2.getIsTranslated()));
     }
 
     @Test
@@ -166,5 +170,82 @@ public class TranslationServiceTest {
         // Act & Assert
         assertDoesNotThrow(() -> translationService.saveTranslationsInNewTransaction(list));
         verify(translationRepository, times(1)).saveAll(list);
+    }
+
+    @Test
+    void testTranslateText_LingvaSuccess() {
+        String mockLingvaResponse = "{\"translation\":\"नमस्ते\"}";
+        when(restTemplate.getForObject(eq("https://lingva.ml/api/v1/auto/{target}/{query}"), eq(String.class), eq("hi"), eq("Hello")))
+                .thenReturn(mockLingvaResponse);
+
+        String result = translationService.translateText("Hello", "hi");
+
+        assertEquals("नमस्ते", result);
+        verify(restTemplate, times(1)).getForObject(contains("lingva.ml"), any(), anyString(), anyString());
+        verify(restTemplate, never()).getForObject(contains("mymemory"), any(), anyString(), anyString());
+    }
+
+    @Test
+    void testTranslateText_LingvaFails_MyMemorySuccess() {
+        // Lingva fails
+        when(restTemplate.getForObject(eq("https://lingva.ml/api/v1/auto/{target}/{query}"), eq(String.class), eq("hi"), eq("Hello")))
+                .thenThrow(new RuntimeException("Lingva is down"));
+
+        // Google dict-chrome-ex fails
+        when(restTemplate.getForObject(eq("https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=auto&tl={target}&dt=t&q={query}"), eq(String.class), eq("hi"), eq("Hello")))
+                .thenThrow(new RuntimeException("Google is down"));
+
+        // MyMemory succeeds
+        String mockMyMemoryResponse = "{\"responseData\":{\"translatedText\":\"नमस्ते\"}}";
+        when(restTemplate.getForObject(eq("https://api.mymemory.translated.net/get?q={query}&langpair=Autodetect|{target}&de=support@example.com"), eq(String.class), eq("Hello"), eq("hi")))
+                .thenReturn(mockMyMemoryResponse);
+
+        String result = translationService.translateText("Hello", "hi");
+
+        assertEquals("नमस्ते", result);
+        verify(restTemplate, times(1)).getForObject(contains("lingva.ml"), any(), anyString(), anyString());
+        verify(restTemplate, times(1)).getForObject(contains("translate.googleapis.com"), any(), anyString(), anyString());
+        verify(restTemplate, times(1)).getForObject(contains("mymemory"), any(), anyString(), anyString());
+    }
+
+    @Test
+    void testTranslateText_LingvaFails_GoogleSuccess() {
+        // Lingva fails
+        when(restTemplate.getForObject(eq("https://lingva.ml/api/v1/auto/{target}/{query}"), eq(String.class), eq("hi"), eq("Hello")))
+                .thenThrow(new RuntimeException("Lingva is down"));
+
+        // Google dict-chrome-ex succeeds
+        String mockGoogleResponse = "[[[\"नमस्ते\",\"Hello\",null,null,10]]]";
+        when(restTemplate.getForObject(eq("https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=auto&tl={target}&dt=t&q={query}"), eq(String.class), eq("hi"), eq("Hello")))
+                .thenReturn(mockGoogleResponse);
+
+        String result = translationService.translateText("Hello", "hi");
+
+        assertEquals("नमस्ते", result);
+        verify(restTemplate, times(1)).getForObject(contains("lingva.ml"), any(), anyString(), anyString());
+        verify(restTemplate, times(1)).getForObject(contains("translate.googleapis.com"), any(), anyString(), anyString());
+        verify(restTemplate, never()).getForObject(contains("mymemory"), any(), anyString(), anyString());
+    }
+
+    @Test
+    void testTranslateText_AllFail_ReturnsOriginalText() {
+        // Lingva fails
+        when(restTemplate.getForObject(eq("https://lingva.ml/api/v1/auto/{target}/{query}"), eq(String.class), eq("hi"), eq("Hello")))
+                .thenThrow(new RuntimeException("Lingva is down"));
+
+        // Google dict-chrome-ex fails
+        when(restTemplate.getForObject(eq("https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=auto&tl={target}&dt=t&q={query}"), eq(String.class), eq("hi"), eq("Hello")))
+                .thenThrow(new RuntimeException("Google is down"));
+
+        // MyMemory fails
+        when(restTemplate.getForObject(eq("https://api.mymemory.translated.net/get?q={query}&langpair=Autodetect|{target}&de=support@example.com"), eq(String.class), eq("Hello"), eq("hi")))
+                .thenThrow(new RuntimeException("MyMemory is down"));
+
+        String result = translationService.translateText("Hello", "hi");
+
+        assertEquals("Hello", result); // Original text fallback
+        verify(restTemplate, times(1)).getForObject(contains("lingva.ml"), any(), anyString(), anyString());
+        verify(restTemplate, times(1)).getForObject(contains("translate.googleapis.com"), any(), anyString(), anyString());
+        verify(restTemplate, times(1)).getForObject(contains("mymemory"), any(), anyString(), anyString());
     }
 }

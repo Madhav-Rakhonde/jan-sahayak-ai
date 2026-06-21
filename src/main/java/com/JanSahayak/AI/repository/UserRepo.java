@@ -201,14 +201,14 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // USER SEARCH / TAGGING
     // =========================================================================
 
-    @Query("SELECT u FROM User u WHERE u.isActive = true " +
+    @Query("SELECT u FROM User u JOIN FETCH u.role r WHERE u.isActive = true " +
             "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
             "ORDER BY u.username ASC")
     List<User> searchUsersForTagging(
             @Param("query") String query,
             Pageable pageable);
 
-    @Query("SELECT u FROM User u WHERE u.isActive = true " +
+    @Query("SELECT u FROM User u JOIN FETCH u.role r WHERE u.isActive = true " +
             "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
             "AND u.id < :beforeId " +
             "ORDER BY u.username ASC")
@@ -233,12 +233,12 @@ public interface UserRepo extends JpaRepository<User, Long> {
     // SEARCH / SUGGESTION
     // =========================================================================
 
-    @Query("SELECT u FROM User u WHERE u.isActive = true " +
+    @Query("SELECT u FROM User u JOIN FETCH u.role r WHERE u.isActive = true " +
             "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
             "ORDER BY u.username ASC")
     List<User> searchByUsername(@Param("query") String query, Pageable pageable);
 
-    @Query("SELECT u FROM User u WHERE u.isActive = true " +
+    @Query("SELECT u FROM User u JOIN FETCH u.role r WHERE u.isActive = true " +
             "AND LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\' " +
             "AND u.id < :beforeId ORDER BY u.username ASC")
     List<User> searchByUsernameWithCursor(

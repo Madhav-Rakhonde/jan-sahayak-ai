@@ -211,43 +211,78 @@ public class TranslationService {
 
         try {
             googleApiSemaphore.acquire();
-            Thread.sleep(300);
+            Thread.sleep(100);
 
-            String url = UriComponentsBuilder.fromHttpUrl("https://translate.googleapis.com/translate_a/single")
-                    .queryParam("client", "gtx")
-                    .queryParam("sl", "auto")
-                    .queryParam("tl", targetLanguage)
-                    .queryParam("dt", "t")
-                    .queryParam("q", text)
-                    .build().toUriString();
+            // 1. Try Lingva API first
+            try {
+                String url = "https://lingva.ml/api/v1/auto/{target}/{query}";
+                String response = restTemplate.getForObject(url, String.class, targetLanguage, text);
 
-            String response = restTemplate.getForObject(url, String.class);
-
-            if (response != null) {
-                JsonNode rootNode = objectMapper.readTree(response);
-                if (rootNode.isArray() && rootNode.size() > 0) {
-                    JsonNode sentencesNode = rootNode.get(0);
-                    StringBuilder translatedStringBuilder = new StringBuilder();
-                    
-                    if (sentencesNode.isArray()) {
-                        for (JsonNode sentenceNode : sentencesNode) {
-                            if (sentenceNode.isArray() && sentenceNode.size() > 0) {
-                                JsonNode translatedPartNode = sentenceNode.get(0);
-                                if (translatedPartNode != null && !translatedPartNode.isNull() && translatedPartNode.isTextual()) {
-                                    translatedStringBuilder.append(translatedPartNode.asText());
-                                }
-                            }
-                        }
-                        String translatedText = translatedStringBuilder.toString().trim();
-                        if (!translatedText.isEmpty()) {
+                if (response != null) {
+                    JsonNode rootNode = objectMapper.readTree(response);
+                    if (rootNode.has("translation")) {
+                        String translatedText = rootNode.get("translation").asText();
+                        if (translatedText != null && !translatedText.trim().isEmpty()) {
                             return translatedText;
                         }
                     }
                 }
+            } catch (Exception e) {
+                log.warn("Lingva translation failed for language {}, falling back. Error: {}", targetLanguage, e.getMessage());
             }
-            log.warn("Translation returned empty or invalid structure for target language: {}", targetLanguage);
+
+            // 2. Fallback to Google Translate dict-chrome-ex API (less heavily rate limited than gtx)
+            try {
+                String url = "https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=auto&tl={target}&dt=t&q={query}";
+                String response = restTemplate.getForObject(url, String.class, targetLanguage, text);
+
+                if (response != null) {
+                    JsonNode rootNode = objectMapper.readTree(response);
+                    if (rootNode.isArray() && rootNode.size() > 0) {
+                        JsonNode sentencesNode = rootNode.get(0);
+                        StringBuilder translatedStringBuilder = new StringBuilder();
+
+                        if (sentencesNode.isArray()) {
+                            for (JsonNode sentenceNode : sentencesNode) {
+                                if (sentenceNode.isArray() && sentenceNode.size() > 0) {
+                                    JsonNode translatedPartNode = sentenceNode.get(0);
+                                    if (translatedPartNode != null && !translatedPartNode.isNull() && translatedPartNode.isTextual()) {
+                                        translatedStringBuilder.append(translatedPartNode.asText());
+                                    }
+                                }
+                            }
+                            String translatedText = translatedStringBuilder.toString().trim();
+                            if (!translatedText.isEmpty()) {
+                                return translatedText;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Google dict-chrome-ex translation failed for language {}, falling back. Error: {}", targetLanguage, e.getMessage());
+            }
+
+            // 3. Fallback to MyMemory API
+            try {
+                String url = "https://api.mymemory.translated.net/get?q={query}&langpair=Autodetect|{target}&de=support@example.com";
+                String response = restTemplate.getForObject(url, String.class, text, targetLanguage);
+
+                if (response != null) {
+                    JsonNode rootNode = objectMapper.readTree(response);
+                    if (rootNode.has("responseData") && rootNode.get("responseData").has("translatedText")) {
+                        String translatedText = rootNode.get("responseData").get("translatedText").asText();
+                        if (translatedText != null && !translatedText.trim().isEmpty() && !translatedText.contains("MYMEMORY WARNING")) {
+                            return translatedText;
+                        } else {
+                            log.warn("MyMemory API returned warning or empty: {}", translatedText);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Failed to translate text to language: {} using fallback. Error: {}", targetLanguage, e.getMessage());
+            }
         } catch (Exception e) {
-            log.error("Failed to translate text to language: {}. Error: {}", targetLanguage, e.getMessage());
+            log.error("Translation interrupted or failed: {}", e.getMessage());
         } finally {
             googleApiSemaphore.release();
         }

@@ -69,6 +69,29 @@ public class NotificationService {
                 return;
             }
 
+            // Aggregate like notification
+            List<Notification> existingList = notificationRepository.findByUserAndReferenceIdAndReferenceType(targetUser, post.getId(), "POST");
+            Notification existingLike = existingList.stream()
+                    .filter(n -> n.getNotificationType() == NotificationType.POST_LIKE)
+                    .max(java.util.Comparator.comparing(Notification::getCreatedAt))
+                    .orElse(null);
+
+            if (existingLike != null) {
+                int count = post.getLikeCount();
+                if (count > 1) {
+                    existingLike.setMessage(String.format("%s and %d others liked your post", actionUser.getActualUsername(), count - 1));
+                } else {
+                    existingLike.setMessage(String.format("%s liked your post", actionUser.getActualUsername()));
+                }
+                existingLike.setTriggeredBy(actionUser);
+                existingLike.markAsUnread();
+                existingLike.setCreatedAt(new Date());
+                notificationRepository.save(existingLike);
+                sendRealtimeNotification(existingLike);
+                log.debug("Post like notification aggregated: postId={}, likedBy={}", post.getId(), likedBy.getActualUsername());
+                return;
+            }
+
             String title = "New Like on Your Post";
             String message = String.format("%s liked your post", actionUser.getActualUsername());
             String actionUrl = "/post/" + post.getId();
@@ -114,9 +137,37 @@ public class NotificationService {
                 return;
             }
 
-            String title = "New Like on Your Post";
-            String message = String.format("%s liked your social post", actionUser.getActualUsername());
             String actionUrl = "/post/" + socialPost.getId();
+            if (socialPost.getCommunity() != null) {
+                actionUrl = "/communities/" + socialPost.getCommunity().getSlug() + "?postId=" + socialPost.getId();
+            }
+
+            // Aggregate like notification
+            List<Notification> existingList = notificationRepository.findByUserAndReferenceIdAndReferenceType(targetUser, socialPost.getId(), "SOCIAL_POST");
+            Notification existingLike = existingList.stream()
+                    .filter(n -> n.getNotificationType() == NotificationType.POST_LIKE)
+                    .max(java.util.Comparator.comparing(Notification::getCreatedAt))
+                    .orElse(null);
+
+            if (existingLike != null) {
+                int count = socialPost.getLikeCount();
+                if (count > 1) {
+                    existingLike.setMessage(String.format("%s and %d others liked your post", actionUser.getActualUsername(), count - 1));
+                } else {
+                    existingLike.setMessage(String.format("%s liked your post", actionUser.getActualUsername()));
+                }
+                existingLike.setTriggeredBy(actionUser);
+                existingLike.setActionUrl(actionUrl);
+                existingLike.markAsUnread();
+                existingLike.setCreatedAt(new Date());
+                notificationRepository.save(existingLike);
+                sendRealtimeNotification(existingLike);
+                log.debug("Social post like notification aggregated: postId={}, likedBy={}", socialPost.getId(), likedBy.getActualUsername());
+                return;
+            }
+
+            String title = "New Like on Your Post";
+            String message = String.format("%s liked your post", actionUser.getActualUsername());
 
             Notification notification = createNotification(
                     targetUser,
@@ -159,11 +210,36 @@ public class NotificationService {
                 return;
             }
 
+            String actionUrl = "/post/" + post.getId() + "#comment-" + comment.getId();
+
+            // Aggregate comment notification
+            List<Notification> existingList = notificationRepository.findByUserAndReferenceIdAndReferenceType(targetUser, post.getId(), "POST");
+            Notification existingComment = existingList.stream()
+                    .filter(n -> n.getNotificationType() == NotificationType.POST_COMMENT)
+                    .max(java.util.Comparator.comparing(Notification::getCreatedAt))
+                    .orElse(null);
+
+            if (existingComment != null) {
+                int count = post.getCommentCount();
+                if (count > 1) {
+                    existingComment.setMessage(String.format("%s and %d others commented on your post", actionUser.getActualUsername(), count - 1));
+                } else {
+                    existingComment.setMessage(String.format("%s commented: \"%s\"", actionUser.getActualUsername(), truncateText(comment.getText(), 50)));
+                }
+                existingComment.setTriggeredBy(actionUser);
+                existingComment.setActionUrl(actionUrl);
+                existingComment.markAsUnread();
+                existingComment.setCreatedAt(new Date());
+                notificationRepository.save(existingComment);
+                sendRealtimeNotification(existingComment);
+                log.debug("Post comment notification aggregated: postId={}, commentedBy={}", post.getId(), commentedBy.getActualUsername());
+                return;
+            }
+
             String title = "New Comment on Your Post";
             String message = String.format("%s commented: \"%s\"",
                     actionUser.getActualUsername(),
                     truncateText(comment.getText(), 50));
-            String actionUrl = "/post/" + post.getId() + "#comment-" + comment.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -206,11 +282,39 @@ public class NotificationService {
                 return;
             }
 
+            String actionUrl = "/post/" + socialPost.getId() + "#comment-" + comment.getId();
+            if (socialPost.getCommunity() != null) {
+                actionUrl = "/communities/" + socialPost.getCommunity().getSlug() + "?postId=" + socialPost.getId() + "#comment-" + comment.getId();
+            }
+
+            // Aggregate comment notification
+            List<Notification> existingList = notificationRepository.findByUserAndReferenceIdAndReferenceType(targetUser, socialPost.getId(), "SOCIAL_POST");
+            Notification existingComment = existingList.stream()
+                    .filter(n -> n.getNotificationType() == NotificationType.POST_COMMENT)
+                    .max(java.util.Comparator.comparing(Notification::getCreatedAt))
+                    .orElse(null);
+
+            if (existingComment != null) {
+                int count = socialPost.getCommentCount();
+                if (count > 1) {
+                    existingComment.setMessage(String.format("%s and %d others commented on your post", actionUser.getActualUsername(), count - 1));
+                } else {
+                    existingComment.setMessage(String.format("%s commented: \"%s\"", actionUser.getActualUsername(), truncateText(comment.getText(), 50)));
+                }
+                existingComment.setTriggeredBy(actionUser);
+                existingComment.setActionUrl(actionUrl);
+                existingComment.markAsUnread();
+                existingComment.setCreatedAt(new Date());
+                notificationRepository.save(existingComment);
+                sendRealtimeNotification(existingComment);
+                log.debug("Social post comment notification aggregated: postId={}, commentedBy={}", socialPost.getId(), commentedBy.getActualUsername());
+                return;
+            }
+
             String title = "New Comment on Your Post";
             String message = String.format("%s commented: \"%s\"",
                     actionUser.getActualUsername(),
                     truncateText(comment.getText(), 50));
-            String actionUrl = "/post/" + socialPost.getId() + "#comment-" + comment.getId();
 
             Notification notification = createNotification(
                     targetUser,
@@ -800,6 +904,9 @@ public class NotificationService {
                     actionUser.getActualUsername(),
                     truncateText(socialPost.getContent(), 50));
             String actionUrl = "/post/" + socialPost.getId();
+            if (socialPost.getCommunity() != null) {
+                actionUrl = "/communities/" + socialPost.getCommunity().getSlug() + "?postId=" + socialPost.getId();
+            }
 
             final int BATCH_SIZE = 500;
             int totalSent = 0;
