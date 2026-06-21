@@ -1045,11 +1045,12 @@ public class SocialPostService {
 
     private List<SocialPost> fetchUserPosts(Long userId, PaginationUtils.PaginationSetup setup) {
         List<PostStatus> visibleStatuses = List.of(PostStatus.ACTIVE);
+        org.springframework.data.domain.Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
         return setup.hasCursor()
                 ? socialPostRepository.findByUserIdAndStatusInAndIdLessThanOrderByCreatedAtDesc(
-                userId, visibleStatuses, setup.getSanitizedCursor(), setup.toPageable())
+                userId, visibleStatuses, setup.getSanitizedCursor(), pageable)
                 : socialPostRepository.findByUserIdAndStatusInOrderByCreatedAtDesc(
-                userId, visibleStatuses, setup.toPageable());
+                userId, visibleStatuses, pageable);
     }
 
     private List<SocialPost> fetchPostsByHashtag(

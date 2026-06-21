@@ -6,6 +6,7 @@ import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -45,18 +46,22 @@ public interface SavedPostRepo extends JpaRepository<SavedPost, Long> {
     // PAGINATED LISTING
     // =========================================================================
 
+    @EntityGraph(attributePaths = {"socialPost", "post"})
     @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId ORDER BY sp.savedAt DESC")
     Page<SavedPost> findByUserIdOrderBySavedAtDesc(@Param("userId") Long userId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"socialPost", "post"})
     @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId AND sp.id < :id ORDER BY sp.savedAt DESC")
     Page<SavedPost> findByUserIdAndIdLessThanOrderBySavedAtDesc(@Param("userId") Long userId, @Param("id") Long id, Pageable pageable);
 
     @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId ORDER BY sp.savedAt DESC")
     List<SavedPost> findByUserIdOrderBySavedAtDesc(@Param("userId") Long userId);
 
+    @EntityGraph(attributePaths = {"socialPost", "post"})
     @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId AND sp.socialPost IS NOT NULL ORDER BY sp.savedAt DESC")
     Page<SavedPost> findSocialPostSavesByUserIdOrderBySavedAtDesc(@Param("userId") Long userId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"socialPost", "post"})
     @Query("SELECT sp FROM SavedPost sp WHERE sp.user.id = :userId AND sp.post IS NOT NULL ORDER BY sp.savedAt DESC")
     Page<SavedPost> findBroadcastPostSavesByUserIdOrderBySavedAtDesc(@Param("userId") Long userId, Pageable pageable);
 

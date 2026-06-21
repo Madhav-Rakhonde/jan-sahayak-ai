@@ -630,7 +630,7 @@ public class CommunityService {
                 Constant.DEFAULT_COMMUNITY_LIST_LIMIT,
                 Constant.MAX_COMMUNITY_LIST_LIMIT);
         Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
-        List<Community> raw = communityRepo.searchCommunities(query.trim(), setup.getSanitizedCursor(), pageable);
+        List<Community> raw = communityRepo.searchCommunities(query.trim(), pageable);
         List<CommunitySummaryResponse> mapped;
         if (requesterId != null && raw != null && !raw.isEmpty()) {
             List<Long> communityIds = raw.stream().map(Community::getId).collect(Collectors.toList());

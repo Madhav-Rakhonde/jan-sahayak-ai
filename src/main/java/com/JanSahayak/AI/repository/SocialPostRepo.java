@@ -303,7 +303,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // UNIFIED SEARCH — CURSOR-BASED (used by SearchService)
     // ==========================================================================
 
-    /** Keyword search across content + hashtags — FIRST page (no cursor). */
+    /** Keyword search across content + hashtags. */
     @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -312,28 +312,12 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
                OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY sp.id DESC
             """)
-    List<SocialPost> searchFirstPage(
+    List<SocialPost> searchPage(
             @Param("query")  String query,
             @Param("status") PostStatus status,
             Pageable pageable);
 
-    /** Keyword search — NEXT pages. */
-    @EntityGraph(attributePaths = {"user"})
-    @Query("""
-            SELECT sp FROM SocialPost sp
-            WHERE sp.status = :status
-              AND sp.id < :cursor
-              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
-            ORDER BY sp.id DESC
-            """)
-    List<SocialPost> searchNextPage(
-            @Param("query")  String query,
-            @Param("status") PostStatus status,
-            @Param("cursor") Long cursor,
-            Pageable pageable);
-
-    /** Pincode-scoped keyword search — FIRST page. */
+    /** Pincode-scoped keyword search. */
     @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -343,31 +327,13 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
                OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY sp.id DESC
             """)
-    List<SocialPost> searchFirstPageByPincode(
+    List<SocialPost> searchPageByPincode(
             @Param("query")   String query,
             @Param("status")  PostStatus status,
             @Param("pincode") String pincode,
             Pageable pageable);
 
-    /** Pincode-scoped keyword search — NEXT pages. */
-    @EntityGraph(attributePaths = {"user"})
-    @Query("""
-            SELECT sp FROM SocialPost sp
-            WHERE sp.status  = :status
-              AND sp.pincode = :pincode
-              AND sp.id < :cursor
-              AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-               OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
-            ORDER BY sp.id DESC
-            """)
-    List<SocialPost> searchNextPageByPincode(
-            @Param("query")   String query,
-            @Param("status")  PostStatus status,
-            @Param("pincode") String pincode,
-            @Param("cursor")  Long cursor,
-            Pageable pageable);
-
-    /** Hashtag-exact search — FIRST page. */
+    /** Hashtag-exact search. */
     @EntityGraph(attributePaths = {"user"})
     @Query("""
             SELECT sp FROM SocialPost sp
@@ -375,24 +341,9 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
               AND LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :hashtag, '%')) ESCAPE '\\'
             ORDER BY sp.id DESC
             """)
-    List<SocialPost> searchByHashtagFirstPage(
+    List<SocialPost> searchByHashtagPage(
             @Param("hashtag") String hashtag,
             @Param("status")  PostStatus status,
-            Pageable pageable);
-
-    /** Hashtag-exact search — NEXT pages. */
-    @EntityGraph(attributePaths = {"user"})
-    @Query("""
-            SELECT sp FROM SocialPost sp
-            WHERE sp.status = :status
-              AND sp.id < :cursor
-              AND LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :hashtag, '%')) ESCAPE '\\'
-            ORDER BY sp.id DESC
-            """)
-    List<SocialPost> searchByHashtagNextPage(
-            @Param("hashtag") String hashtag,
-            @Param("status")  PostStatus status,
-            @Param("cursor")  Long cursor,
             Pageable pageable);
 
     /** Top N distinct hashtags matching the search query. */

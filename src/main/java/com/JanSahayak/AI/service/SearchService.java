@@ -38,9 +38,9 @@ public class SearchService {
 
     public SearchDto.Response search(SearchDto.Request req) {
         String   query  = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(req.getQuery().trim());
-        Long     cursor = req.getCursor();
+        Integer  page   = req.getPage();
         int      limit  = req.safeLimit();
-        Pageable probe  = PageRequest.of(0, limit + 1);
+        Pageable probe  = PageRequest.of(page == null ? 0 : page, limit + 1);
 
         List<SearchDto.Result> posts       = Collections.emptyList();
         List<SearchDto.Result> socialPosts = Collections.emptyList();
@@ -49,12 +49,12 @@ public class SearchService {
 
         if (req.isHashtagSearch()) {
             String tag = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(req.normalizedHashtag().replaceFirst("^#+", ""));
-            if (req.includesType("SOCIAL_POST")) socialPosts = fetchSocialPostsByHashtag(tag, cursor, probe);
+            if (req.includesType("SOCIAL_POST")) socialPosts = fetchSocialPostsByHashtag(tag, probe);
             if (req.includesType("HASHTAG"))     hashtags    = fetchHashtagRows(tag, limit);
         } else {
-            if (req.includesType("POST"))        posts       = fetchPosts(query, req.getPincode(), cursor, probe);
-            if (req.includesType("SOCIAL_POST")) socialPosts = fetchSocialPosts(query, req.getPincode(), cursor, probe);
-            if (req.includesType("COMMUNITY"))   communities = fetchCommunities(query, req.getPincode(), cursor, probe);
+            if (req.includesType("POST"))        posts       = fetchPosts(query, req.getPincode(), probe);
+            if (req.includesType("SOCIAL_POST")) socialPosts = fetchSocialPosts(query, req.getPincode(), probe);
+            if (req.includesType("COMMUNITY"))   communities = fetchCommunities(query, req.getPincode(), probe);
             if (req.includesType("HASHTAG"))     hashtags    = fetchHashtagRows(query, limit);
         }
 
@@ -62,7 +62,7 @@ public class SearchService {
 
         boolean hasMore = flat.size() > limit;
         if (hasMore) flat = new ArrayList<>(flat.subList(0, limit));
-        Long nextCursor = hasMore && !flat.isEmpty() ? flat.get(flat.size() - 1).getId() : null;
+        Integer nextPage = hasMore ? (page == null ? 0 : page) + 1 : null;
 
         Map<String, List<SearchDto.Result>> grouped = new LinkedHashMap<>();
         if (!posts.isEmpty())       grouped.put("POST",        cap(posts, limit));
@@ -78,8 +78,8 @@ public class SearchService {
 
         return SearchDto.Response.builder()
                 .query(query)
-                .currentCursor(cursor)
-                .nextCursor(nextCursor)
+                .currentPage(page)
+                .nextPage(nextPage)
                 .count(flat.size())
                 .limit(limit)
                 .hasMore(hasMore)
@@ -90,23 +90,24 @@ public class SearchService {
     }
 
     public PaginatedResponse<SearchDto.Result> searchByType(
-            String query, String type, String pincode, Long cursor, int limit) {
+            String query, String type, String pincode, Integer page, int limit) {
 
         int      safeLimit = Math.min(Math.max(limit, 1), 50);
-        Pageable probe     = PageRequest.of(0, safeLimit + 1);
+        Pageable probe     = PageRequest.of(page == null ? 0 : page, safeLimit + 1);
         String   q         = com.JanSahayak.AI.payload.PostUtility.sanitizeSqlLike(query.trim());
 
         List<SearchDto.Result> results = switch (type.toUpperCase()) {
-            case "POST"        -> fetchPosts(q, pincode, cursor, probe);
-            case "SOCIAL_POST" -> fetchSocialPosts(q, pincode, cursor, probe);
-            case "COMMUNITY"   -> fetchCommunities(q, pincode, cursor, probe);
+            case "POST"        -> fetchPosts(q, pincode, probe);
+            case "SOCIAL_POST" -> fetchSocialPosts(q, pincode, probe);
+            case "COMMUNITY"   -> fetchCommunities(q, pincode, probe);
             case "HASHTAG"     -> fetchHashtagRows(q, safeLimit);
             default            -> Collections.emptyList();
         };
 
         boolean hasMore = results.size() > safeLimit;
         if (hasMore) results = new ArrayList<>(results.subList(0, safeLimit));
-        Long nextCursor = hasMore && !results.isEmpty() ? results.get(results.size() - 1).getId() : null;
+        Integer nextPage = hasMore ? (page == null ? 0 : page) + 1 : null;
+        Long nextCursor = nextPage != null ? nextPage.longValue() : null;
 
         return PaginatedResponse.of(results, hasMore, nextCursor, safeLimit);
     }
@@ -115,18 +116,14 @@ public class SearchService {
     // Fetchers
     // =========================================================================
 
-    private List<SearchDto.Result> fetchPosts(String q, String pincode, Long cursor, Pageable probe) {
+    private List<SearchDto.Result> fetchPosts(String q, String pincode, Pageable probe) {
         try {
             boolean hasPincode = pincode != null && pincode.length() == 6;
             List<Post> rows;
             if (hasPincode) {
-                rows = (cursor == null)
-                        ? postRepo.searchFirstPageByPincode(q, PostStatus.ACTIVE, pincode, probe)
-                        : postRepo.searchNextPageByPincode(q, PostStatus.ACTIVE, pincode, cursor, probe);
+                rows = postRepo.searchPageByPincode(q, PostStatus.ACTIVE, pincode, probe);
             } else {
-                rows = (cursor == null)
-                        ? postRepo.searchFirstPage(q, PostStatus.ACTIVE, probe)
-                        : postRepo.searchNextPage(q, PostStatus.ACTIVE, cursor, probe);
+                rows = postRepo.searchPage(q, PostStatus.ACTIVE, probe);
             }
             return rows.stream().map(this::mapPost).collect(Collectors.toList());
         } catch (Exception e) {
@@ -135,18 +132,14 @@ public class SearchService {
         }
     }
 
-    private List<SearchDto.Result> fetchSocialPosts(String q, String pincode, Long cursor, Pageable probe) {
+    private List<SearchDto.Result> fetchSocialPosts(String q, String pincode, Pageable probe) {
         try {
             boolean hasPincode = pincode != null && pincode.length() == 6;
             List<SocialPost> rows;
             if (hasPincode) {
-                rows = (cursor == null)
-                        ? socialPostRepo.searchFirstPageByPincode(q, PostStatus.ACTIVE, pincode, probe)
-                        : socialPostRepo.searchNextPageByPincode(q, PostStatus.ACTIVE, pincode, cursor, probe);
+                rows = socialPostRepo.searchPageByPincode(q, PostStatus.ACTIVE, pincode, probe);
             } else {
-                rows = (cursor == null)
-                        ? socialPostRepo.searchFirstPage(q, PostStatus.ACTIVE, probe)
-                        : socialPostRepo.searchNextPage(q, PostStatus.ACTIVE, cursor, probe);
+                rows = socialPostRepo.searchPage(q, PostStatus.ACTIVE, probe);
             }
             return rows.stream().map(this::mapSocialPost).collect(Collectors.toList());
         } catch (Exception e) {
@@ -155,11 +148,9 @@ public class SearchService {
         }
     }
 
-    private List<SearchDto.Result> fetchSocialPostsByHashtag(String hashtag, Long cursor, Pageable probe) {
+    private List<SearchDto.Result> fetchSocialPostsByHashtag(String hashtag, Pageable probe) {
         try {
-            List<SocialPost> rows = (cursor == null)
-                    ? socialPostRepo.searchByHashtagFirstPage(hashtag, PostStatus.ACTIVE, probe)
-                    : socialPostRepo.searchByHashtagNextPage(hashtag, PostStatus.ACTIVE, cursor, probe);
+            List<SocialPost> rows = socialPostRepo.searchByHashtagPage(hashtag, PostStatus.ACTIVE, probe);
             return rows.stream().map(this::mapSocialPost).collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Hashtag post search error: {}", e.getMessage());
@@ -167,7 +158,7 @@ public class SearchService {
         }
     }
 
-    private List<SearchDto.Result> fetchCommunities(String q, String pincode, Long cursor, Pageable probe) {
+    private List<SearchDto.Result> fetchCommunities(String q, String pincode, Pageable probe) {
         try {
             List<Community> rows = Collections.emptyList();
 
@@ -175,16 +166,12 @@ public class SearchService {
             if (pincode != null && pincode.length() == 6) {
                 String dist  = pincode.substring(0, 3);
                 String state = pincode.substring(0, 2);
-                rows = (cursor == null)
-                        ? communityRepo.searchFirstPageByLocation(q, pincode, dist, state, probe)
-                        : communityRepo.searchNextPageByLocation(q, pincode, dist, state, cursor, probe);
+                rows = communityRepo.searchPageByLocation(q, pincode, dist, state, probe);
             }
 
             // Fall back to global search if location search returned nothing
             if (rows.isEmpty()) {
-                rows = (cursor == null)
-                        ? communityRepo.searchFirstPage(q, probe)
-                        : communityRepo.searchNextPage(q, cursor, probe);
+                rows = communityRepo.searchPage(q, probe);
             }
 
             return rows.stream().map(this::mapCommunity).collect(Collectors.toList());

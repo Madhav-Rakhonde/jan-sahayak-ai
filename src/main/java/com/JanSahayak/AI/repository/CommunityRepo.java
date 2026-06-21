@@ -18,8 +18,13 @@ import java.util.Optional;
 public interface CommunityRepo extends JpaRepository<Community, Long> {
 
     // ── Lookup ────────────────────────────────────────────────────────────────
+    @org.springframework.cache.annotation.Cacheable(value = "communities", key = "#slug")
     @EntityGraph(attributePaths = {"owner"})
     Optional<Community> findBySlug(String slug);
+
+    @Override
+    @org.springframework.cache.annotation.Cacheable(value = "communities", key = "#id")
+    Optional<Community> findById(Long id);
 
     @EntityGraph(attributePaths = {"owner"})
     Optional<Community> findByName(String name);
@@ -55,6 +60,7 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
     long countActiveUsersByPincode(@Param("pincode") String pincode);
 
     // ── Discovery ─────────────────────────────────────────────────────────────
+    @EntityGraph(attributePaths = {"owner"})
     @Query("""
             SELECT c FROM Community c
             WHERE c.status = com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE
@@ -76,6 +82,7 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
             @Param("cursor")         Long   cursor,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"owner"})
     @Query("""
             SELECT c FROM Community c
             WHERE c.status = com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE
@@ -86,11 +93,11 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
     List<Community> findDiscoverable(@Param("cursor") Long cursor, Pageable pageable);
 
     // ── Generic search (safe fallback) ────────────────────────────────────────
+    @EntityGraph(attributePaths = {"owner"})
     @Query("""
             SELECT c FROM Community c
             WHERE c.status = com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE
               AND c.privacy <> com.JanSahayak.AI.model.Community.CommunityPrivacy.SECRET
-              AND (:cursor IS NULL OR c.id < :cursor)
               AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :q, '%')) ESCAPE '\\'
                 OR LOWER(c.description) LIKE LOWER(CONCAT('%', :q, '%')) ESCAPE '\\'
                 OR LOWER(c.tags)        LIKE LOWER(CONCAT('%', :q, '%')) ESCAPE '\\'
@@ -99,10 +106,10 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
             """)
     List<Community> searchCommunities(
             @Param("q")      String query,
-            @Param("cursor") Long   cursor,
             Pageable pageable);
 
     // ── Category ──────────────────────────────────────────────────────────────
+    @EntityGraph(attributePaths = {"owner"})
     @Query("""
             SELECT c FROM Community c
             WHERE c.status = com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE
@@ -182,7 +189,7 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
               c.memberCount DESC,
               c.id DESC
             """)
-    List<Community> searchFirstPage(
+    List<Community> searchPage(
             @Param("query") String query,
             Pageable pageable
     );
@@ -190,29 +197,6 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
     @Query("""
             SELECT c FROM Community c
             WHERE c.privacy <> com.JanSahayak.AI.model.Community.CommunityPrivacy.SECRET
-              AND c.id < :cursor
-              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
-            ORDER BY
-              CASE c.status
-                WHEN com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE THEN 0
-                ELSE 1
-              END ASC,
-              c.healthScore DESC,
-              c.memberCount DESC,
-              c.id DESC
-            """)
-    List<Community> searchNextPage(
-            @Param("query")  String query,
-            @Param("cursor") Long cursor,
-            Pageable pageable
-    );
-
-    @Query("""
-            SELECT c FROM Community c
-            WHERE c.privacy <> com.JanSahayak.AI.model.Community.CommunityPrivacy.SECRET
               AND (c.pincode        = :pincode
                OR  c.districtPrefix = :districtPrefix
                OR  c.statePrefix    = :statePrefix)
@@ -229,40 +213,11 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
               c.memberCount DESC,
               c.id DESC
             """)
-    List<Community> searchFirstPageByLocation(
+    List<Community> searchPageByLocation(
             @Param("query")          String query,
             @Param("pincode")        String pincode,
             @Param("districtPrefix") String districtPrefix,
             @Param("statePrefix")    String statePrefix,
-            Pageable pageable
-    );
-
-    @Query("""
-            SELECT c FROM Community c
-            WHERE c.privacy <> com.JanSahayak.AI.model.Community.CommunityPrivacy.SECRET
-              AND c.id < :cursor
-              AND (c.pincode        = :pincode
-               OR  c.districtPrefix = :districtPrefix
-               OR  c.statePrefix    = :statePrefix)
-              AND (LOWER(c.name)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-               OR  LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-               OR  LOWER(c.category)    LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-               OR  LOWER(c.tags)        LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
-            ORDER BY
-              CASE c.status
-                WHEN com.JanSahayak.AI.model.Community.CommunityStatus.ACTIVE THEN 0
-                ELSE 1
-              END ASC,
-              c.healthScore DESC,
-              c.memberCount DESC,
-              c.id DESC
-            """)
-    List<Community> searchNextPageByLocation(
-            @Param("query")          String query,
-            @Param("pincode")        String pincode,
-            @Param("districtPrefix") String districtPrefix,
-            @Param("statePrefix")    String statePrefix,
-            @Param("cursor")         Long cursor,
             Pageable pageable
     );
 }

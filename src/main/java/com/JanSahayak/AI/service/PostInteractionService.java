@@ -29,8 +29,17 @@ import java.util.*;
 @Slf4j
 public class PostInteractionService {
 
+    // Self-injection to fix proxy-bypass for @Transactional and @Async on internal calls
+    private PostInteractionService self;
+
+    @Autowired
+    public void setSelf(@Lazy PostInteractionService self) {
+        this.self = self;
+    }
+
     // ── Repositories ──────────────────────────────────────────────────────────
     private final PostRepo       postRepository;
+    private final UserRepo       userRepository;
     private final SocialPostRepo socialPostRepository;
     private final PostViewRepo   postViewRepository;
     private final PostLikeRepo   postLikeRepository;
@@ -159,65 +168,60 @@ public class PostInteractionService {
     // LIKE — REGULAR POST
     // =========================================================================
 
-    @Transactional(rollbackFor = Exception.class)
     public boolean likePost(Post post, User user) {
-        try {
-            PostUtility.validatePost(post);
-            PostUtility.validateUser(user);
-            validatePostInteractable(post);
+        PostUtility.validatePost(post);
+        PostUtility.validateUser(user);
+        validatePostInteractable(post);
 
-            Optional<PostLike> existing = postLikeRepository.findByPostAndUserId(post, user.getId());
+        boolean currentlyLiked = hasUserLikedPost(post, user);
+        boolean currentlyDisliked = hasUserDislikedPost(post, user);
+
+        if (currentlyLiked) {
+            post.decrementLikeCount();
+        } else {
+            post.incrementLikeCount();
+            if (currentlyDisliked) post.decrementDislikeCount();
+        }
+
+        self.executeLikePostAsync(post.getId(), user.getId());
+        updatePostCountsCache(post.getId(), post);
+        return !currentlyLiked;
+    }
+
+    @org.springframework.scheduling.annotation.Async("taskExecutor")
+    @Transactional(rollbackFor = Exception.class)
+    public void executeLikePostAsync(Long postId, Long userId) {
+        Post post = postRepository.findById(postId).orElse(null);
+        User user = userRepository.findById(userId).orElse(null);
+        if (post == null || user == null) return;
+        
+        try {
+            Optional<PostLike> existing = postLikeRepository.findByPostAndUserId(post, userId);
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isLike()) {
                     postLikeRepository.delete(row);
-                    post.decrementLikeCount();
-                    postRepository.decrementLikeCount(post.getId());
-                    postRepository.save(post);
-                    log.info("[Like] Removed: post={} user={} likeCount={}", post.getId(), user.getActualUsername(), post.getLikeCount());
-                    return false;
+                    postRepository.decrementLikeCount(postId);
+                    log.info("[Like] Removed (Async): post={} user={}", postId, user.getActualUsername());
                 } else {
                     row.setReactionType(PostLike.ReactionType.LIKE);
                     postLikeRepository.save(row);
-                    post.decrementDislikeCount();
-                    post.incrementLikeCount();
-                    postRepository.decrementDislikeCount(post.getId());
-                    postRepository.incrementLikeCount(post.getId());
-                    postRepository.save(post);
-                    
-                    try {
-                        notificationService.notifyPostLiked(post, user);
-                    } catch (Exception e) {
-                        log.warn("[Notification] Failed to notify post like: post={}: {}", post.getId(), e.getMessage());
-                    }
-                    
-                    log.info("[Like] Flipped DISLIKE→LIKE: post={} user={}", post.getId(), user.getActualUsername());
-                    return true;
+                    postRepository.decrementDislikeCount(postId);
+                    postRepository.incrementLikeCount(postId);
+                    try { notificationService.notifyPostLiked(post, user); } catch (Exception e) {}
+                    log.info("[Like] Flipped DISLIKE→LIKE (Async): post={} user={}", postId, user.getActualUsername());
                 }
             } else {
                 PostLike newLike = buildLike(post, null, user, PostLike.ReactionType.LIKE);
-                post.incrementLikeCount();
                 postLikeRepository.save(newLike);
-                postRepository.incrementLikeCount(post.getId());
-                postRepository.save(post);
-                
-                try {
-                    notificationService.notifyPostLiked(post, user);
-                } catch (Exception e) {
-                    log.warn("[Notification] Failed to notify post like: post={}: {}", post.getId(), e.getMessage());
-                }
-                
-                log.info("[Like] Added: post={} user={} likeCount={}", post.getId(), user.getActualUsername(), post.getLikeCount());
-                return true;
+                postRepository.incrementLikeCount(postId);
+                try { notificationService.notifyPostLiked(post, user); } catch (Exception e) {}
+                log.info("[Like] Added (Async): post={} user={}", postId, user.getActualUsername());
             }
-        } catch (ValidationException e) {
-            throw e;
         } catch (DataIntegrityViolationException e) {
-            log.debug("[Like] Race condition (DB): post={} user={}", post.getId(), user.getActualUsername());
-            return false;
+            log.debug("[Like] Race condition (DB Async): post={} user={}", postId, user.getActualUsername());
         } catch (Exception e) {
-            log.error("[Like] Failed: post={} user={}", post != null ? post.getId() : "null", user != null ? user.getActualUsername() : "null", e);
-            throw new ServiceException("Failed to like post: " + e.getMessage(), e);
+            log.error("[Like] Failed Async: post={} user={}", postId, user.getActualUsername(), e);
         }
     }
 
@@ -225,51 +229,58 @@ public class PostInteractionService {
     // DISLIKE — REGULAR POST
     // =========================================================================
 
-    @Transactional(rollbackFor = Exception.class)
     public boolean dislikePost(Post post, User user) {
-        try {
-            PostUtility.validatePost(post);
-            PostUtility.validateUser(user);
-            validatePostInteractable(post);
+        PostUtility.validatePost(post);
+        PostUtility.validateUser(user);
+        validatePostInteractable(post);
 
-            Optional<PostLike> existing = postLikeRepository.findByPostAndUserId(post, user.getId());
+        boolean currentlyDisliked = hasUserDislikedPost(post, user);
+        boolean currentlyLiked = hasUserLikedPost(post, user);
+
+        if (currentlyDisliked) {
+            post.decrementDislikeCount();
+        } else {
+            post.incrementDislikeCount();
+            if (currentlyLiked) post.decrementLikeCount();
+        }
+
+        self.executeDislikePostAsync(post.getId(), user.getId());
+        updatePostCountsCache(post.getId(), post);
+        return !currentlyDisliked;
+    }
+
+    @org.springframework.scheduling.annotation.Async("taskExecutor")
+    @Transactional(rollbackFor = Exception.class)
+    public void executeDislikePostAsync(Long postId, Long userId) {
+        Post post = postRepository.findById(postId).orElse(null);
+        User user = userRepository.findById(userId).orElse(null);
+        if (post == null || user == null) return;
+        
+        try {
+            Optional<PostLike> existing = postLikeRepository.findByPostAndUserId(post, userId);
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isDislike()) {
                     postLikeRepository.delete(row);
-                    post.decrementDislikeCount();
-                    postRepository.decrementDislikeCount(post.getId());
-                    postRepository.save(post);
-                    log.info("[Dislike] Removed: post={} user={} dislikeCount={}", post.getId(), user.getActualUsername(), post.getDislikeCount());
-                    return false;
+                    postRepository.decrementDislikeCount(postId);
+                    log.info("[Dislike] Removed (Async): post={} user={}", postId, user.getActualUsername());
                 } else {
                     row.setReactionType(PostLike.ReactionType.DISLIKE);
                     postLikeRepository.save(row);
-                    post.decrementLikeCount();
-                    post.incrementDislikeCount();
-                    postRepository.decrementLikeCount(post.getId());
-                    postRepository.incrementDislikeCount(post.getId());
-                    postRepository.save(post);
-                    log.info("[Dislike] Flipped LIKE→DISLIKE: post={} user={}", post.getId(), user.getActualUsername());
-                    return true;
+                    postRepository.decrementLikeCount(postId);
+                    postRepository.incrementDislikeCount(postId);
+                    log.info("[Dislike] Flipped LIKE→DISLIKE (Async): post={} user={}", postId, user.getActualUsername());
                 }
             } else {
                 PostLike newDislike = buildLike(post, null, user, PostLike.ReactionType.DISLIKE);
-                post.incrementDislikeCount();
                 postLikeRepository.save(newDislike);
-                postRepository.incrementDislikeCount(post.getId());
-                postRepository.save(post);
-                log.info("[Dislike] Added: post={} user={} dislikeCount={}", post.getId(), user.getActualUsername(), post.getDislikeCount());
-                return true;
+                postRepository.incrementDislikeCount(postId);
+                log.info("[Dislike] Added (Async): post={} user={}", postId, user.getActualUsername());
             }
-        } catch (ValidationException e) {
-            throw e;
         } catch (DataIntegrityViolationException e) {
-            log.debug("[Dislike] Race condition (DB): post={} user={}", post.getId(), user.getActualUsername());
-            return false;
+            log.debug("[Dislike] Race condition (DB Async): post={} user={}", postId, user.getActualUsername());
         } catch (Exception e) {
-            log.error("[Dislike] Failed: post={} user={}", post != null ? post.getId() : "null", user != null ? user.getActualUsername() : "null", e);
-            throw new ServiceException("Failed to dislike post: " + e.getMessage(), e);
+            log.error("[Dislike] Failed Async: post={} user={}", postId, user.getActualUsername(), e);
         }
     }
 
@@ -277,79 +288,69 @@ public class PostInteractionService {
     // LIKE — SOCIAL POST
     // =========================================================================
 
-    @Transactional(rollbackFor = Exception.class)
     public boolean likeSocialPost(SocialPost socialPost, User user) {
-        try {
-            SocialPostUtility.validateSocialPost(socialPost);
-            SocialPostUtility.validateUser(user);
-            validateSocialPostInteractable(socialPost, user);
+        SocialPostUtility.validateSocialPost(socialPost);
+        SocialPostUtility.validateUser(user);
+        validateSocialPostInteractable(socialPost, user);
 
-            Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUserId(socialPost, user.getId());
+        boolean currentlyLiked = hasUserLikedSocialPost(socialPost, user);
+        boolean currentlyDisliked = hasUserDislikedSocialPost(socialPost, user);
+
+        if (currentlyLiked) {
+            socialPost.decrementLikeCount();
+        } else {
+            socialPost.incrementLikeCount();
+            if (currentlyDisliked) socialPost.decrementDislikeCount();
+        }
+
+        self.executeLikeSocialPostAsync(socialPost.getId(), user.getId(), socialPost.getCommunity() != null ? socialPost.getCommunity().getId() : null);
+        updateSocialPostCountsCache(socialPost.getId(), socialPost);
+        return !currentlyLiked;
+    }
+
+    @org.springframework.scheduling.annotation.Async("taskExecutor")
+    @Transactional(rollbackFor = Exception.class)
+    public void executeLikeSocialPostAsync(Long socialPostId, Long userId, Long communityId) {
+        SocialPost socialPost = socialPostRepository.findById(socialPostId).orElse(null);
+        User user = userRepository.findById(userId).orElse(null);
+        if (socialPost == null || user == null) return;
+
+        try {
+            Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUserId(socialPost, userId);
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isLike()) {
                     postLikeRepository.delete(row);
-                    socialPost.decrementLikeCount();
-                    socialPostRepository.decrementLikeCount(socialPost.getId());
-                    socialPostRepository.save(socialPost);
-                    fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost.getId()),
-                            "UNLIKE", socialPost.getId(), user.getId());
-                    log.info("[Like] Removed: socialPost={} user={} likeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getLikeCount());
-                    return false;
+                    socialPostRepository.decrementLikeCount(socialPostId);
+                    fireHligSignal(() -> interestProfileService.onUnlike(userId, socialPostId), "UNLIKE", socialPostId, userId);
+                    log.info("[Like] Removed (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
                 } else {
                     row.setReactionType(PostLike.ReactionType.LIKE);
                     postLikeRepository.save(row);
-                    socialPost.decrementDislikeCount();
-                    socialPost.incrementLikeCount();
-                    socialPostRepository.decrementDislikeCount(socialPost.getId());
-                    socialPostRepository.incrementLikeCount(socialPost.getId());
-                    socialPostRepository.save(socialPost);
-                    fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost.getId()),
-                            "LIKE", socialPost.getId(), user.getId());
-                    if (socialPost.getCommunity() != null) {
-                        try { communityService.onLikeAdded(socialPost.getCommunity().getId()); }
-                        catch (Exception e) { log.warn("[Community] onLikeAdded (flip) failed: {}", e.getMessage()); }
+                    socialPostRepository.decrementDislikeCount(socialPostId);
+                    socialPostRepository.incrementLikeCount(socialPostId);
+                    fireHligSignal(() -> interestProfileService.onLike(userId, socialPostId), "LIKE", socialPostId, userId);
+                    if (communityId != null) {
+                        try { communityService.onLikeAdded(communityId); } catch (Exception e) {}
                     }
-                    
-                    try {
-                        notificationService.notifySocialPostLiked(socialPost, user);
-                    } catch (Exception e) {
-                        log.warn("[Notification] Failed to notify social post like: post={}: {}", socialPost.getId(), e.getMessage());
-                    }
-                    
-                    log.info("[Like] Flipped DISLIKE→LIKE: socialPost={} user={}", socialPost.getId(), user.getActualUsername());
-                    return true;
+                    try { notificationService.notifySocialPostLiked(socialPost, user); } catch (Exception e) {}
+                    log.info("[Like] Flipped DISLIKE→LIKE (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
                 }
             } else {
                 PostLike newLike = buildLike(null, socialPost, user, PostLike.ReactionType.LIKE);
-                socialPost.incrementLikeCount();
                 postLikeRepository.save(newLike);
-                socialPostRepository.incrementLikeCount(socialPost.getId());
-                socialPostRepository.save(socialPost);
-                fireHligSignal(() -> interestProfileService.onLike(user.getId(), socialPost.getId()),
-                        "LIKE", socialPost.getId(), user.getId());
-                if (socialPost.getCommunity() != null) {
-                    try { communityService.onLikeAdded(socialPost.getCommunity().getId()); }
-                    catch (Exception e) { log.warn("[Community] onLikeAdded (new) failed: {}", e.getMessage()); }
+                socialPostRepository.incrementLikeCount(socialPostId);
+                fireHligSignal(() -> interestProfileService.onLike(userId, socialPostId), "LIKE", socialPostId, userId);
+                if (communityId != null) {
+                    try { communityService.onLikeAdded(communityId); } catch (Exception e) {}
                 }
-                
-                try {
-                    notificationService.notifySocialPostLiked(socialPost, user);
-                } catch (Exception e) {
-                    log.warn("[Notification] Failed to notify social post like: post={}: {}", socialPost.getId(), e.getMessage());
-                }
-                
-                log.info("[Like] Added: socialPost={} user={} likeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getLikeCount());
-                return true;
+                try { notificationService.notifySocialPostLiked(socialPost, user); } catch (Exception e) {}
+                log.info("[Like] Added (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
             }
-        } catch (ValidationException e) {
-            throw e;
         } catch (DataIntegrityViolationException e) {
-            log.debug("[Like] Race condition (DB): socialPost={} user={}", socialPost.getId(), user.getActualUsername());
-            return false;
+            log.debug("[Like] Race condition (DB Async): socialPost={} user={}", socialPostId, user.getActualUsername());
         } catch (Exception e) {
-            log.error("[Like] Failed: socialPost={} user={}", socialPost != null ? socialPost.getId() : "null", user != null ? user.getActualUsername() : "null", e);
-            throw new ServiceException("Failed to like social post: " + e.getMessage(), e);
+            log.error("[Like] Failed Async: socialPost={} user={}", socialPostId, user.getActualUsername(), e);
         }
     }
 
@@ -357,57 +358,61 @@ public class PostInteractionService {
     // DISLIKE — SOCIAL POST
     // =========================================================================
 
-    @Transactional(rollbackFor = Exception.class)
     public boolean dislikeSocialPost(SocialPost socialPost, User user) {
-        try {
-            SocialPostUtility.validateSocialPost(socialPost);
-            SocialPostUtility.validateUser(user);
-            validateSocialPostInteractable(socialPost, user);
+        SocialPostUtility.validateSocialPost(socialPost);
+        SocialPostUtility.validateUser(user);
+        validateSocialPostInteractable(socialPost, user);
 
-            Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUserId(socialPost, user.getId());
+        boolean currentlyDisliked = hasUserDislikedSocialPost(socialPost, user);
+        boolean currentlyLiked = hasUserLikedSocialPost(socialPost, user);
+
+        if (currentlyDisliked) {
+            socialPost.decrementDislikeCount();
+        } else {
+            socialPost.incrementDislikeCount();
+            if (currentlyLiked) socialPost.decrementLikeCount();
+        }
+
+        self.executeDislikeSocialPostAsync(socialPost.getId(), user.getId());
+        updateSocialPostCountsCache(socialPost.getId(), socialPost);
+        return !currentlyDisliked;
+    }
+
+    @org.springframework.scheduling.annotation.Async("taskExecutor")
+    @Transactional(rollbackFor = Exception.class)
+    public void executeDislikeSocialPostAsync(Long socialPostId, Long userId) {
+        SocialPost socialPost = socialPostRepository.findById(socialPostId).orElse(null);
+        User user = userRepository.findById(userId).orElse(null);
+        if (socialPost == null || user == null) return;
+
+        try {
+            Optional<PostLike> existing = postLikeRepository.findBySocialPostAndUserId(socialPost, userId);
             if (existing.isPresent()) {
                 PostLike row = existing.get();
                 if (row.isDislike()) {
                     postLikeRepository.delete(row);
-                    socialPost.decrementDislikeCount();
-                    socialPostRepository.decrementDislikeCount(socialPost.getId());
-                    socialPostRepository.save(socialPost);
-                    fireHligSignal(() -> interestProfileService.onUnlike(user.getId(), socialPost.getId()),
-                            "UN-DISLIKE", socialPost.getId(), user.getId());
-                    log.info("[Dislike] Removed: socialPost={} user={} dislikeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getDislikeCount());
-                    return false;
+                    socialPostRepository.decrementDislikeCount(socialPostId);
+                    fireHligSignal(() -> interestProfileService.onUnlike(userId, socialPostId), "UN-DISLIKE", socialPostId, userId);
+                    log.info("[Dislike] Removed (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
                 } else {
                     row.setReactionType(PostLike.ReactionType.DISLIKE);
                     postLikeRepository.save(row);
-                    socialPost.decrementLikeCount();
-                    socialPost.incrementDislikeCount();
-                    socialPostRepository.decrementLikeCount(socialPost.getId());
-                    socialPostRepository.incrementDislikeCount(socialPost.getId());
-                    socialPostRepository.save(socialPost);
-                    fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost.getId()),
-                            "DISLIKE", socialPost.getId(), user.getId());
-                    log.info("[Dislike] Flipped LIKE→DISLIKE: socialPost={} user={}", socialPost.getId(), user.getActualUsername());
-                    return true;
+                    socialPostRepository.decrementLikeCount(socialPostId);
+                    socialPostRepository.incrementDislikeCount(socialPostId);
+                    fireHligSignal(() -> interestProfileService.onDislike(userId, socialPostId), "DISLIKE", socialPostId, userId);
+                    log.info("[Dislike] Flipped LIKE→DISLIKE (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
                 }
             } else {
                 PostLike newDislike = buildLike(null, socialPost, user, PostLike.ReactionType.DISLIKE);
-                socialPost.incrementDislikeCount();
                 postLikeRepository.save(newDislike);
-                socialPostRepository.incrementDislikeCount(socialPost.getId());
-                socialPostRepository.save(socialPost);
-                fireHligSignal(() -> interestProfileService.onDislike(user.getId(), socialPost.getId()),
-                        "DISLIKE", socialPost.getId(), user.getId());
-                log.info("[Dislike] Added: socialPost={} user={} dislikeCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getDislikeCount());
-                return true;
+                socialPostRepository.incrementDislikeCount(socialPostId);
+                fireHligSignal(() -> interestProfileService.onDislike(userId, socialPostId), "DISLIKE", socialPostId, userId);
+                log.info("[Dislike] Added (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
             }
-        } catch (ValidationException e) {
-            throw e;
         } catch (DataIntegrityViolationException e) {
-            log.debug("[Dislike] Race condition (DB): socialPost={} user={}", socialPost.getId(), user.getActualUsername());
-            return false;
+            log.debug("[Dislike] Race condition (DB Async): socialPost={} user={}", socialPostId, user.getActualUsername());
         } catch (Exception e) {
-            log.error("[Dislike] Failed: socialPost={} user={}", socialPost != null ? socialPost.getId() : "null", user != null ? user.getActualUsername() : "null", e);
-            throw new ServiceException("Failed to dislike social post: " + e.getMessage(), e);
+            log.error("[Dislike] Failed Async: socialPost={} user={}", socialPostId, user.getActualUsername(), e);
         }
     }
 
@@ -442,6 +447,66 @@ public class PostInteractionService {
     // =========================================================================
     // REACTION STATUS CHECKS — single post (used for single post detail page)
     // =========================================================================
+
+    
+    // =========================================================================
+    // CACHED COUNTS
+    // =========================================================================
+
+    @org.springframework.cache.annotation.Cacheable(value = "postCounts", key = "'POST_' + #postId")
+    public java.util.Map<String, Object> getPostCounts(Long postId) {
+        Post post = postRepository.findById(postId).orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+        return java.util.Map.of(
+            "likeCount", post.getLikeCount(),
+            "dislikeCount", post.getDislikeCount(),
+            "saveCount", post.getSaveCount(),
+            "viewCount", post.getViewCount(),
+            "commentCount", post.getCommentCount(),
+            "shareCount", post.getShareCount()
+        );
+    }
+
+    @org.springframework.cache.annotation.Cacheable(value = "postCounts", key = "'SOCIAL_' + #socialPostId")
+    public java.util.Map<String, Object> getSocialPostCounts(Long socialPostId) {
+        SocialPost post = socialPostRepository.findById(socialPostId).orElseThrow(() -> new ResourceNotFoundException("SocialPost not found"));
+        return java.util.Map.of(
+            "likeCount", post.getLikeCount(),
+            "dislikeCount", post.getDislikeCount(),
+            "saveCount", post.getSaveCount(),
+            "viewCount", post.getViewCount(),
+            "commentCount", post.getCommentCount(),
+            "shareCount", post.getShareCount()
+        );
+    }
+
+    
+    private void updatePostCountsCache(Long postId, Post post) {
+        org.springframework.cache.Cache cache = cacheManager.getCache("postCounts");
+        if (cache != null) {
+            cache.put("POST_" + postId, java.util.Map.of(
+                "likeCount", post.getLikeCount(),
+                "dislikeCount", post.getDislikeCount(),
+                "saveCount", post.getSaveCount(),
+                "viewCount", post.getViewCount(),
+                "commentCount", post.getCommentCount(),
+                "shareCount", post.getShareCount()
+            ));
+        }
+    }
+
+    private void updateSocialPostCountsCache(Long socialPostId, SocialPost post) {
+        org.springframework.cache.Cache cache = cacheManager.getCache("postCounts");
+        if (cache != null) {
+            cache.put("SOCIAL_" + socialPostId, java.util.Map.of(
+                "likeCount", post.getLikeCount(),
+                "dislikeCount", post.getDislikeCount(),
+                "saveCount", post.getSaveCount(),
+                "viewCount", post.getViewCount(),
+                "commentCount", post.getCommentCount(),
+                "shareCount", post.getShareCount()
+            ));
+        }
+    }
 
     public boolean hasUserLikedPost(Post post, User user) {
         if (post == null || user == null) return false;
@@ -555,43 +620,49 @@ public class PostInteractionService {
     // SAVE — SOCIAL POST
     // =========================================================================
 
-    @Transactional(rollbackFor = Exception.class)
     public boolean toggleSocialPostSave(SocialPost socialPost, User user) {
         validateSocialPost(socialPost);
         validateUser(user);
-
         validateSocialPostInteractable(socialPost, user);
 
+        boolean currentlySaved = hasSavedSocialPost(socialPost, user);
+
+        if (currentlySaved) {
+            socialPost.decrementSaveCount();
+        } else {
+            socialPost.incrementSaveCount();
+        }
+
+        self.executeToggleSocialPostSaveAsync(socialPost.getId(), user.getId());
+        updateSocialPostCountsCache(socialPost.getId(), socialPost);
+        return !currentlySaved;
+    }
+
+    @org.springframework.scheduling.annotation.Async("taskExecutor")
+    @Transactional(rollbackFor = Exception.class)
+    public void executeToggleSocialPostSaveAsync(Long socialPostId, Long userId) {
+        SocialPost socialPost = socialPostRepository.findById(socialPostId).orElse(null);
+        User user = userRepository.findById(userId).orElse(null);
+        if (socialPost == null || user == null) return;
+
         try {
-            Optional<SavedPost> existing = savedPostRepo.findByUserIdAndSocialPost(user.getId(), socialPost);
+            Optional<SavedPost> existing = savedPostRepo.findByUserIdAndSocialPost(userId, socialPost);
             if (existing.isPresent()) {
                 savedPostRepo.delete(existing.get());
-                socialPost.decrementSaveCount();
-                socialPostRepository.decrementSaveCount(socialPost.getId());
-                socialPostRepository.save(socialPost);
-                fireHligSignal(() -> interestProfileService.onUnsave(user.getId(), socialPost.getId()),
-                        "UNSAVE", socialPost.getId(), user.getId());
-                log.info("[Save] Removed: socialPost={} user={} saveCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getSaveCount());
-                return false;
+                socialPostRepository.decrementSaveCount(socialPostId);
+                fireHligSignal(() -> interestProfileService.onUnsave(userId, socialPostId), "UNSAVE", socialPostId, userId);
+                log.info("[Save] Removed (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
             } else {
                 SavedPost sp = SavedPost.builder().user(user).socialPost(socialPost).savedAt(new Date()).build();
-                socialPost.incrementSaveCount();
                 savedPostRepo.save(sp);
-                socialPostRepository.incrementSaveCount(socialPost.getId());
-                socialPostRepository.save(socialPost);
-                fireHligSignal(() -> interestProfileService.onSave(user.getId(), socialPost.getId()),
-                        "SAVE", socialPost.getId(), user.getId());
-                log.info("[Save] Added: socialPost={} user={} saveCount={}", socialPost.getId(), user.getActualUsername(), socialPost.getSaveCount());
-                return true;
+                socialPostRepository.incrementSaveCount(socialPostId);
+                fireHligSignal(() -> interestProfileService.onSave(userId, socialPostId), "SAVE", socialPostId, userId);
+                log.info("[Save] Added (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
             }
         } catch (DataIntegrityViolationException e) {
-            log.debug("[Save] Race condition (DB): socialPost={} user={}", socialPost.getId(), user.getActualUsername());
-            return true;
-        } catch (ValidationException e) {
-            throw e;
+            log.debug("[Save] Race condition (DB Async): socialPost={} user={}", socialPostId, user.getActualUsername());
         } catch (Exception e) {
-            log.error("[Save] Failed: socialPost={} user={}", socialPost.getId(), user.getActualUsername(), e);
-            throw new ServiceException("Failed to toggle social post save: " + e.getMessage(), e);
+            log.error("[Save] Failed Async: socialPost={} user={}", socialPostId, user.getActualUsername(), e);
         }
     }
 
@@ -599,7 +670,6 @@ public class PostInteractionService {
     // SAVE — GOVERNMENT BROADCAST POST
     // =========================================================================
 
-    @Transactional(rollbackFor = Exception.class)
     public boolean toggleBroadcastPostSave(Post post, User user) {
         validatePost(post);
         validateUser(user);
@@ -611,32 +681,42 @@ public class PostInteractionService {
             throw new ValidationException("Only government broadcast posts can be saved. PostId=" + post.getId() + " is a regular issue post.");
         }
 
+        boolean currentlySaved = hasSavedBroadcastPost(post, user);
+
+        if (currentlySaved) {
+            post.decrementSaveCount();
+        } else {
+            post.incrementSaveCount();
+        }
+
+        self.executeToggleBroadcastPostSaveAsync(post.getId(), user.getId());
+        updatePostCountsCache(post.getId(), post);
+        return !currentlySaved;
+    }
+
+    @org.springframework.scheduling.annotation.Async("taskExecutor")
+    @Transactional(rollbackFor = Exception.class)
+    public void executeToggleBroadcastPostSaveAsync(Long postId, Long userId) {
+        Post post = postRepository.findById(postId).orElse(null);
+        User user = userRepository.findById(userId).orElse(null);
+        if (post == null || user == null) return;
+
         try {
-            Optional<SavedPost> existing = savedPostRepo.findByUserIdAndPost(user.getId(), post);
+            Optional<SavedPost> existing = savedPostRepo.findByUserIdAndPost(userId, post);
             if (existing.isPresent()) {
                 savedPostRepo.delete(existing.get());
-                post.decrementSaveCount();
-                postRepository.decrementSaveCount(post.getId());
-                postRepository.save(post);
-                log.info("[Save] Removed: broadcastPost={} user={} saveCount={}", post.getId(), user.getActualUsername(), post.getSaveCount());
-                return false;
+                postRepository.decrementSaveCount(postId);
+                log.info("[Save] Removed (Async): broadcastPost={} user={}", postId, user.getActualUsername());
             } else {
                 SavedPost sp = SavedPost.builder().user(user).post(post).savedAt(new Date()).build();
-                post.incrementSaveCount();
                 savedPostRepo.save(sp);
-                postRepository.incrementSaveCount(post.getId());
-                postRepository.save(post);
-                log.info("[Save] Added: broadcastPost={} user={} saveCount={}", post.getId(), user.getActualUsername(), post.getSaveCount());
-                return true;
+                postRepository.incrementSaveCount(postId);
+                log.info("[Save] Added (Async): broadcastPost={} user={}", postId, user.getActualUsername());
             }
         } catch (DataIntegrityViolationException e) {
-            log.debug("[Save] Race condition (DB): broadcastPost={} user={}", post.getId(), user.getActualUsername());
-            return true;
-        } catch (ValidationException e) {
-            throw e;
+            log.debug("[Save] Race condition (DB Async): broadcastPost={} user={}", postId, user.getActualUsername());
         } catch (Exception e) {
-            log.error("[Save] Failed: broadcastPost={} user={}", post.getId(), user.getActualUsername(), e);
-            throw new ServiceException("Failed to toggle broadcast post save: " + e.getMessage(), e);
+            log.error("[Save] Failed Async: broadcastPost={} user={}", postId, user.getActualUsername(), e);
         }
     }
 
@@ -664,7 +744,7 @@ public class PostInteractionService {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
         return savedPostRepo.findByUserIdOrderBySavedAtDesc(user.getId(), pageable)
-                .map(this::convertToDto);
+                .map(sp -> convertToDto(sp, user));
     }
 
     @Transactional(readOnly = true)
@@ -672,7 +752,7 @@ public class PostInteractionService {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
         return savedPostRepo.findSocialPostSavesByUserIdOrderBySavedAtDesc(user.getId(), pageable)
-                .map(this::convertToDto);
+                .map(sp -> convertToDto(sp, user));
     }
 
     @Transactional(readOnly = true)
@@ -680,21 +760,25 @@ public class PostInteractionService {
         validateUser(user);
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, 100));
         return savedPostRepo.findBroadcastPostSavesByUserIdOrderBySavedAtDesc(user.getId(), pageable)
-                .map(this::convertToDto);
+                .map(sp -> convertToDto(sp, user));
     }
 
-    private SavedPostDto convertToDto(SavedPost sp) {
+    private SavedPostDto convertToDto(SavedPost sp, User user) {
         if (sp == null) return null;
         
         String content = "";
         String type = "unknown";
+        SocialPostDto socialPostDto = null;
+        PostResponse postResponse = null;
         
         if (sp.isSocialPostSave() && sp.getSocialPost() != null) {
             content = sp.getSocialPost().getContent();
             type = "social";
+            socialPostDto = socialPostService.convertToDto(sp.getSocialPost(), user);
         } else if (sp.isBroadcastPostSave() && sp.getPost() != null) {
             content = sp.getPost().getContent();
             type = "issue";
+            postResponse = postService.convertToPostResponse(sp.getPost(), user);
         }
 
         return SavedPostDto.builder()
@@ -705,6 +789,8 @@ public class PostInteractionService {
                 .savedAt(sp.getSavedAt())
                 .content(content)
                 .type(type)
+                .socialPost(socialPostDto)
+                .post(postResponse)
                 .build();
     }
 

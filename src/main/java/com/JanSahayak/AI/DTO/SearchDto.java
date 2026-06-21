@@ -52,10 +52,10 @@ public final class SearchDto {
         private String pincode;
 
         /**
-         * Cursor = ID of the last item seen in the previous batch.
-         * null on first request; pass nextCursor from the response on every next call.
+         * Page number for offset pagination.
+         * Default is 0 (first page).
          */
-        private Long cursor;
+        private Integer page = 0;
 
         /** Batch size. Default 20, max 50. */
         private int limit = 20;
@@ -79,7 +79,7 @@ public final class SearchDto {
         }
 
         public boolean isFirstPage() {
-            return cursor == null;
+            return page == null || page == 0;
         }
 
         /** District prefix derived from pincode (first 3 digits). */
@@ -154,11 +154,11 @@ public final class SearchDto {
      *
      * Frontend pattern:
      *   1. GET /api/search?q=water
-     *      -> { data:[...20], hasMore:true,  nextCursor:88, countByType:{POST:8,...} }
-     *   2. GET /api/search?q=water&cursor=88
-     *      -> { data:[...20], hasMore:true,  nextCursor:41 }
-     *   3. GET /api/search?q=water&cursor=41
-     *      -> { data:[...5],  hasMore:false, nextCursor:null }  -- stop
+     *      -> { data:[...20], hasMore:true,  nextPage:1, countByType:{POST:8,...} }
+     *   2. GET /api/search?q=water&page=1
+     *      -> { data:[...20], hasMore:true,  nextPage:2 }
+     *   3. GET /api/search?q=water&page=2
+     *      -> { data:[...5],  hasMore:false, nextPage:null }  -- stop
      *
      * data    = flat interleaved list  (powers the "All" tab)
      * grouped = per-type map           (powers tabbed UI)
@@ -169,8 +169,8 @@ public final class SearchDto {
     public static class Response {
 
         private String query;
-        private Long   currentCursor;  // cursor used for THIS batch (null on first request)
-        private Long   nextCursor;     // pass as cursor on next request; null = end of results
+        private Integer currentPage;    // page used for THIS batch (default 0)
+        private Integer nextPage;       // pass as page on next request; null = end of results
         private int    count;          // items in this batch
         private int    limit;          // requested batch size
         private boolean hasMore;

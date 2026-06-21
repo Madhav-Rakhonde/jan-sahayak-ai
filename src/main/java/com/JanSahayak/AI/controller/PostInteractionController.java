@@ -354,27 +354,9 @@ public class PostInteractionController {
 
         try {
             if (Constant.INTERACTION_TYPE_POSTS.equals(postType)) {
-                Post post = interactionService.getPostById(id);
-                return ok("Counts retrieved", Map.of(
-                        "likeCount",    post.getLikeCount(),
-                        "dislikeCount", post.getDislikeCount(),
-                        "commentCount", post.getCommentCount(),
-                        "viewCount",    post.getViewCount(),
-                        "saveCount",    post.getSaveCount(),
-                        "shareCount",   post.getShareCount()
-                ));
-
+                return ok("Counts retrieved", new java.util.HashMap<>(interactionService.getPostCounts(id)));
             } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
-                SocialPost sp = interactionService.getSocialPostById(id);
-                return ok("Counts retrieved", Map.of(
-                        "likeCount",    sp.getLikeCount(),
-                        "dislikeCount", sp.getDislikeCount(),
-                        "commentCount", sp.getCommentCount(),
-                        "viewCount",    sp.getViewCount(),
-                        "saveCount",    sp.getSaveCount(),
-                        "shareCount",   sp.getShareCount()
-                ));
-
+                return ok("Counts retrieved", new java.util.HashMap<>(interactionService.getSocialPostCounts(id)));
             } else {
                 return badPostType(postType);
             }

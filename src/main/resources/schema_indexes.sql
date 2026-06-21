@@ -173,3 +173,24 @@ CREATE INDEX IF NOT EXISTS idx_community_messages_pinned
 CREATE INDEX IF NOT EXISTS idx_community_messages_expiry
     ON community_messages (expires_at)
     WHERE expires_at IS NOT NULL;
+
+-- =============================================================================
+-- FULL-TEXT SEARCH (pg_trgm) — Required for blazing fast LIKE '%query%' searches
+-- Note: Run these in Supabase SQL Editor.
+-- =============================================================================
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Index Community fields
+CREATE INDEX IF NOT EXISTS idx_community_name_trgm ON communities USING gin (lower(name) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_community_desc_trgm ON communities USING gin (lower(description) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_community_tags_trgm ON communities USING gin (lower(tags) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_community_category_trgm ON communities USING gin (lower(category) gin_trgm_ops);
+
+-- Index SocialPost fields
+CREATE INDEX IF NOT EXISTS idx_socialpost_content_trgm ON social_posts USING gin (lower(content) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_socialpost_hashtags_trgm ON social_posts USING gin (lower(hashtags) gin_trgm_ops);
+
+-- Index Post fields
+CREATE INDEX IF NOT EXISTS idx_post_content_trgm ON posts USING gin (lower(content) gin_trgm_ops);
+

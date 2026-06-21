@@ -1077,24 +1077,9 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
               AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
             ORDER BY p.id DESC
             """)
-    List<Post> searchFirstPage(
+    List<Post> searchPage(
             @Param("query")  String query,
             @Param("status") PostStatus status,
-            Pageable pageable
-    );
-
-    @EntityGraph(attributePaths = {"user", "user.role"})
-    @Query("""
-            SELECT p FROM Post p
-            WHERE p.status = :status
-              AND p.id < :cursor
-              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-            ORDER BY p.id DESC
-            """)
-    List<Post> searchNextPage(
-            @Param("query")  String query,
-            @Param("status") PostStatus status,
-            @Param("cursor") Long cursor,
             Pageable pageable
     );
 
@@ -1106,27 +1091,10 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
               AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
             ORDER BY p.id DESC
             """)
-    List<Post> searchFirstPageByPincode(
+    List<Post> searchPageByPincode(
             @Param("query")   String query,
             @Param("status")  PostStatus status,
             @Param("pincode") String pincode,
-            Pageable pageable
-    );
-
-    @EntityGraph(attributePaths = {"user", "user.role"})
-    @Query("""
-            SELECT p FROM Post p
-            WHERE p.status       = :status
-              AND p.user.pincode = :pincode
-              AND p.id < :cursor
-              AND LOWER(p.content) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
-            ORDER BY p.id DESC
-            """)
-    List<Post> searchNextPageByPincode(
-            @Param("query")   String query,
-            @Param("status")  PostStatus status,
-            @Param("pincode") String pincode,
-            @Param("cursor")  Long cursor,
             Pageable pageable
     );
 

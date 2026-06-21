@@ -59,7 +59,7 @@ public class SearchController {
             @RequestParam("q")                              @NotBlank @Size(min = 1, max = 200) String q,
             @RequestParam(value = "types",   required = false)                                  Set<String> types,
             @RequestParam(value = "pincode", required = false)                                  String pincode,
-            @RequestParam(value = "cursor",  required = false)                                  Long cursor,
+            @RequestParam(value = "page",    required = false)                                  Integer page,
             @RequestParam(value = "limit",   defaultValue = "20")                               int limit,
             @AuthenticationPrincipal User currentUser
     ) {
@@ -67,10 +67,10 @@ public class SearchController {
         req.setQuery(q);
         req.setTypes(types);
         req.setPincode(resolvePincode(pincode, currentUser));
-        req.setCursor(cursor);
+        req.setPage(page);
         req.setLimit(limit);
 
-        log.info("Search user={} q='{}' cursor={} types={}", uid(currentUser), q, cursor, types);
+        log.info("Search user={} q='{}' page={} types={}", uid(currentUser), q, page, types);
         return ResponseEntity.ok(searchService.search(req));
     }
 
@@ -92,13 +92,13 @@ public class SearchController {
             @RequestParam("q")                             @NotBlank @Size(min = 1, max = 200) String q,
             @RequestParam("type")                                                               String type,
             @RequestParam(value = "pincode", required = false)                                  String pincode,
-            @RequestParam(value = "cursor",  required = false)                                  Long cursor,
+            @RequestParam(value = "page",    required = false)                                  Integer page,
             @RequestParam(value = "limit",   defaultValue = "20")                               int limit,
             @AuthenticationPrincipal User currentUser
     ) {
-        log.info("Search/type user={} q='{}' type={} cursor={}", uid(currentUser), q, type, cursor);
+        log.info("Search/type user={} q='{}' type={} page={}", uid(currentUser), q, type, page);
         return ResponseEntity.ok(
-                searchService.searchByType(q, type, resolvePincode(pincode, currentUser), cursor, limit));
+                searchService.searchByType(q, type, resolvePincode(pincode, currentUser), page, limit));
     }
 
     // -------------------------------------------------------------------------
@@ -119,7 +119,7 @@ public class SearchController {
         SearchDto.Request req = new SearchDto.Request();
         req.setQuery(q);
         req.setPincode(currentUser != null ? currentUser.getPincode() : null);
-        req.setCursor(null);  // always first page
+        req.setPage(null);  // always first page
         req.setLimit(5);      // small batch for typeahead speed
         return ResponseEntity.ok(searchService.search(req));
     }

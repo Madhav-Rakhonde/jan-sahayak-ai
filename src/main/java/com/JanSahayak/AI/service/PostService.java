@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -371,12 +372,13 @@ public class PostService {
             List<PostStatus> visibleStatuses = Arrays.asList(PostStatus.ACTIVE, PostStatus.RESOLVED);
             List<Post> posts;
             
+            Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
             if (setup.hasCursor()) {
                 posts = postRepository.findByUserIdWithUserAndStatusInAndIdLessThanOrderByCreatedAtDesc(
-                        userId, visibleStatuses, setup.getSanitizedCursor(), setup.toPageable());
+                        userId, visibleStatuses, setup.getSanitizedCursor(), pageable);
             } else {
                 posts = postRepository.findByUserIdWithUserAndStatusInOrderByCreatedAtDesc(userId, visibleStatuses);
-                posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
+                posts = posts.stream().limit(setup.getValidatedLimit() + 1).collect(Collectors.toList());
             }
             return PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
         } catch (Exception e) {
@@ -1118,12 +1120,13 @@ public class PostService {
         try {
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getActivePostsByUser", beforeId, limit);
             List<Post> posts;
+            Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
             if (setup.hasCursor()) {
                 posts = postRepository.findByUserIdWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
-                        userId, PostStatus.ACTIVE, setup.getSanitizedCursor(), setup.toPageable());
+                        userId, PostStatus.ACTIVE, setup.getSanitizedCursor(), pageable);
             } else {
                 posts = postRepository.findByUserIdWithUserAndStatusOrderByCreatedAtDesc(userId, PostStatus.ACTIVE);
-                posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
+                posts = posts.stream().limit(setup.getValidatedLimit() + 1).collect(Collectors.toList());
             }
             return PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
         } catch (Exception e) {
@@ -1142,12 +1145,13 @@ public class PostService {
             
             PaginationUtils.PaginationSetup setup = PaginationUtils.setupPagination("getResolvedPostsByUser", beforeId, limit);
             List<Post> posts;
+            Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
             if (setup.hasCursor()) {
                 posts = postRepository.findByUserIdWithUserAndStatusAndIdLessThanOrderByCreatedAtDesc(
-                        userId, PostStatus.RESOLVED, setup.getSanitizedCursor(), setup.toPageable());
+                        userId, PostStatus.RESOLVED, setup.getSanitizedCursor(), pageable);
             } else {
                 posts = postRepository.findByUserIdWithUserAndStatusOrderByCreatedAtDesc(userId, PostStatus.RESOLVED);
-                posts = posts.stream().limit(setup.getValidatedLimit()).collect(Collectors.toList());
+                posts = posts.stream().limit(setup.getValidatedLimit() + 1).collect(Collectors.toList());
             }
             return PaginationUtils.createPostResponse(posts, setup.getValidatedLimit());
         } catch (SecurityException e) {
