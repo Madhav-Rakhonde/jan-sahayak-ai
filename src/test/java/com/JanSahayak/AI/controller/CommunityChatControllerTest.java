@@ -87,7 +87,7 @@ public class CommunityChatControllerTest {
 
         assertEquals(400, response.getStatusCodeValue());
         assertNotNull(response.getBody());
-        assertTrue(response.getBody().getMessage().contains("Community not found"));
+        assertTrue(response.getBody().getError().contains("Community not found"));
     }
 
     @Test

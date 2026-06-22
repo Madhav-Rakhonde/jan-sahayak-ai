@@ -8,6 +8,7 @@ import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.repository.CommunityMemberRepo;
 import com.JanSahayak.AI.repository.CommunityMessageRepo;
 import com.JanSahayak.AI.repository.CommunityRepo;
+import com.JanSahayak.AI.repository.UserRepo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +34,9 @@ public class CommunityChatServiceTest {
 
     @Mock
     private CommunityMessageRepo communityMessageRepo;
+
+    @Mock
+    private UserRepo userRepo;
 
     @Mock
     private SimpMessagingTemplate messagingTemplate;
@@ -68,6 +72,7 @@ public class CommunityChatServiceTest {
     @Test
     void testUpdateChatSettings_AsOwner_Success() {
         when(communityRepo.findById(100L)).thenReturn(Optional.of(testCommunity));
+        when(userRepo.findById(1L)).thenReturn(Optional.of(ownerUser));
 
         communityChatService.updateChatSettings(100L, 1L, true, 7);
 
@@ -81,6 +86,7 @@ public class CommunityChatServiceTest {
     void testUpdateChatSettings_AsAdmin_Success() {
         when(communityRepo.findById(100L)).thenReturn(Optional.of(testCommunity));
         when(communityMemberRepo.findByCommunityIdAndUserId(100L, 2L)).thenReturn(Optional.of(adminMember));
+        when(userRepo.findById(2L)).thenReturn(Optional.of(adminUser));
 
         communityChatService.updateChatSettings(100L, 2L, false, 0);
 
@@ -147,5 +153,19 @@ public class CommunityChatServiceTest {
         assertThrows(SecurityException.class, () -> {
             communityChatService.updateChatSettings(100L, 3L, true, 30);
         });
+    }
+
+    @Test
+    void testUpdateChatSettings_NullOwnerAndFallback_Success() {
+        testCommunity.setOwner(null); // Simulate null owner
+        when(communityRepo.findById(100L)).thenReturn(Optional.of(testCommunity));
+        when(communityMemberRepo.findByCommunityIdAndUserId(100L, 2L)).thenReturn(Optional.of(adminMember));
+        when(userRepo.findById(2L)).thenReturn(Optional.of(adminUser)); // Fallback works
+
+        communityChatService.updateChatSettings(100L, 2L, false, 0);
+
+        assertFalse(testCommunity.getIsGroupChatEnabled());
+        verify(communityRepo, times(1)).save(testCommunity);
+        verify(communityMessageRepo, times(1)).save(any(CommunityMessage.class));
     }
 }

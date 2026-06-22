@@ -215,16 +215,22 @@ public class CommunityChatService {
 
         // Broadcast system message if settings changed
         if (stateChanged && systemMessageText != null) {
-            CommunityMessage systemMsg = CommunityMessage.builder()
-                    .communityId(communityId)
-                    .sender(community.getOwner())
-                    .content(systemMessageText)
-                    .messageType(CommunityMessage.MessageType.SYSTEM)
-                    .build();
+            User sender = userRepo.findById(userId).orElse(community.getOwner());
 
-            communityMessageRepo.save(systemMsg);
-            messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", 
-                    CommunityMessageDto.fromEntity(systemMsg));
+            if (sender == null) {
+                log.warn("Cannot broadcast settings update: No valid sender found for community {}", communityId);
+            } else {
+                CommunityMessage systemMsg = CommunityMessage.builder()
+                        .communityId(communityId)
+                        .sender(sender)
+                        .content(systemMessageText)
+                        .messageType(CommunityMessage.MessageType.SYSTEM)
+                        .build();
+
+                communityMessageRepo.save(systemMsg);
+                messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", 
+                        CommunityMessageDto.fromEntity(systemMsg));
+            }
         }
 
         log.info("Updated chat settings for community {}: isGroupChatEnabled={}, chatRetentionDays={}", 
