@@ -79,7 +79,7 @@ public class CommunityChatServiceTest {
         assertTrue(testCommunity.getIsGroupChatEnabled());
         assertEquals(7, testCommunity.getChatRetentionDays());
         verify(communityRepo, times(1)).save(testCommunity);
-        verify(communityMessageRepo, times(1)).save(any(CommunityMessage.class)); // system message
+        verify(communityMessageRepo, times(2)).save(any(CommunityMessage.class)); // system messages
     }
 
     @Test
@@ -166,6 +166,21 @@ public class CommunityChatServiceTest {
 
         assertFalse(testCommunity.getIsGroupChatEnabled());
         verify(communityRepo, times(1)).save(testCommunity);
-        verify(communityMessageRepo, times(1)).save(any(CommunityMessage.class));
+        verify(communityMessageRepo, times(2)).save(any(CommunityMessage.class));
+    }
+
+    @Test
+    void testUpdateChatSettings_SimultaneousUpdate_BroadcastsTwoSystemMessages() {
+        when(communityRepo.findById(100L)).thenReturn(Optional.of(testCommunity));
+        when(userRepo.findById(1L)).thenReturn(Optional.of(ownerUser));
+
+        // Update both settings simultaneously
+        communityChatService.updateChatSettings(100L, 1L, false, 30);
+
+        // Verify two distinct system messages were saved
+        verify(communityMessageRepo, times(2)).save(any(CommunityMessage.class));
+        
+        // Verify messaging template broadcasted twice
+        verify(messagingTemplate, times(2)).convertAndSend(eq("/topic/community.100.messages"), any(Object.class));
     }
 }

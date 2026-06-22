@@ -177,64 +177,60 @@ public class CommunityChatService {
     }
 
     /**
-     * Updates chat settings in a single transaction with null-safe default fallback.
+     * Updates chat settings in a single transaction and sends system messages for each change.
      */
     public void updateChatSettings(Long communityId, Long userId, Boolean enabled, Integer days) {
         Community community = findCommunityOrThrow(communityId);
         assertAdminOrOwner(community, userId);
         
-        boolean stateChanged = false;
-        String systemMessageText = null;
+        User sender = userRepo.findById(userId).orElse(community.getOwner());
+        if (sender == null) {
+            throw new ValidationException("Cannot update settings: No valid admin found.");
+        }
 
-        // Handle group chat permission toggle
+        // 1. Handle group chat permission toggle
         if (enabled != null) {
             if (community.getIsGroupChatEnabled() == null || !community.getIsGroupChatEnabled().equals(enabled)) {
                 community.setIsGroupChatEnabled(enabled);
-                stateChanged = true;
-                systemMessageText = enabled ? "Group chat was enabled by the administrator." 
-                                            : "Group chat was disabled by the administrator.";
+                String permissionText = enabled ? "Group chat was enabled by the administrator." 
+                                                : "Group chat was disabled by the administrator.";
+                createAndBroadcastSystemMessage(communityId, sender, permissionText);
             }
         } else if (community.getIsGroupChatEnabled() == null) {
             community.setIsGroupChatEnabled(true); // default fallback
         }
 
-        // Handle retention days
+        // 2. Handle retention days
         if (days != null) {
             if (days < 0) throw new ValidationException("Retention period cannot be negative.");
             if (community.getChatRetentionDays() == null || !community.getChatRetentionDays().equals(days)) {
                 community.setChatRetentionDays(days);
-                stateChanged = true;
-                systemMessageText = days == 0 ? "Disappearing messages turned off." 
+                String retentionText = days == 0 ? "Disappearing messages turned off." 
                                               : "Disappearing messages set to auto-delete after " + days + " days.";
+                createAndBroadcastSystemMessage(communityId, sender, retentionText);
             }
         } else if (community.getChatRetentionDays() == null) {
             community.setChatRetentionDays(0); // default fallback
         }
 
         communityRepo.save(community);
-
-        // Broadcast system message if settings changed
-        if (stateChanged && systemMessageText != null) {
-            User sender = userRepo.findById(userId).orElse(community.getOwner());
-
-            if (sender == null) {
-                log.warn("Cannot broadcast settings update: No valid sender found for community {}", communityId);
-            } else {
-                CommunityMessage systemMsg = CommunityMessage.builder()
-                        .communityId(communityId)
-                        .sender(sender)
-                        .content(systemMessageText)
-                        .messageType(CommunityMessage.MessageType.SYSTEM)
-                        .build();
-
-                communityMessageRepo.save(systemMsg);
-                messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", 
-                        CommunityMessageDto.fromEntity(systemMsg));
-            }
-        }
-
         log.info("Updated chat settings for community {}: isGroupChatEnabled={}, chatRetentionDays={}", 
                 communityId, community.getIsGroupChatEnabled(), community.getChatRetentionDays());
+    }
+
+    /**
+     * Helper method to create, save and broadcast a system message to the chat.
+     */
+    private void createAndBroadcastSystemMessage(Long communityId, User sender, String text) {
+        CommunityMessage systemMsg = CommunityMessage.builder()
+                .communityId(communityId)
+                .sender(sender)
+                .content(text)
+                .messageType(CommunityMessage.MessageType.SYSTEM)
+                .build();
+        communityMessageRepo.save(systemMsg);
+        messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", 
+                CommunityMessageDto.fromEntity(systemMsg));
     }
 
     /**
