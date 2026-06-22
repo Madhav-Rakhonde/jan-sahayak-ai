@@ -177,61 +177,58 @@ public class CommunityChatService {
     }
 
     /**
-     * Allows community admins to enable or disable group chat entirely.
+     * Updates chat settings in a single transaction with null-safe default fallback.
      */
-    public void toggleGroupChat(Long communityId, Long userId, boolean enabled) {
+    public void updateChatSettings(Long communityId, Long userId, Boolean enabled, Integer days) {
         Community community = findCommunityOrThrow(communityId);
         assertAdminOrOwner(community, userId);
-
-        community.setIsGroupChatEnabled(enabled);
-        communityRepo.save(community);
-
-        // Broadcast config update system message
-        String text = enabled ? "Group chat was enabled by the administrator." 
-                              : "Group chat was disabled by the administrator.";
-                              
-        CommunityMessage systemMsg = CommunityMessage.builder()
-                .communityId(communityId)
-                .sender(community.getOwner()) // Attribute to community owner/system
-                .content(text)
-                .messageType(CommunityMessage.MessageType.SYSTEM)
-                .build();
-
-        communityMessageRepo.save(systemMsg);
         
-        // Broadcast the update to notify the frontend to toggle UI states
-        messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", 
-                CommunityMessageDto.fromEntity(systemMsg));
+        boolean stateChanged = false;
+        String systemMessageText = null;
 
-        log.info("Community {} group chat state changed to: {}", communityId, enabled);
-    }
+        // Handle group chat permission toggle
+        if (enabled != null) {
+            if (community.getIsGroupChatEnabled() == null || !community.getIsGroupChatEnabled().equals(enabled)) {
+                community.setIsGroupChatEnabled(enabled);
+                stateChanged = true;
+                systemMessageText = enabled ? "Group chat was enabled by the administrator." 
+                                            : "Group chat was disabled by the administrator.";
+            }
+        } else if (community.getIsGroupChatEnabled() == null) {
+            community.setIsGroupChatEnabled(true); // default fallback
+        }
 
-    /**
-     * Allows community admins to update the retention settings (auto-delete timer).
-     */
-    public void updateRetentionDays(Long communityId, Long userId, int days) {
-        if (days < 0) throw new ValidationException("Retention period cannot be negative.");
-        Community community = findCommunityOrThrow(communityId);
-        assertAdminOrOwner(community, userId);
+        // Handle retention days
+        if (days != null) {
+            if (days < 0) throw new ValidationException("Retention period cannot be negative.");
+            if (community.getChatRetentionDays() == null || !community.getChatRetentionDays().equals(days)) {
+                community.setChatRetentionDays(days);
+                stateChanged = true;
+                systemMessageText = days == 0 ? "Disappearing messages turned off." 
+                                              : "Disappearing messages set to auto-delete after " + days + " days.";
+            }
+        } else if (community.getChatRetentionDays() == null) {
+            community.setChatRetentionDays(0); // default fallback
+        }
 
-        community.setChatRetentionDays(days);
         communityRepo.save(community);
 
-        String text = days == 0 ? "Disappearing messages turned off." 
-                              : "Disappearing messages set to auto-delete after " + days + " days.";
+        // Broadcast system message if settings changed
+        if (stateChanged && systemMessageText != null) {
+            CommunityMessage systemMsg = CommunityMessage.builder()
+                    .communityId(communityId)
+                    .sender(community.getOwner())
+                    .content(systemMessageText)
+                    .messageType(CommunityMessage.MessageType.SYSTEM)
+                    .build();
 
-        CommunityMessage systemMsg = CommunityMessage.builder()
-                .communityId(communityId)
-                .sender(community.getOwner())
-                .content(text)
-                .messageType(CommunityMessage.MessageType.SYSTEM)
-                .build();
+            communityMessageRepo.save(systemMsg);
+            messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", 
+                    CommunityMessageDto.fromEntity(systemMsg));
+        }
 
-        communityMessageRepo.save(systemMsg);
-        messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", 
-                CommunityMessageDto.fromEntity(systemMsg));
-
-        log.info("Community {} retention days set to: {}", communityId, days);
+        log.info("Updated chat settings for community {}: isGroupChatEnabled={}, chatRetentionDays={}", 
+                communityId, community.getIsGroupChatEnabled(), community.getChatRetentionDays());
     }
 
     /**

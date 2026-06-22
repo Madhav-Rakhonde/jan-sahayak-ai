@@ -26,6 +26,11 @@ public class UserMeResponse {
     private Boolean hasInvalidPincode;
     private String preferredLanguage;
     private String interfaceLanguage;
+    private String countryLocale;
+    private String dateFormat;
+    private String timeFormat;
+    private String timeZone;
+    private String numberFormat;
     private Boolean autoTranslate;
     private String profanityFilterLevel;
     private String mutedWords;
@@ -49,6 +54,11 @@ public class UserMeResponse {
         this.hasInvalidPincode = user.getHasInvalidPincode();
         this.preferredLanguage = user.getPreferredLanguage();
         this.interfaceLanguage = user.getInterfaceLanguage();
+        this.countryLocale = user.getCountryLocale();
+        this.dateFormat = user.getDateFormat();
+        this.timeFormat = user.getTimeFormat();
+        this.timeZone = user.getTimeZone();
+        this.numberFormat = user.getNumberFormat();
         this.autoTranslate = user.getAutoTranslate();
         this.profanityFilterLevel = user.getProfanityFilterLevel();
         this.mutedWords = user.getMutedWords();

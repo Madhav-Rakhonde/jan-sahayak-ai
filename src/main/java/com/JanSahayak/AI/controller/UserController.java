@@ -679,4 +679,72 @@ public class UserController {
         public String getPincode() { return pincode; }
         public void setPincode(String pincode) { this.pincode = pincode; }
     }
+
+    public static class UserSettingsUpdateRequest {
+        @Size(max = 10, message = "Language cannot exceed 10 characters")
+        private String language;
+        
+        @Size(max = 50, message = "Country locale cannot exceed 50 characters")
+        private String country;
+        
+        @Size(max = 20, message = "Date format cannot exceed 20 characters")
+        private String dateFormat;
+        
+        @Size(max = 20, message = "Time format cannot exceed 20 characters")
+        private String timeFormat;
+        
+        @Size(max = 100, message = "Time zone cannot exceed 100 characters")
+        private String timeZone;
+        
+        @Size(max = 20, message = "Number format cannot exceed 20 characters")
+        private String numberFormat;
+
+        public String getLanguage() { return language; }
+        public void setLanguage(String language) { this.language = language; }
+        
+        public String getCountry() { return country; }
+        public void setCountry(String country) { this.country = country; }
+        
+        public String getDateFormat() { return dateFormat; }
+        public void setDateFormat(String dateFormat) { this.dateFormat = dateFormat; }
+        
+        public String getTimeFormat() { return timeFormat; }
+        public void setTimeFormat(String timeFormat) { this.timeFormat = timeFormat; }
+        
+        public String getTimeZone() { return timeZone; }
+        public void setTimeZone(String timeZone) { this.timeZone = timeZone; }
+        
+        public String getNumberFormat() { return numberFormat; }
+        public void setNumberFormat(String numberFormat) { this.numberFormat = numberFormat; }
+    }
+
+    @PutMapping("/me/settings")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<UserMeResponse>> updateUserSettings(@Valid @RequestBody UserSettingsUpdateRequest request) {
+        try {
+            User currentUser = getCurrentUser();
+            
+            // Map request to User model
+            if (request.getLanguage() != null) currentUser.setInterfaceLanguage(request.getLanguage());
+            if (request.getCountry() != null) currentUser.setCountryLocale(request.getCountry());
+            if (request.getDateFormat() != null) currentUser.setDateFormat(request.getDateFormat());
+            if (request.getTimeFormat() != null) currentUser.setTimeFormat(request.getTimeFormat());
+            if (request.getTimeZone() != null) currentUser.setTimeZone(request.getTimeZone());
+            if (request.getNumberFormat() != null) currentUser.setNumberFormat(request.getNumberFormat());
+            
+            User updatedUser = userService.updateUser(currentUser);
+            return ResponseEntity.ok(ApiResponse.success("User settings updated successfully", new UserMeResponse(updatedUser)));
+        } catch (ValidationException e) {
+            log.warn("Validation error in updateUserSettings: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(ApiResponse.error("Validation failed", e.getMessage()));
+        } catch (ServiceException e) {
+            log.error("Service error in updateUserSettings: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("Service error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Unexpected error in updateUserSettings", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    ApiResponse.error("An unexpected error occurred while updating settings"));
+        }
+    }
 }

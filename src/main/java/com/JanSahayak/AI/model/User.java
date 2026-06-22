@@ -114,6 +114,26 @@ public class User implements UserDetails {
     @Builder.Default
     private String profanityFilterLevel = "STRICT";
 
+    @Column(name = "country_locale", length = 50)
+    @Builder.Default
+    private String countryLocale = "United States";
+
+    @Column(name = "date_format", length = 20)
+    @Builder.Default
+    private String dateFormat = "YYYY/MM/DD";
+
+    @Column(name = "time_format", length = 20)
+    @Builder.Default
+    private String timeFormat = "12 Hours";
+
+    @Column(name = "time_zone", length = 100)
+    @Builder.Default
+    private String timeZone = "(GMT 5:30) India Standard Time (Asia/Kolkata)";
+
+    @Column(name = "number_format", length = 20)
+    @Builder.Default
+    private String numberFormat = "123,456.789";
+
     @Column(name = "muted_words", length = 1000)
     private String mutedWords;
 

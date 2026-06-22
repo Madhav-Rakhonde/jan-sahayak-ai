@@ -30,6 +30,7 @@ public class CommunityChatController {
 
     private final CommunityChatService communityChatService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final com.JanSahayak.AI.repository.CommunityRepo communityRepo;
 
     // ── REST Endpoints ────────────────────────────────────────────────────────
 
@@ -56,6 +57,30 @@ public class CommunityChatController {
     }
 
     /**
+     * GET /api/communities/{id}/chat/settings
+     * Retrieves chat settings (permission toggle and message retention).
+     */
+    @GetMapping("/{id}/chat/settings")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getChatSettings(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user) {
+        try {
+            com.JanSahayak.AI.model.Community community = communityRepo.findById(id)
+                    .orElseThrow(() -> new java.util.NoSuchElementException("Community not found: " + id));
+            
+            Map<String, Object> settings = new HashMap<>();
+            settings.put("isGroupChatEnabled", community.getIsGroupChatEnabled() != null ? community.getIsGroupChatEnabled() : true);
+            settings.put("chatRetentionDays", community.getChatRetentionDays() != null ? community.getChatRetentionDays() : 0);
+            return ResponseEntity.ok(ApiResponse.success("Chat settings retrieved", settings));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(ApiResponse.error("Access Denied", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Failed to retrieve settings", e.getMessage()));
+        }
+    }
+
+    /**
      * PUT /api/communities/{id}/chat/settings
      * Updates group chat configurations (disappearing timer and active toggle state).
      */
@@ -66,12 +91,7 @@ public class CommunityChatController {
             @AuthenticationPrincipal User user,
             @RequestBody SettingsRequest req) {
         try {
-            if (req.getIsGroupChatEnabled() != null) {
-                communityChatService.toggleGroupChat(id, user.getId(), req.getIsGroupChatEnabled());
-            }
-            if (req.getChatRetentionDays() != null) {
-                communityChatService.updateRetentionDays(id, user.getId(), req.getChatRetentionDays());
-            }
+            communityChatService.updateChatSettings(id, user.getId(), req.getIsGroupChatEnabled(), req.getChatRetentionDays());
             return ResponseEntity.ok(ApiResponse.success("Settings updated successfully", null));
         } catch (SecurityException e) {
             return ResponseEntity.status(403).body(ApiResponse.error("Access Denied", e.getMessage()));
