@@ -69,6 +69,7 @@ public class ChatController {
     private final ChatSessionService     chatSessionService;
     private final ChatMessagingService   chatMessagingService;
     private final WebRtcSignalingService webRtcSignalingService;
+    private final com.JanSahayak.AI.service.PlanEnforcementService planEnforcementService;
 
     // ── WebSocket handlers ────────────────────────────────────────────────────
     // @AuthenticationPrincipal does NOT work in @MessageMapping handlers.
@@ -324,6 +325,10 @@ public class ChatController {
             @RequestParam(value = "replyToId", required = false) String replyToId,
             @AuthenticationPrincipal User user) {
         try {
+            if (!planEnforcementService.canSendChatMedia(user.getId())) {
+                throw new RuntimeException("Upgrade to Govlyx Pro or VIP to send rich media.");
+            }
+
             ChatMessage.MessageType type = parseMediaType(typeRaw);
 
             // Clamp timer to valid range (0–60 s)

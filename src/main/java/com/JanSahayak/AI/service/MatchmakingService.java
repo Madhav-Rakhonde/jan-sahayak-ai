@@ -29,8 +29,10 @@ public class MatchmakingService {
 
     private final ChatSessionService chatSessionService;
     private final PinCodeLookupService pinCodeLookupService;
+    private final PlanEnforcementService planEnforcementService;
 
-    private final Queue<QueueEntry>      waitingQueue   = new ConcurrentLinkedQueue<>();
+    // Use PriorityBlockingQueue for VIP priority matchmaking
+    private final java.util.concurrent.PriorityBlockingQueue<QueueEntry> waitingQueue = new java.util.concurrent.PriorityBlockingQueue<>();
     private final Map<Long, QueueEntry>  searchingUsers = new ConcurrentHashMap<>();
     private final ReentrantLock          matchmakingLock = new ReentrantLock();
 
@@ -66,6 +68,9 @@ public class MatchmakingService {
             log.warn("User {} is already in matchmaking queue", userId);
             return null;
         }
+
+        // ── Enforce Matchmaking Limits ────────────────────────────────────────
+        planEnforcementService.enforceDailyMatchmakingLimit(userId);
 
         // ── 3 & 4. Normal matchmaking ─────────────────────────────────────────
         LocalityMetadata requesterLocality = extractLocality(user);
@@ -209,7 +214,8 @@ public class MatchmakingService {
             log.debug("addToQueue: userId={} already in searchingUsers — skipping duplicate add", userId);
             return;
         }
-        QueueEntry entry = new QueueEntry(userId, locality);
+        com.JanSahayak.AI.enums.PassTier userTier = planEnforcementService.getUserTier(userId);
+        QueueEntry entry = new QueueEntry(userId, locality, userTier);
         waitingQueue.offer(entry);
         searchingUsers.put(userId, entry);
     }
@@ -243,9 +249,10 @@ public class MatchmakingService {
 
     // ── Inner class ───────────────────────────────────────────────────────────
 
-    private static class QueueEntry {
+    private static class QueueEntry implements Comparable<QueueEntry> {
         private final Long    userId;
         private final Instant joinedAt;
+        private final com.JanSahayak.AI.enums.PassTier tier;
 
         // Locality metadata
         private final String  pincode;
@@ -257,9 +264,10 @@ public class MatchmakingService {
         // Transient match tracking
         private int lastMatchTier = 7;
 
-        QueueEntry(Long userId, LocalityMetadata meta) {
+        QueueEntry(Long userId, LocalityMetadata meta, com.JanSahayak.AI.enums.PassTier tier) {
             this.userId         = userId;
             this.joinedAt       = Instant.now();
+            this.tier           = tier != null ? tier : com.JanSahayak.AI.enums.PassTier.GOVLYX_FREE;
             this.pincode        = meta.pincode();
             this.districtPrefix = meta.districtPrefix();
             this.statePrefix    = meta.statePrefix();
@@ -281,5 +289,17 @@ public class MatchmakingService {
         }
 
         @Override public int hashCode() { return Objects.hash(userId); }
+
+        @Override
+        public int compareTo(QueueEntry other) {
+            // Higher tier = priority (GOVLYX_VIP > GOVLYX_PRO > GOVLYX_FREE)
+            // Enums are ordinal 0=FREE, 1=PRO, 2=VIP, so we compare other.ordinal to this.ordinal
+            int tierCompare = Integer.compare(other.tier.ordinal(), this.tier.ordinal());
+            if (tierCompare != 0) {
+                return tierCompare; // Higher tier comes first
+            }
+            // Same tier, older timestamp comes first (FIFO)
+            return this.joinedAt.compareTo(other.joinedAt);
+        }
     }
 }

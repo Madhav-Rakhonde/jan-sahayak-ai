@@ -45,6 +45,7 @@ public class CommunityChatService {
     private final SimpMessagingTemplate messagingTemplate;
     private final ContentReportRepository contentReportRepository;
     private final CommunityChatModerator chatModerator;
+    private final com.JanSahayak.AI.service.PlanEnforcementService planEnforcementService;
 
     /**
      * Retrieves paginated community message history.
@@ -86,6 +87,10 @@ public class CommunityChatService {
 
         if (Boolean.TRUE.equals(member.getIsMuted())) {
             throw new SecurityException("You are muted in this community.");
+        }
+
+        if (community.isSecret() && planEnforcementService.isCommunityFrozen(community.getOwner().getId())) {
+            throw new SecurityException("This Secret community is currently frozen. The owner must have an active Govlyx pass to reactivate it.");
         }
 
         // Lock-down check: Only admins/mods can post if group chat is disabled
@@ -159,6 +164,11 @@ public class CommunityChatService {
         Community community = findCommunityOrThrow(communityId);
         assertModeratorOrAbove(community, userId);
 
+        // Govlyx VIP Feature
+        if (!planEnforcementService.canSetDisappearingMessages(userId)) {
+            throw new com.JanSahayak.AI.exception.PlanLimitExceededException("Message pinning is a Govlyx VIP feature.");
+        }
+
         CommunityMessage message = communityMessageRepo.findById(messageId)
                 .orElseThrow(() -> new NoSuchElementException("Message not found: " + messageId));
 
@@ -203,6 +213,9 @@ public class CommunityChatService {
         // 2. Handle retention days
         if (days != null) {
             if (days < 0) throw new ValidationException("Retention period cannot be negative.");
+            if (days > 0 && !planEnforcementService.canSetDisappearingMessages(userId)) {
+                throw new com.JanSahayak.AI.exception.PlanLimitExceededException("Disappearing messages is a Govlyx VIP feature.");
+            }
             if (community.getChatRetentionDays() == null || !community.getChatRetentionDays().equals(days)) {
                 community.setChatRetentionDays(days);
                 String retentionText = days == 0 ? "Disappearing messages turned off." 

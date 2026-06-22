@@ -39,6 +39,12 @@ public class CommunityChatServiceTest {
     private UserRepo userRepo;
 
     @Mock
+    private CommunityChatModerator chatModerator;
+
+    @Mock
+    private com.JanSahayak.AI.service.PlanEnforcementService planEnforcementService;
+
+    @Mock
     private SimpMessagingTemplate messagingTemplate;
 
     @InjectMocks
@@ -67,6 +73,9 @@ public class CommunityChatServiceTest {
         adminMember.setUser(adminUser);
         adminMember.setCommunity(testCommunity);
         adminMember.setMemberRole(CommunityMember.MemberRole.ADMIN);
+
+        lenient().when(planEnforcementService.canSetDisappearingMessages(anyLong())).thenReturn(true);
+        lenient().when(planEnforcementService.isCommunityFrozen(anyLong())).thenReturn(false);
     }
 
     @Test
