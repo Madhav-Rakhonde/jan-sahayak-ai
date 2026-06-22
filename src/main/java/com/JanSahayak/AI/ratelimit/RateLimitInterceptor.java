@@ -108,6 +108,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
                 RateLimiterService.MAX_REQUESTS));
         body.put("retryAfterSeconds", retryAfter);
         body.put("timestamp",         Instant.now().toString());
+        body.put("toastMessage",      com.JanSahayak.AI.exception.ToastMessages.TOO_MANY_REQUESTS);
 
         response.getWriter().write(objectMapper.writeValueAsString(body));
     }

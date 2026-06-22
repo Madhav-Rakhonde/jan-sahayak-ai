@@ -54,7 +54,7 @@ public class AuthController {
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
         if (rateLimitingService.isLoginBlocked(normalizedEmail)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .body(ApiResponse.error("Too many failed login attempts. Please try again after 15 minutes."));
+                    .body(ApiResponse.error("Too many failed login attempts. Please try again after 15 minutes.", com.JanSahayak.AI.exception.ToastMessages.TOO_MANY_REQUESTS));
         }
         try {
             Authentication authentication = authenticationManager.authenticate(
@@ -65,7 +65,7 @@ public class AuthController {
             User user = (User) authentication.getPrincipal();
             if (user != null && user.isNormalUser() && !Boolean.TRUE.equals(user.getIsEmailVerified())) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(ApiResponse.error("Please verify your email address. A verification link has been sent to your email."));
+                        .body(ApiResponse.error("Please verify your email address. A verification link has been sent to your email.", com.JanSahayak.AI.exception.ToastMessages.UNAUTHORIZED));
             }
 
             // Clear failed attempts on successful login
@@ -76,14 +76,14 @@ public class AuthController {
         } catch (BadCredentialsException e) {
             rateLimitingService.recordFailedLogin(normalizedEmail);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("Incorrect username or password. Please try again."));
+                    .body(ApiResponse.error("Incorrect username or password. Please try again.", com.JanSahayak.AI.exception.ToastMessages.UNAUTHORIZED));
         } catch (UsernameNotFoundException e) {
             rateLimitingService.recordFailedLogin(normalizedEmail);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("No account found with this email address."));
+                    .body(ApiResponse.error("No account found with this email address.", com.JanSahayak.AI.exception.ToastMessages.UNAUTHORIZED));
         } catch (DisabledException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("Your account has been disabled. Please contact support."));
+                    .body(ApiResponse.error("Your account has been disabled. Please contact support.", com.JanSahayak.AI.exception.ToastMessages.UNAUTHORIZED));
         } catch (Exception e) {
             log.error("Authentication failed for user {}: {}", normalizedEmail, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -96,7 +96,7 @@ public class AuthController {
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
         if (rateLimitingService.isRegistrationBlocked(normalizedEmail)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .body(ApiResponse.error("Too many registration requests. Please try again later."));
+                    .body(ApiResponse.error("Too many registration requests. Please try again later.", com.JanSahayak.AI.exception.ToastMessages.TOO_MANY_REQUESTS));
         }
         try {
             rateLimitingService.recordRegistrationAttempt(normalizedEmail);
@@ -173,7 +173,7 @@ public class AuthController {
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
         if (rateLimitingService.isRegistrationBlocked(normalizedEmail)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .body(ApiResponse.error("Too many registration requests. Please try again later."));
+                    .body(ApiResponse.error("Too many registration requests. Please try again later.", com.JanSahayak.AI.exception.ToastMessages.TOO_MANY_REQUESTS));
         }
         try {
             rateLimitingService.recordRegistrationAttempt(normalizedEmail);
@@ -234,7 +234,7 @@ public class AuthController {
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
         if (rateLimitingService.isRegistrationBlocked(normalizedEmail)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .body(ApiResponse.error("Too many registration requests. Please try again later."));
+                    .body(ApiResponse.error("Too many registration requests. Please try again later.", com.JanSahayak.AI.exception.ToastMessages.TOO_MANY_REQUESTS));
         }
         try {
             rateLimitingService.recordRegistrationAttempt(normalizedEmail);
@@ -322,7 +322,7 @@ public class AuthController {
         String normalizedEmail = email != null ? email.trim().toLowerCase() : null;
         if (rateLimitingService.isRegistrationBlocked(normalizedEmail)) {
             return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .body(ApiResponse.error("Too many requests. Please try again later."));
+                    .body(ApiResponse.error("Too many requests. Please try again later.", com.JanSahayak.AI.exception.ToastMessages.TOO_MANY_REQUESTS));
         }
         try {
             rateLimitingService.recordRegistrationAttempt(normalizedEmail);

@@ -1,5 +1,7 @@
 package com.JanSahayak.AI.exception;
 
+import com.JanSahayak.AI.exception.ToastMessages;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +38,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Resource not found", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.NOT_FOUND);
 
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
@@ -48,6 +51,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("User not found", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.NOT_FOUND);
 
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
@@ -60,6 +64,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Post not found", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.NOT_FOUND);
 
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
@@ -72,6 +77,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Comment not found", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.NOT_FOUND);
 
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
@@ -84,6 +90,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Chat session not found", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.NOT_FOUND);
 
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
@@ -101,6 +108,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Resource not found", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.NOT_FOUND);
 
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
@@ -117,6 +125,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Validation failed", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.BAD_REQUEST);
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
     }
@@ -129,6 +138,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Validation failed", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.BAD_REQUEST);
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
     }
@@ -150,6 +160,7 @@ public class GlobalExceptionHandler {
                 .data(errors)
                 .timestamp(LocalDateTime.now())
                 .requestId(requestId)
+                .toastMessage(ToastMessages.BAD_REQUEST)
                 .build();
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
@@ -174,6 +185,7 @@ public class GlobalExceptionHandler {
                 .data(errors)
                 .timestamp(LocalDateTime.now())
                 .requestId(requestId)
+                .toastMessage(ToastMessages.BAD_REQUEST)
                 .build();
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
@@ -187,6 +199,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Invalid request", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.BAD_REQUEST);
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
     }
@@ -199,6 +212,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Media validation failed", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.BAD_REQUEST);
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
     }
@@ -222,6 +236,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("File upload failed", userMessage);
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.BAD_REQUEST);
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
     }
@@ -238,6 +253,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Access denied", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.FORBIDDEN);
 
         return new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
     }
@@ -251,6 +267,7 @@ public class GlobalExceptionHandler {
         ApiResponse<Object> response = ApiResponse.error("Access denied",
                 "You don't have permission to access this resource");
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.FORBIDDEN);
 
         return new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
     }
@@ -271,6 +288,7 @@ public class GlobalExceptionHandler {
                 .data(ex.getDuplicatePost())
                 .timestamp(LocalDateTime.now())
                 .requestId(requestId)
+                .toastMessage(ToastMessages.CONFLICT)
                 .build();
 
         return new ResponseEntity<>(response, HttpStatus.CONFLICT);
@@ -290,6 +308,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Conflict", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.CONFLICT);
 
         return new ResponseEntity<>(response, HttpStatus.CONFLICT);
     }
@@ -325,6 +344,7 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Service error", ex.getMessage());
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.INTERNAL_SERVER_ERROR);
 
         return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -342,8 +362,16 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error("Internal server error", message);
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.INTERNAL_SERVER_ERROR);
 
         return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @ExceptionHandler({org.springframework.web.servlet.NoHandlerFoundException.class, org.springframework.web.servlet.resource.NoResourceFoundException.class})
+    public ResponseEntity<ApiResponse<String>> handleNotFoundException(Exception e, WebRequest request) {
+        log.warn("Resource not found: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                ApiResponse.error("Resource not found", e.getMessage(), ToastMessages.NOT_FOUND));
     }
 
     @ExceptionHandler(Exception.class)
@@ -355,6 +383,7 @@ public class GlobalExceptionHandler {
         ApiResponse<Object> response = ApiResponse.error("Internal server error",
                 "An unexpected error occurred");
         response.setRequestId(requestId);
+        response.setToastMessage(ToastMessages.INTERNAL_SERVER_ERROR);
 
         return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
     }

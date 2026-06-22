@@ -20,6 +20,7 @@ public class ApiResponse<T> {
     private String error;
     private LocalDateTime timestamp;
     private String requestId;
+    private String toastMessage;
 
     public static <T> ApiResponse<T> success(T data) {
         return ApiResponse.<T>builder()
@@ -52,6 +53,17 @@ public class ApiResponse<T> {
                 .success(false)
                 .message(message)
                 .error(error)
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+
+    public static <T> ApiResponse<T> error(String message, String error, String toastMessage) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .message(message)
+                .error(error)
+                .toastMessage(toastMessage)
                 .timestamp(LocalDateTime.now())
                 .build();
     }

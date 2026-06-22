@@ -57,7 +57,7 @@ public class UserController {
         } catch (ValidationException e) {
             log.warn("Validation error in getCurrentUserProfile: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                    ApiResponse.error("Unauthorized", e.getMessage()));
+                    ApiResponse.error("Unauthorized", e.getMessage(), com.JanSahayak.AI.exception.ToastMessages.UNAUTHORIZED));
         } catch (Exception e) {
             log.error("Unexpected error in getCurrentUserProfile", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
