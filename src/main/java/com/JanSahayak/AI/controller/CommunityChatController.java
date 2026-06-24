@@ -101,6 +101,32 @@ public class CommunityChatController {
         }
     }
 
+    /**
+     * DELETE /api/communities/{id}/chat/messages/{messageId}
+     * Soft-deletes a message from the community chat.
+     */
+    @DeleteMapping("/{id}/chat/messages/{messageId}")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteMessage(
+            @PathVariable Long id,
+            @PathVariable Long messageId,
+            @AuthenticationPrincipal User user) {
+        try {
+            communityChatService.deleteMessage(id, messageId, user.getId());
+            return ResponseEntity.ok(ApiResponse.success("Message deleted successfully", null));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403)
+                    .body(ApiResponse.error("Access Denied", e.getMessage()));
+        } catch (java.util.NoSuchElementException e) {
+            return ResponseEntity.status(404)
+                    .body(ApiResponse.error("Not Found", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to delete message {} in community {}", messageId, id, e);
+            return ResponseEntity.status(500)
+                    .body(ApiResponse.error("Server Error", "Failed to delete message"));
+        }
+    }
+
     // ── WebSocket Endpoint Handlers ───────────────────────────────────────────
 
     /**

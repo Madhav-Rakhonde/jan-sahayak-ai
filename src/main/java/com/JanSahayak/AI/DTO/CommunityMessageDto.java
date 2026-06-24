@@ -22,6 +22,8 @@ public class CommunityMessageDto implements Serializable {
     private AuthorDto sender;
     private SocialPostDto sharedPost;
     private Long replyToId;
+    private boolean isDeleted;
+    private String deletedByType;
     private boolean isEdited;
     private boolean isPinned;
     private Instant createdAt;
@@ -55,11 +57,13 @@ public class CommunityMessageDto implements Serializable {
         return CommunityMessageDto.builder()
                 .id(msg.getId())
                 .communityId(msg.getCommunityId())
-                .content(msg.getContent())
+                .content(msg.isDeleted() ? null : msg.getContent())
                 .messageType(msg.getMessageType() != null ? msg.getMessageType().name() : null)
                 .sender(AuthorDto.fromUser(msg.getSender(), senderRole))
                 .sharedPost(sharedPostDto)
                 .replyToId(msg.getReplyToId())
+                .isDeleted(msg.isDeleted())
+                .deletedByType(msg.getDeletedByType())
                 .isEdited(msg.isEdited())
                 .isPinned(msg.isPinned())
                 .createdAt(msg.getCreatedAt())

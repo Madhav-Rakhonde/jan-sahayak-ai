@@ -58,6 +58,13 @@ public class CommunityMessage {
     @Column(name = "reply_to_id")
     private Long replyToId;
 
+    @Column(name = "is_deleted", nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private boolean isDeleted = false;
+
+    @Column(name = "deleted_by_type", length = 20)
+    private String deletedByType;
+
     @Column(name = "is_edited", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private boolean isEdited = false;

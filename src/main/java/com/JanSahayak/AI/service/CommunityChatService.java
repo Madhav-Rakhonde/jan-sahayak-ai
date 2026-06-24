@@ -187,6 +187,45 @@ public class CommunityChatService {
     }
 
     /**
+     * Soft-deletes a message.
+     * Allowed only for the message owner or a community moderator/admin.
+     */
+    public void deleteMessage(Long communityId, Long messageId, Long userId) {
+        CommunityMessage message = communityMessageRepo.findById(messageId)
+                .orElseThrow(() -> new NoSuchElementException("Message not found with id: " + messageId));
+
+        if (!message.getCommunityId().equals(communityId)) {
+            throw new IllegalArgumentException("Message does not belong to this community.");
+        }
+
+        boolean isOwner = message.getSender().getId().equals(userId);
+        boolean isAdmin = false;
+
+        if (!isOwner) {
+            CommunityMember member = communityMemberRepo.findByCommunityIdAndUserId(communityId, userId)
+                    .orElseThrow(() -> new SecurityException("Access denied: you are not a member of this community."));
+            if (member.canModerate() || communityRepo.findById(communityId).map(c -> c.isOwnedBy(userId)).orElse(false)) {
+                isAdmin = true;
+            } else {
+                throw new SecurityException("You do not have permission to delete this message");
+            }
+        }
+
+        // Apply Soft-Delete
+        message.setDeleted(true);
+        message.setDeletedByType(isAdmin && !isOwner ? "ADMINISTRATOR" : "USER");
+        communityMessageRepo.save(message);
+
+        // Broadcast Real-time WebSocket Event to all community chat participants
+        java.util.Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("messageId", messageId);
+        payload.put("communityId", communityId);
+        payload.put("isDeleted", true);
+        payload.put("deletedByType", message.getDeletedByType());
+        messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", payload);
+    }
+
+    /**
      * Updates chat settings in a single transaction and sends system messages for each change.
      */
     public void updateChatSettings(Long communityId, Long userId, Boolean enabled, Integer days) {
