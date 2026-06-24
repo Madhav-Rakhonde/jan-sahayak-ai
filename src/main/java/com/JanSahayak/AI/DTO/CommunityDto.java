@@ -316,6 +316,8 @@ public final class CommunityDto {
         // ── Viewer-context flags ──────────────────────────────────────────────
         /** Whether the authenticated caller has liked this post. */
         private boolean isLikedByMe;
+        /** Whether the authenticated caller has saved this post. */
+        private boolean isSavedByMe;
         /** Whether this post is pending moderator approval. */
         private boolean isPendingApproval;
         /** Whether the caller is the author of this post. */

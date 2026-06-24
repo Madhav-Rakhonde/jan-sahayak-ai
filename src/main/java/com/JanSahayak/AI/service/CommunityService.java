@@ -35,6 +35,7 @@ public class CommunityService {
     private final UserRepo                      userRepo;
     private final SocialPostRepo                socialPostRepo;
     private final PostLikeRepo                  postLikeRepo;            // Added
+    private final SavedPostRepo                 savedPostRepo;
     private final CommunityHealthScoreService   healthScoreService;
     private final HyperlocalSeedService         hyperlocalSeedService;   // ← LOCATION PATCH
     private final CloudinaryStorageService      cloudinaryStorageService;
@@ -541,8 +542,12 @@ public class CommunityService {
                 ? new java.util.HashSet<>(postLikeRepo.findLikedSocialPostIdsByUser(requesterId, postIds, com.JanSahayak.AI.model.PostLike.ReactionType.LIKE))
                 : java.util.Collections.emptySet();
 
+        Set<Long> savedPostIds = (requesterId != null && !postIds.isEmpty())
+                ? new java.util.HashSet<>(savedPostRepo.findSavedSocialPostIdsByUser(requesterId, postIds))
+                : java.util.Collections.emptySet();
+
         List<CommunityPostResponse> mapped = raw.stream()
-                .map(p -> toPostResponse(p, requesterId, likedPostIds.contains(p.getId())))
+                .map(p -> toPostResponse(p, requesterId, likedPostIds.contains(p.getId()), savedPostIds.contains(p.getId())))
                 .collect(Collectors.toList());
 
         return PaginationUtils.createIdBasedResponse(
@@ -580,8 +585,12 @@ public class CommunityService {
                 ? new java.util.HashSet<>(postLikeRepo.findLikedSocialPostIdsByUser(requesterId, postIds, com.JanSahayak.AI.model.PostLike.ReactionType.LIKE))
                 : java.util.Collections.emptySet();
 
+        Set<Long> savedPostIds = (requesterId != null && !postIds.isEmpty())
+                ? new java.util.HashSet<>(savedPostRepo.findSavedSocialPostIdsByUser(requesterId, postIds))
+                : java.util.Collections.emptySet();
+
         List<CommunityPostResponse> mapped = raw.stream()
-                .map(p -> toPostResponse(p, requesterId, likedPostIds.contains(p.getId())))
+                .map(p -> toPostResponse(p, requesterId, likedPostIds.contains(p.getId()), savedPostIds.contains(p.getId())))
                 .collect(Collectors.toList());
 
         return PaginationUtils.createIdBasedResponse(
@@ -880,7 +889,7 @@ public class CommunityService {
      * @param post        the entity fetched from the database
      * @param requesterId the authenticated caller's user-id (null for anonymous visitors)
      */
-    private CommunityPostResponse toPostResponse(SocialPost post, Long requesterId, boolean isLiked) {
+    private CommunityPostResponse toPostResponse(SocialPost post, Long requesterId, boolean isLiked, boolean isSaved) {
         User author = post.getUser();
 
         // Build the lightweight community attribution badge
@@ -917,6 +926,7 @@ public class CommunityService {
                 .shareCount(post.getShareCount() != null ? post.getShareCount() : 0)
                 // Viewer-context
                 .isLikedByMe(isLiked)
+                .isSavedByMe(isSaved)
                 .isPendingApproval(false)
                 .isMyPost(requesterId != null
                         && author != null && requesterId.equals(author.getId()))
