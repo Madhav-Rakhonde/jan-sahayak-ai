@@ -74,10 +74,10 @@ public class CommunityServiceTest {
         var response = communityService.getCommunityPosts(100L, 1L, null, 10);
 
         assertNotNull(response);
-        assertNotNull(response.getContent());
-        assertEquals(1, response.getContent().size());
+        assertNotNull(response.getData());
+        assertEquals(1, response.getData().size());
         
-        CommunityPostResponse dto = response.getContent().get(0);
+        CommunityPostResponse dto = response.getData().get(0);
         assertEquals(500L, dto.getId());
         assertFalse(dto.isLikedByMe(), "isLikedByMe should be false since the post ID wasn't returned by postLikeRepo");
         assertTrue(dto.isSavedByMe(), "isSavedByMe should be true since we mocked the savedPostRepo to return the post ID");
@@ -103,10 +103,10 @@ public class CommunityServiceTest {
         var response = communityService.getCommunityPosts(100L, 1L, null, 10);
 
         assertNotNull(response);
-        assertNotNull(response.getContent());
-        assertEquals(1, response.getContent().size());
+        assertNotNull(response.getData());
+        assertEquals(1, response.getData().size());
         
-        CommunityPostResponse dto = response.getContent().get(0);
+        CommunityPostResponse dto = response.getData().get(0);
         assertEquals(500L, dto.getId());
         assertTrue(dto.isLikedByMe(), "isLikedByMe should be true");
         assertTrue(dto.isSavedByMe(), "isSavedByMe should be true");
