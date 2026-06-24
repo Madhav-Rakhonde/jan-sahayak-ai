@@ -137,6 +137,27 @@ public class ChatController {
         }
     }
 
+    @MessageMapping("/chat.delivered")
+    public void sendDeliveredReceipt(@Payload Map<String, String> payload, Principal principal) {
+        User user = getUserFromPrincipal(principal);
+        if (user == null) return;
+
+        String messageId = payload.get("messageId");
+        if (messageId == null || messageId.isBlank()) return;
+
+        try {
+            ChatSession session = chatSessionService.getUserSession(user.getId());
+            if (session != null && session.isActive()) {
+                boolean updated = chatSessionService.markMessageAsDelivered(session.getSessionId(), messageId);
+                if (updated) {
+                    chatMessagingService.sendDeliveredReceipt(session.getSessionId(), user.getId(), messageId);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error processing delivered receipt from user {}", user.getId(), e);
+        }
+    }
+
     // ── Original REST endpoints ───────────────────────────────────────────────
 
     @PostMapping("/search")

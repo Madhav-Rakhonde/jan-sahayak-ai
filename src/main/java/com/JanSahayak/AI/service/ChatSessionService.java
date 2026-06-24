@@ -214,6 +214,22 @@ public class ChatSessionService {
         return false;
     }
 
+    public boolean markMessageAsDelivered(String sessionId, String messageId) {
+        ChatSession session = getSession(sessionId);
+        if (session == null || session.getRecentMessages() == null) return false;
+
+        for (ChatMessage msg : session.getRecentMessages()) {
+            if (msg.getMessageId().equals(messageId)) {
+                if (!msg.isDelivered()) {
+                    msg.setDelivered(true);
+                    return true;
+                }
+                return false;
+            }
+        }
+        return false;
+    }
+
     // ── Rich media message (IMAGE / VIDEO / STICKER / VOICE_NOTE) ─────────────
 
     /**

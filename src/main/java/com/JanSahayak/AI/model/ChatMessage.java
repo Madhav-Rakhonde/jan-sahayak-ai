@@ -151,6 +151,7 @@ public class ChatMessage implements Serializable {
         USER_JOINED,
         USER_LEFT,
         CHAT_ENDED,
+        MESSAGE_DELIVERED,
         MESSAGE_SEEN,
 
         // ── Rich media (relayed once, never stored) ────────────────────────────

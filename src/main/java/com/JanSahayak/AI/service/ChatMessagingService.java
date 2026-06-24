@@ -320,6 +320,31 @@ public class ChatMessagingService {
     }
 
     /**
+     * Notify the partner that their message was delivered.
+     */
+    public void sendDeliveredReceipt(String sessionId, Long deliveredByUserId, String messageId) {
+        ChatSession session = chatSessionService.getSession(sessionId);
+        if (session == null || !session.isActive()) return;
+
+        Long partnerId = session.getPartnerId(deliveredByUserId);
+        if (partnerId == null) return;
+
+        String partnerEmail = chatSessionService.getUserEmail(partnerId);
+        if (partnerEmail == null) return;
+
+        ChatMessageDto dto = ChatMessageDto.builder()
+                .messageId(messageId)
+                .senderId(session.getUserAnonymousId(deliveredByUserId))
+                .messageType(ChatMessage.MessageType.MESSAGE_DELIVERED.name())
+                .timestamp(Instant.now())
+                .delivered(true)
+                .build();
+
+        messagingTemplate.convertAndSendToUser(partnerEmail, DEST_MESSAGES, dto);
+        log.debug("Sent MESSAGE_DELIVERED receipt for message {} to partner {}", messageId, partnerId);
+    }
+
+    /**
      * Send a SYSTEM message to both users (used for reconnect / disconnect notices).
      */
     public void sendSystemMessage(String sessionId, String content) {
