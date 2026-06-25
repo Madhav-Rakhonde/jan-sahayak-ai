@@ -65,6 +65,7 @@ public class RefreshTokenServiceTest {
         assertNotNull(createdToken.getToken());
         assertEquals(user, createdToken.getUser());
         assertTrue(createdToken.getExpiryDate().isAfter(Instant.now()));
+        verify(refreshTokenRepository, times(1)).deleteByUser(user);
         verify(refreshTokenRepository, times(1)).save(any(RefreshToken.class));
     }
 
@@ -91,7 +92,7 @@ public class RefreshTokenServiceTest {
     void verifyExpiration_Expired_ThrowsExceptionAndDeletes() {
         refreshToken.setExpiryDate(Instant.now().minusMillis(1000));
 
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> {
+        SecurityException exception = assertThrows(SecurityException.class, () -> {
             refreshTokenService.verifyExpiration(refreshToken);
         });
 

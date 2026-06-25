@@ -83,7 +83,7 @@ public class AuthController {
                     .secure(true)
                     .path("/api/auth/refresh")
                     .maxAge(7 * 24 * 60 * 60)
-                    .sameSite("Lax")
+                    .sameSite("None")
                     .build();
 
             return ResponseEntity.ok()
@@ -121,7 +121,7 @@ public class AuthController {
                     String token = jwtUtil.generateToken(userDetailsService.loadUserByUsername(user.getActualUsername()));
                     return ResponseEntity.ok(ApiResponse.success("Token refreshed successfully", new AuthResponse(token)));
                 })
-                .orElseThrow(() -> new RuntimeException("Refresh token is not in database!"));
+                .orElseThrow(() -> new SecurityException("Refresh token is invalid or missing!"));
     }
 
     @PostMapping("/logout")
@@ -137,7 +137,7 @@ public class AuthController {
                 .secure(true)
                 .path("/api/auth/refresh")
                 .maxAge(0)
-                .sameSite("Lax")
+                .sameSite("None")
                 .build();
 
         return ResponseEntity.ok()

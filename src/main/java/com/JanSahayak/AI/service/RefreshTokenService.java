@@ -24,7 +24,11 @@ public class RefreshTokenService {
     @Autowired
     private UserRepo userRepository;
 
+    @Transactional
     public RefreshToken createRefreshToken(Long userId) {
+        // Delete any existing token for this user to prevent unique constraint violation
+        deleteByUserId(userId);
+
         RefreshToken refreshToken = new RefreshToken();
 
         refreshToken.setUser(userRepository.findById(userId).get());
@@ -42,7 +46,7 @@ public class RefreshTokenService {
     public RefreshToken verifyExpiration(RefreshToken token) {
         if (token.getExpiryDate().compareTo(Instant.now()) < 0) {
             refreshTokenRepository.delete(token);
-            throw new RuntimeException("Refresh token was expired. Please make a new signin request");
+            throw new SecurityException("Refresh token was expired. Please make a new signin request");
         }
         return token;
     }
