@@ -7,6 +7,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.Date;
 import java.util.List;
 
@@ -315,8 +317,10 @@ public final class CommunityDto {
 
         // ── Viewer-context flags ──────────────────────────────────────────────
         /** Whether the authenticated caller has liked this post. */
+        @JsonProperty("isLikedByMe")
         private boolean isLikedByMe;
         /** Whether the authenticated caller has saved this post. */
+        @JsonProperty("isSavedByMe")
         private boolean isSavedByMe;
         /** Whether this post is pending moderator approval. */
         private boolean isPendingApproval;
