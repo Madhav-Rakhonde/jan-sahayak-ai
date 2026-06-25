@@ -66,6 +66,7 @@ public class RefreshTokenServiceTest {
         assertEquals(user, createdToken.getUser());
         assertTrue(createdToken.getExpiryDate().isAfter(Instant.now()));
         verify(refreshTokenRepository, times(1)).deleteByUser(user);
+        verify(refreshTokenRepository, times(1)).flush();
         verify(refreshTokenRepository, times(1)).save(any(RefreshToken.class));
     }
 

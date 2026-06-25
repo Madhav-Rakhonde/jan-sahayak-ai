@@ -28,6 +28,9 @@ public class RefreshTokenService {
     public RefreshToken createRefreshToken(Long userId) {
         // Delete any existing token for this user to prevent unique constraint violation
         deleteByUserId(userId);
+        
+        // Force Hibernate to execute the DELETE statement before the INSERT to prevent constraint errors
+        refreshTokenRepository.flush();
 
         RefreshToken refreshToken = new RefreshToken();
 
