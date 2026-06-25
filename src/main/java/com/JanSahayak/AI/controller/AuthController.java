@@ -118,7 +118,7 @@ public class AuthController {
                 .map(refreshTokenService::verifyExpiration)
                 .map(RefreshToken::getUser)
                 .map(user -> {
-                    String token = jwtUtil.generateToken(userDetailsService.loadUserByUsername(user.getActualUsername()));
+                    String token = jwtUtil.generateToken(userDetailsService.loadUserByUsername(user.getEmail()));
                     return ResponseEntity.ok(ApiResponse.success("Token refreshed successfully", new AuthResponse(token)));
                 })
                 .orElseThrow(() -> new SecurityException("Refresh token is invalid or missing!"));
