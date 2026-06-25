@@ -32,6 +32,10 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import com.JanSahayak.AI.service.EmailService;
 import jakarta.validation.Valid;
+import com.JanSahayak.AI.model.RefreshToken;
+import com.JanSahayak.AI.service.RefreshTokenService;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 
 @RestController
 @Slf4j
@@ -48,6 +52,7 @@ public class AuthController {
     @Autowired private UserService userService;
     @Autowired private com.JanSahayak.AI.service.PincodeValidationService pincodeValidationService;
     @Autowired private com.JanSahayak.AI.service.RateLimitingService rateLimitingService;
+    @Autowired private RefreshTokenService refreshTokenService;
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody AuthRequest request) {
@@ -71,7 +76,19 @@ public class AuthController {
             // Clear failed attempts on successful login
             rateLimitingService.clearLoginAttempts(normalizedEmail);
             final String jwt = jwtUtil.generateToken(authentication);
-            return ResponseEntity.ok(ApiResponse.success("Login successful", new AuthResponse(jwt)));
+
+            RefreshToken refreshToken = refreshTokenService.createRefreshToken(user.getId());
+            ResponseCookie springCookie = ResponseCookie.from("refresh_token", refreshToken.getToken())
+                    .httpOnly(true)
+                    .secure(true)
+                    .path("/api/auth/refresh")
+                    .maxAge(7 * 24 * 60 * 60)
+                    .sameSite("Lax")
+                    .build();
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, springCookie.toString())
+                    .body(ApiResponse.success("Login successful", new AuthResponse(jwt)));
 
         } catch (BadCredentialsException e) {
             rateLimitingService.recordFailedLogin(normalizedEmail);
@@ -89,6 +106,43 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("An internal error occurred. Please try again later."));
         }
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<AuthResponse>> refreshtoken(@CookieValue(name = "refresh_token", required = false) String requestRefreshToken) {
+        if (requestRefreshToken == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error("Refresh Token is empty!"));
+        }
+
+        return refreshTokenService.findByToken(requestRefreshToken)
+                .map(refreshTokenService::verifyExpiration)
+                .map(RefreshToken::getUser)
+                .map(user -> {
+                    String token = jwtUtil.generateToken(userDetailsService.loadUserByUsername(user.getActualUsername()));
+                    return ResponseEntity.ok(ApiResponse.success("Token refreshed successfully", new AuthResponse(token)));
+                })
+                .orElseThrow(() -> new RuntimeException("Refresh token is not in database!"));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<String>> logoutUser(@CookieValue(name = "refresh_token", required = false) String requestRefreshToken) {
+        if (requestRefreshToken != null) {
+            refreshTokenService.findByToken(requestRefreshToken).ifPresent(token -> {
+                refreshTokenService.deleteByUserId(token.getUser().getId());
+            });
+        }
+        
+        ResponseCookie springCookie = ResponseCookie.from("refresh_token", "")
+                .httpOnly(true)
+                .secure(true)
+                .path("/api/auth/refresh")
+                .maxAge(0)
+                .sameSite("Lax")
+                .build();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, springCookie.toString())
+                .body(ApiResponse.success("Log out successful", null));
     }
 
     @PostMapping("/register/citizen")

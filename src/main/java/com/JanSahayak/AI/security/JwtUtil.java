@@ -22,7 +22,7 @@ public class JwtUtil {
     @Value("${jwt.secret:mySecretKeyForJWTTokenGenerationThatIsLongEnoughForHS256Algorithm}")
     private String jwtSecret;
 
-    @Value("${jwt.expiration:86400000}")
+    @Value("${jwt.expiration:900000}")
     private long jwtExpirationInMs;
 
     private SecretKey getSigningKey() {
