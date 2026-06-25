@@ -24,4 +24,5 @@ public class UserTagSuggestionDto {
     private String specialization;
     private Boolean isVerified;
     private String contactInfo;
+    private String tier;
 }

@@ -45,6 +45,10 @@ public class PlanEnforcementService {
         return getUserTier(userId) == PassTier.GOVLYX_VIP;
     }
 
+    public boolean canPinMessages(Long userId) {
+        return getUserTier(userId) == PassTier.GOVLYX_VIP;
+    }
+
     public void enforceDailyMatchmakingLimit(Long userId) {
         PassTier tier = getUserTier(userId);
         if (tier == PassTier.GOVLYX_FREE) {

@@ -165,7 +165,7 @@ public class CommunityChatService {
         assertModeratorOrAbove(community, userId);
 
         // Govlyx VIP Feature
-        if (!planEnforcementService.canSetDisappearingMessages(userId)) {
+        if (!planEnforcementService.canPinMessages(userId)) {
             throw new com.JanSahayak.AI.exception.PlanLimitExceededException("Message pinning is a Govlyx VIP feature.");
         }
 
@@ -176,7 +176,13 @@ public class CommunityChatService {
             throw new IllegalArgumentException("Message does not belong to this community.");
         }
 
-        message.setPinned(!message.isPinned());
+        boolean newPinnedState = !message.isPinned();
+        if (newPinnedState) {
+            // Enforce single pinned message: unpin any other message first
+            communityMessageRepo.unpinAllMessagesInCommunity(communityId);
+        }
+        
+        message.setPinned(newPinnedState);
         communityMessageRepo.save(message);
 
         CommunityMessageDto dto = CommunityMessageDto.fromEntity(message);
@@ -184,6 +190,17 @@ public class CommunityChatService {
         // Broadcast system/update event
         messagingTemplate.convertAndSend("/topic/community." + communityId + ".messages", dto);
         return dto;
+    }
+
+    /**
+     * Retrieves currently pinned messages for a community.
+     */
+    @Transactional(readOnly = true)
+    public List<CommunityMessageDto> getPinnedMessages(Long communityId) {
+        return communityMessageRepo.findPinnedMessages(communityId)
+                .stream()
+                .map(CommunityMessageDto::fromEntity)
+                .collect(Collectors.toList());
     }
 
     /**

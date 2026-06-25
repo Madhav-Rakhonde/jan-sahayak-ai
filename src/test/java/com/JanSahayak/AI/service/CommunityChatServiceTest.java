@@ -192,4 +192,70 @@ public class CommunityChatServiceTest {
         // Verify messaging template broadcasted twice
         verify(messagingTemplate, times(2)).convertAndSend(eq("/topic/community.100.messages"), any(Object.class));
     }
+    @Test
+    void testToggleMessagePin_AsAdmin_Success() {
+        CommunityMessage msg = new CommunityMessage();
+        msg.setId(500L);
+        msg.setCommunityId(100L);
+        msg.setPinned(false);
+        msg.setSender(adminUser);
+
+        when(communityRepo.findById(100L)).thenReturn(Optional.of(testCommunity));
+        when(communityMemberRepo.findByCommunityIdAndUserId(100L, 2L)).thenReturn(Optional.of(adminMember));
+        when(planEnforcementService.canPinMessages(2L)).thenReturn(true);
+        when(communityMessageRepo.findById(500L)).thenReturn(Optional.of(msg));
+
+        com.JanSahayak.AI.DTO.CommunityMessageDto result = communityChatService.toggleMessagePin(100L, 500L, 2L);
+
+        assertTrue(result.isPinned());
+        assertTrue(msg.isPinned());
+        verify(communityMessageRepo, times(1)).unpinAllMessagesInCommunity(100L);
+        verify(communityMessageRepo, times(1)).save(msg);
+        verify(messagingTemplate, times(1)).convertAndSend(eq("/topic/community.100.messages"), any(Object.class));
+    }
+
+    @Test
+    void testToggleMessagePin_UnpinsOldMessages() {
+        CommunityMessage msg = new CommunityMessage();
+        msg.setId(500L);
+        msg.setCommunityId(100L);
+        msg.setPinned(false);
+        msg.setSender(adminUser);
+
+        when(communityRepo.findById(100L)).thenReturn(Optional.of(testCommunity));
+        when(communityMemberRepo.findByCommunityIdAndUserId(100L, 2L)).thenReturn(Optional.of(adminMember));
+        when(planEnforcementService.canPinMessages(2L)).thenReturn(true);
+        when(communityMessageRepo.findById(500L)).thenReturn(Optional.of(msg));
+
+        communityChatService.toggleMessagePin(100L, 500L, 2L);
+
+        verify(communityMessageRepo, times(1)).unpinAllMessagesInCommunity(100L);
+    }
+
+    @Test
+    void testToggleMessagePin_NotVIP_ThrowsException() {
+        when(communityRepo.findById(100L)).thenReturn(Optional.of(testCommunity));
+        when(communityMemberRepo.findByCommunityIdAndUserId(100L, 2L)).thenReturn(Optional.of(adminMember));
+        when(planEnforcementService.canPinMessages(2L)).thenReturn(false);
+
+        assertThrows(com.JanSahayak.AI.exception.PlanLimitExceededException.class, () -> {
+            communityChatService.toggleMessagePin(100L, 500L, 2L);
+        });
+    }
+
+    @Test
+    void testGetPinnedMessages_ReturnsDtoList() {
+        CommunityMessage msg1 = new CommunityMessage();
+        msg1.setId(500L);
+        msg1.setCommunityId(100L);
+        msg1.setPinned(true);
+        msg1.setSender(adminUser);
+
+        when(communityMessageRepo.findPinnedMessages(100L)).thenReturn(java.util.List.of(msg1));
+
+        java.util.List<com.JanSahayak.AI.DTO.CommunityMessageDto> result = communityChatService.getPinnedMessages(100L);
+
+        assertEquals(1, result.size());
+        assertEquals(500L, result.get(0).getId());
+    }
 }

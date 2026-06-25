@@ -102,6 +102,49 @@ public class CommunityChatController {
     }
 
     /**
+     * POST /api/communities/{id}/chat/messages/{messageId}/pin
+     * Toggles the pinned status of a message.
+     */
+    @PostMapping("/{id}/chat/messages/{messageId}/pin")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<CommunityMessageDto>> toggleMessagePin(
+            @PathVariable Long id,
+            @PathVariable Long messageId,
+            @AuthenticationPrincipal User user) {
+        try {
+            CommunityMessageDto updated = communityChatService.toggleMessagePin(id, messageId, user.getId());
+            return ResponseEntity.ok(ApiResponse.success(
+                    updated.isPinned() ? "Message pinned successfully" : "Message unpinned successfully",
+                    updated
+            ));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(ApiResponse.error("Access Denied", e.getMessage()));
+        } catch (com.JanSahayak.AI.exception.PlanLimitExceededException e) {
+            return ResponseEntity.status(403).body(ApiResponse.error("VIP Feature Required", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to toggle pin for message {} in community {}", messageId, id, e);
+            return ResponseEntity.badRequest().body(ApiResponse.error("Error", "Failed to pin/unpin message"));
+        }
+    }
+
+    /**
+     * GET /api/communities/{id}/chat/pinned
+     * Retrieves currently pinned messages for the community chat.
+     */
+    @GetMapping("/{id}/chat/pinned")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<List<CommunityMessageDto>>> getPinnedMessages(
+            @PathVariable Long id) {
+        try {
+            List<CommunityMessageDto> pinned = communityChatService.getPinnedMessages(id);
+            return ResponseEntity.ok(ApiResponse.success("Pinned messages retrieved", pinned));
+        } catch (Exception e) {
+            log.error("Failed to retrieve pinned messages for community {}", id, e);
+            return ResponseEntity.internalServerError().body(ApiResponse.error("Error", "Failed to retrieve pinned messages"));
+        }
+    }
+
+    /**
      * DELETE /api/communities/{id}/chat/messages/{messageId}
      * Soft-deletes a message from the community chat.
      */

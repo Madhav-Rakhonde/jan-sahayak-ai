@@ -61,6 +61,13 @@ public interface CommunityMessageRepo extends JpaRepository<CommunityMessage, Lo
     List<CommunityMessage> findPinnedMessages(@Param("communityId") Long communityId);
 
     /**
+     * Unpins all messages in a community. Used to enforce single-pinned message limit.
+     */
+    @Modifying
+    @Query("UPDATE CommunityMessage cm SET cm.isPinned = false WHERE cm.communityId = :communityId AND cm.isPinned = true")
+    void unpinAllMessagesInCommunity(@Param("communityId") Long communityId);
+
+    /**
      * Delete expired messages.
      */
     @Modifying

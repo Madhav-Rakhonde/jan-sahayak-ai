@@ -9,6 +9,7 @@ import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.repository.PostRepo;
 import com.JanSahayak.AI.repository.UserRepo;
 import com.JanSahayak.AI.repository.UserTagRepo;
+import com.JanSahayak.AI.repository.UserPassRepository;
 import com.JanSahayak.AI.payload.PaginationUtils;
 import com.JanSahayak.AI.payload.PostUtility;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,7 @@ public class UserService implements UserDetailsService {
     private final PasswordEncoder passwordEncoder;
     private final PostInteractionService postInteractionService;
     private final RateLimitingService rateLimitingService;
+    private final UserPassRepository userPassRepository;
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
@@ -670,6 +672,9 @@ public class UserService implements UserDetailsService {
     }
 
     private UserTagSuggestionDto convertToUserTagSuggestion(User user) {
+        String activeTier = userPassRepository.findActivePassByUserId(user.getId())
+                .map(pass -> pass.getTier().name())
+                .orElse("GOVLYX_FREE");
         return UserTagSuggestionDto.builder()
                 .id(user.getId())
                 .username(user.getUsername())
@@ -684,6 +689,7 @@ public class UserService implements UserDetailsService {
                 .totalTaggedPosts(userTagRepository.countByTaggedUser(user.getId()))
                 .resolutionRate(calculateUserResolutionRate(user))
                 .hasLocation(user.hasLocation())
+                .tier(activeTier)
                 .build();
     }
 
