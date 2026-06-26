@@ -4,6 +4,7 @@ import com.JanSahayak.AI.model.ContentReport;
 import com.JanSahayak.AI.enums.ReportCategory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -23,16 +24,20 @@ public interface ContentReportRepository extends JpaRepository<ContentReport, Lo
             String targetType, Long targetId, String status);
 
     // ── Admin: paginated list, all statuses ──────────────────────────────────
+    @EntityGraph(attributePaths = {"reporter", "resolvedBy"})
     Page<ContentReport> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     // ── Admin: filter by status ───────────────────────────────────────────────
+    @EntityGraph(attributePaths = {"reporter", "resolvedBy"})
     Page<ContentReport> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
 
     // ── Admin: emergency queue (24h SLA) ─────────────────────────────────────
+    @EntityGraph(attributePaths = {"reporter", "resolvedBy"})
     Page<ContentReport> findByStatusAndIsEmergencyOrderByCreatedAtAsc(
             String status, Boolean isEmergency, Pageable pageable);
 
     // ── Admin: standard queue (15-day SLA) ───────────────────────────────────
+    @EntityGraph(attributePaths = {"reporter", "resolvedBy"})
     @Query("SELECT r FROM ContentReport r WHERE r.status = :status AND r.isEmergency = false ORDER BY r.createdAt ASC")
     Page<ContentReport> findStandardQueue(@Param("status") String status, Pageable pageable);
 
