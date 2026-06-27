@@ -16,9 +16,12 @@ import org.springframework.stereotype.Repository;
 import java.sql.Timestamp;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExecutor<Post> {
+
+    Optional<Post> findByIdempotencyKey(String idempotencyKey);
 
     // ===== ATOMIC COUNTER UPDATES =====
     @Modifying @Query("UPDATE Post p SET p.likeCount = p.likeCount + 1 WHERE p.id = :id")

@@ -53,6 +53,9 @@ public class Post {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "idempotency_key", unique = true, length = 36)
+    private String idempotencyKey;
+
     @Column(nullable = false, length = 5000)
     @NotBlank(message = "Post content cannot be empty")
     @Size(max = 5000, message = "Post content cannot exceed 5000 characters")

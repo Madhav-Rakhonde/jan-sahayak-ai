@@ -112,7 +112,17 @@ public class PostService {
                 }
             }
 
+            String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+            if (idempotencyKey != null) {
+                java.util.Optional<Post> existingPost = postRepository.findByIdempotencyKey(idempotencyKey);
+                if (existingPost.isPresent()) {
+                    log.info("Idempotency hit: Returning existing Post for key {}", idempotencyKey);
+                    return existingPost.get();
+                }
+            }
+
             Post post = new Post();
+            post.setIdempotencyKey(idempotencyKey);
             post.setContent(postDto.getContent().trim());
             post.setUser(user);
             post.setImageName(fileName);   // stores Cloudinary URL or null
@@ -253,7 +263,17 @@ public class PostService {
                 }
             }
 
+            String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+            if (idempotencyKey != null) {
+                java.util.Optional<Post> existingPost = postRepository.findByIdempotencyKey(idempotencyKey);
+                if (existingPost.isPresent()) {
+                    log.info("Idempotency hit: Returning existing Broadcast Post for key {}", idempotencyKey);
+                    return existingPost.get();
+                }
+            }
+
             Post post = new Post();
+            post.setIdempotencyKey(idempotencyKey);
             post.setContent(postDto.getContent().trim());
             post.setUser(user);
             post.setImageName(fileName);

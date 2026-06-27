@@ -115,8 +115,18 @@ public class SocialPostService {
                 uploadedMediaUrls = uploadMediaFilesWithValidation(mediaFiles, user.getId());
             }
 
+            String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+            if (idempotencyKey != null) {
+                java.util.Optional<SocialPost> existingPost = socialPostRepository.findByIdempotencyKey(idempotencyKey);
+                if (existingPost.isPresent()) {
+                    log.info("Idempotency hit: Returning existing SocialPost for key {}", idempotencyKey);
+                    return convertToDto(existingPost.get(), user);
+                }
+            }
+
             SocialPost socialPost = buildSocialPost(
                     createDto, user, extractedHashtags, mentionedUserIds, uploadedMediaUrls);
+            socialPost.setIdempotencyKey(idempotencyKey);
             socialPost.setIpAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext());
             SocialPost savedPost = socialPostRepository.save(socialPost);
 

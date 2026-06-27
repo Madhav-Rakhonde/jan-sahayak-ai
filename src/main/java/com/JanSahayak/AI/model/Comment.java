@@ -33,6 +33,9 @@ public class Comment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "idempotency_key", unique = true, length = 36)
+    private String idempotencyKey;
+
     @Column(name = "text", columnDefinition = "TEXT", nullable = true)
     @Size(max = 3000, message = "Comment text cannot exceed 3000 characters")
     private String text;

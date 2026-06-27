@@ -55,6 +55,9 @@ public class SocialPost {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "idempotency_key", unique = true, length = 36)
+    private String idempotencyKey;
+
     // =========================================================================
     // CORE CONTENT
     // =========================================================================

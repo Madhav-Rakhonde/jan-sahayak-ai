@@ -35,6 +35,9 @@ public class PollVote {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "idempotency_key", unique = true, length = 36)
+    private String idempotencyKey;
+
     // ===== Relationships =====
 
     /** Denormalized poll reference for fast queries (poll_id, user_id) */

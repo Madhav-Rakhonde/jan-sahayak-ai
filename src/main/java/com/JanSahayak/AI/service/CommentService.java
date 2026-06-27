@@ -76,7 +76,17 @@ public class CommentService {
             String safeContent = contentValidationService.sanitizeAndValidateContent(commentDto.getText());
             commentDto.setText(safeContent);
 
+            String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+            if (idempotencyKey != null) {
+                java.util.Optional<Comment> existingComment = commentRepository.findByIdempotencyKey(idempotencyKey);
+                if (existingComment.isPresent()) {
+                    log.info("Idempotency hit: Returning existing Comment for key {}", idempotencyKey);
+                    return CommentDto.fromComment(existingComment.get());
+                }
+            }
+
             Comment comment = new Comment();
+            comment.setIdempotencyKey(idempotencyKey);
             comment.setText(commentDto.getText().trim());
             comment.setUser(user);
             comment.setPost(post);
@@ -152,7 +162,17 @@ public class CommentService {
             String safeContent = contentValidationService.sanitizeAndValidateContent(commentDto.getText());
             commentDto.setText(safeContent);
 
+            String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+            if (idempotencyKey != null) {
+                java.util.Optional<Comment> existingComment = commentRepository.findByIdempotencyKey(idempotencyKey);
+                if (existingComment.isPresent()) {
+                    log.info("Idempotency hit: Returning existing Comment for SocialPost for key {}", idempotencyKey);
+                    return CommentDto.fromComment(existingComment.get());
+                }
+            }
+
             Comment comment = new Comment();
+            comment.setIdempotencyKey(idempotencyKey);
             comment.setText(commentDto.getText().trim());
             comment.setUser(user);
             comment.setSocialPost(socialPost);

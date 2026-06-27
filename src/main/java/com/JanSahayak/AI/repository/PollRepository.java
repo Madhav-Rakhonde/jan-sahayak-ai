@@ -12,6 +12,8 @@ import java.util.Optional;
 @Repository
 public interface PollRepository extends JpaRepository<Poll, Long> {
 
+    Optional<Poll> findByIdempotencyKey(String idempotencyKey);
+
     Optional<Poll> findBySocialPostId(Long socialPostId);
 
     @Query("SELECT p FROM Poll p LEFT JOIN FETCH p.options WHERE p.id = :id")

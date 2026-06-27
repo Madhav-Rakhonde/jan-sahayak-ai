@@ -45,6 +45,15 @@ public class PollService {
 
         validatePollRequest(req);
 
+        String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+        if (idempotencyKey != null) {
+            java.util.Optional<Poll> existingPoll = pollRepository.findByIdempotencyKey(idempotencyKey);
+            if (existingPoll.isPresent()) {
+                log.info("Idempotency hit: Returning existing Poll for key {}", idempotencyKey);
+                return PollResponse.from(existingPoll.get(), false, true, List.of());
+            }
+        }
+
         SocialPost socialPost = SocialPost.builder()
                 .content(req.getQuestion())
                 .user(creator)
@@ -81,6 +90,16 @@ public class PollService {
     @Transactional(rollbackFor = Exception.class)
     public PollResponse createPollPostWithMedia(CreatePollRequest req, List<MultipartFile> mediaFiles, User creator) {
         validatePollRequest(req);
+        
+        String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+        if (idempotencyKey != null) {
+            java.util.Optional<Poll> existingPoll = pollRepository.findByIdempotencyKey(idempotencyKey);
+            if (existingPoll.isPresent()) {
+                log.info("Idempotency hit: Returning existing Poll with media for key {}", idempotencyKey);
+                return PollResponse.from(existingPoll.get(), false, true, List.of());
+            }
+        }
+
         // 1. Upload media files with validation
         List<String> uploadedMediaUrls = new ArrayList<>();
         if (mediaFiles != null && !mediaFiles.isEmpty()) {
@@ -140,6 +159,16 @@ public class PollService {
             throw new IllegalStateException("This poll is closed.");
         }
 
+        String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+        if (idempotencyKey != null) {
+            java.util.Optional<PollVote> existingVote = pollVoteRepository.findByIdempotencyKey(idempotencyKey);
+            if (existingVote.isPresent()) {
+                log.info("Idempotency hit: Returning existing vote for key {}", idempotencyKey);
+                List<Long> votedIds = pollVoteRepository.findOptionIdsByPollIdAndUserId(pollId, voter.getId());
+                return PollResponse.from(poll, true, true, votedIds);
+            }
+        }
+
         // Check for existing votes (for re-voting/un-voting)
         List<PollVote> existingVotes = pollVoteRepository.findByPollIdAndUserId(pollId, voter.getId());
         if (!existingVotes.isEmpty()) {
@@ -178,6 +207,7 @@ public class PollService {
                     .poll(poll)
                     .user(voter)
                     .pollOption(option)
+                    .idempotencyKey(idempotencyKey)
                     .build());
             option.incrementVoteCount();
             poll.incrementTotalVotes();
@@ -260,11 +290,14 @@ public class PollService {
             expiresAt = new Date(System.currentTimeMillis() + (long) days * 24 * 60 * 60 * 1000);
         }
 
+        String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+
         return Poll.builder()
                 .question(req.getQuestion())
                 .socialPost(socialPost)
                 .createdBy(creator)
                 .expiresAt(expiresAt)
+                .idempotencyKey(idempotencyKey)
                 .allowMultipleVotes(Boolean.TRUE.equals(req.getAllowMultipleVotes()))
                 .showResultsBeforeExpiry(req.getShowResultsBeforeExpiry() == null || req.getShowResultsBeforeExpiry())
                 .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())

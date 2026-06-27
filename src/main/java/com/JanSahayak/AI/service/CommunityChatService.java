@@ -126,6 +126,15 @@ public class CommunityChatService {
             expiresAt = Instant.now().plus(community.getChatRetentionDays(), ChronoUnit.DAYS);
         }
 
+        String idempotencyKey = com.JanSahayak.AI.util.IdempotencyContext.getKey();
+        if (idempotencyKey != null) {
+            java.util.Optional<CommunityMessage> existingMessage = communityMessageRepo.findByIdempotencyKey(idempotencyKey);
+            if (existingMessage.isPresent()) {
+                log.info("Idempotency hit: Returning existing CommunityMessage for key {}", idempotencyKey);
+                return CommunityMessageDto.fromEntity(existingMessage.get());
+            }
+        }
+
         CommunityMessage message = CommunityMessage.builder()
                 .communityId(communityId)
                 .sender(member.getUser())
@@ -137,6 +146,7 @@ public class CommunityChatService {
                 .isFlagged(flagged)
                 .isQuarantined(flagged)
                 .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())
+                .idempotencyKey(idempotencyKey)
                 .build();
 
         communityMessageRepo.save(message);

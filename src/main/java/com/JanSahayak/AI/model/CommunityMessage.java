@@ -24,6 +24,9 @@ public class CommunityMessage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "idempotency_key", unique = true, length = 36)
+    private String idempotencyKey;
+
     @Column(name = "community_id", nullable = false)
     private Long communityId;
 

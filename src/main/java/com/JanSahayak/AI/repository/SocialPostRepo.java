@@ -12,10 +12,13 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 
 @Repository
 public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
+
+    Optional<SocialPost> findByIdempotencyKey(String idempotencyKey);
 
     // =========================================================================
     // ATOMIC COUNTER UPDATES

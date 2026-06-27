@@ -13,9 +13,12 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface CommentRepo extends JpaRepository<Comment, Long> {
+
+    Optional<Comment> findByIdempotencyKey(String idempotencyKey);
 
     // Count comments for a post
     @Query("SELECT COUNT(c) FROM Comment c WHERE c.post = :post")

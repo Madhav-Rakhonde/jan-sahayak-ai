@@ -10,9 +10,12 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface CommunityMessageRepo extends JpaRepository<CommunityMessage, Long> {
+
+    Optional<CommunityMessage> findByIdempotencyKey(String idempotencyKey);
 
     /**
      * Fetch initial history page. Uses JOIN FETCH to eagerly load sender and role, 

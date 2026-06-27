@@ -11,9 +11,13 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final RateLimitInterceptor rateLimitInterceptor;
+    private final IdempotencyInterceptor idempotencyInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(idempotencyInterceptor)
+                .addPathPatterns("/api/**");
+
         registry.addInterceptor(rateLimitInterceptor)
                 // Apply to every /api/** route ...
                 .addPathPatterns("/api/**")

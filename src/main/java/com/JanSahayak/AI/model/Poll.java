@@ -37,6 +37,9 @@ public class Poll {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "idempotency_key", unique = true, length = 36)
+    private String idempotencyKey;
+
     // ===== Core =====
 
     /** The poll question — same text as SocialPost.content */
