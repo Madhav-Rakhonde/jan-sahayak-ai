@@ -47,6 +47,9 @@ public class CommunityChatServiceTest {
     @Mock
     private SimpMessagingTemplate messagingTemplate;
 
+    @Mock
+    private com.JanSahayak.AI.repository.ContentReportRepository contentReportRepository;
+
     @InjectMocks
     private CommunityChatService communityChatService;
 
@@ -257,5 +260,49 @@ public class CommunityChatServiceTest {
 
         assertEquals(1, result.size());
         assertEquals(500L, result.get(0).getId());
+    }
+
+    @Test
+    void testReportMessage_BroadcastsOnlyOnThirdReport() {
+        CommunityMessage msg = new CommunityMessage();
+        msg.setId(600L);
+        msg.setCommunityId(100L);
+        msg.setReportCount(2); // Already reported twice
+        msg.setSender(ownerUser);
+
+        when(communityRepo.findById(100L)).thenReturn(Optional.of(testCommunity));
+        when(userRepo.findById(2L)).thenReturn(Optional.of(adminUser));
+        when(communityMessageRepo.findById(600L)).thenReturn(Optional.of(msg));
+        
+        CommunityMember activeMember = new CommunityMember();
+        activeMember.setIsActive(true);
+        when(communityMemberRepo.findByCommunityIdAndUserId(100L, 2L)).thenReturn(Optional.of(activeMember));
+        
+        when(contentReportRepository.existsByReporter_IdAndTargetTypeAndTargetId(2L, "COMMUNITY_MESSAGE", 600L)).thenReturn(false);
+
+        // Third report - should broadcast
+        communityChatService.reportMessage(100L, 600L, 2L, com.JanSahayak.AI.enums.ReportCategory.SPAM, "Spam");
+
+        assertTrue(msg.isFlagged());
+        assertEquals(3, msg.getReportCount());
+        verify(communityMessageRepo, times(1)).save(msg);
+        verify(messagingTemplate, times(1)).convertAndSend(eq("/topic/community.100.messages"), any(java.util.Map.class));
+
+        // Reset mock
+        clearInvocations(messagingTemplate);
+        clearInvocations(communityMessageRepo);
+
+        // Fourth report - should NOT broadcast again
+        when(contentReportRepository.existsByReporter_IdAndTargetTypeAndTargetId(3L, "COMMUNITY_MESSAGE", 600L)).thenReturn(false);
+        when(userRepo.findById(3L)).thenReturn(Optional.of(adminUser)); // Reuse user mock for simplicity
+        when(communityMemberRepo.findByCommunityIdAndUserId(100L, 3L)).thenReturn(Optional.of(activeMember));
+
+        communityChatService.reportMessage(100L, 600L, 3L, com.JanSahayak.AI.enums.ReportCategory.SPAM, "Spam again");
+
+        assertTrue(msg.isFlagged());
+        assertEquals(4, msg.getReportCount());
+        verify(communityMessageRepo, times(1)).save(msg);
+        // Ensure no broadcast happened this time!
+        verify(messagingTemplate, never()).convertAndSend(eq("/topic/community.100.messages"), any(java.util.Map.class));
     }
 }

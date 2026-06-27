@@ -1587,7 +1587,7 @@ public class PostService {
     // =========================================================================
 
     @Transactional(readOnly = true)
-    public PaginatedResponse<PostResponse> getLocalFeed(User user, FeedSort sort, Long beforeId, int limit) {
+    public PaginatedResponse<PostResponse> getLocalFeed(User user, FeedSort sort, Long beforeId, int limit, String requestPincode, String targetPincode) {
         try {
             PostUtility.validateUser(user);
             pinCodeLookupService.populateUserLocationData(user);
@@ -1595,51 +1595,35 @@ public class PostService {
             int validLimit = Math.max(1, Math.min(limit, 50));
             int candidatePool = validLimit * 2; // fetch extra for scoring headroom
 
-            // ─── No pincode → national citizen fallback ──────────────────────
-            if (!user.hasPincode()) {
-                log.debug("[LocalFeed] userId={} has no pincode — returning all citizen posts nationally", user.getId());
-                List<Post> allCitizen = postRepository.findAllCitizenPosts(
-                        PostStatus.ACTIVE, PageRequest.of(0, candidatePool));
-                return buildCitizenFeedResponse(allCitizen, user, sort, null, null, null, validLimit, "NATIONAL");
+            String effectivePincode = null;
+            if (requestPincode != null && !requestPincode.trim().isEmpty()) {
+                effectivePincode = requestPincode.trim();
+            } else if (targetPincode != null && !targetPincode.trim().isEmpty()) {
+                effectivePincode = targetPincode.trim();
+            } else if (user.hasPincode()) {
+                effectivePincode = user.getPincode();
             }
 
-            String userPincode    = user.getPincode();
-            String districtPrefix = userPincode.length() >= 3 ? userPincode.substring(0, 3) : null;
-            String statePrefix    = userPincode.length() >= 2 ? userPincode.substring(0, 2) : null;
+            if (effectivePincode == null) {
+                log.info("[LocalFeed] userId={} has no pincode — returning empty", user.getId());
+                return PaginationUtils.createEmptyResponse(validLimit);
+            }
 
-            int enoughThreshold = Math.max(1, validLimit / 2);
+            String districtPrefix = effectivePincode.length() >= 3 ? effectivePincode.substring(0, 3) : effectivePincode;
+            String statePrefix    = effectivePincode.length() >= 2 ? effectivePincode.substring(0, 2) : effectivePincode;
+
+            java.util.Set<String> nearbyPincodes = pinCodeLookupService.getNearbyPincodeStrings(effectivePincode, 50.0, 100);
+            if (nearbyPincodes == null || nearbyPincodes.isEmpty()) {
+                nearbyPincodes = new java.util.HashSet<>();
+                nearbyPincodes.add(effectivePincode);
+            }
 
             Map<Long, Post> merged = new LinkedHashMap<>();
-            String scopeLabel = "AREA";
 
-            // ─── Tier 1: EXACT pincode match (same neighbourhood) ────────────
-            postRepository.findCitizenPostsByPincode(
-                    PostStatus.ACTIVE, userPincode, PageRequest.of(0, candidatePool)
+            // ─── Single optimized query handles Exact + Nearby + Escalated Posts ───
+            postRepository.findLocationFeedPosts(
+                    effectivePincode, nearbyPincodes, districtPrefix, statePrefix, PageRequest.of(0, candidatePool)
             ).forEach(p -> merged.put(p.getId(), p));
-
-            // ─── Tier 2: DISTRICT (first 3 digits) ──────────────────────────
-            if (merged.size() < enoughThreshold && districtPrefix != null) {
-                scopeLabel = "DISTRICT";
-                postRepository.findCitizenPostsByDistrictPrefix(
-                        PostStatus.ACTIVE, districtPrefix, PageRequest.of(0, candidatePool)
-                ).forEach(p -> merged.putIfAbsent(p.getId(), p));
-            }
-
-            // ─── Tier 3: STATE (first 2 digits) ─────────────────────────────
-            if (merged.size() < enoughThreshold && statePrefix != null) {
-                scopeLabel = "STATE";
-                postRepository.findCitizenPostsByStatePrefix(
-                        PostStatus.ACTIVE, statePrefix, PageRequest.of(0, candidatePool)
-                ).forEach(p -> merged.putIfAbsent(p.getId(), p));
-            }
-
-            // ─── Tier 4: NATIONAL fallback ──────────────────────────────────
-            if (merged.size() < enoughThreshold) {
-                scopeLabel = "NATIONAL";
-                postRepository.findAllCitizenPosts(
-                        PostStatus.ACTIVE, PageRequest.of(0, candidatePool)
-                ).forEach(p -> merged.putIfAbsent(p.getId(), p));
-            }
 
             // ─── Inject user's own posts so they always see their content ───
             try {
@@ -1650,14 +1634,14 @@ public class PostService {
             }
 
             if (merged.isEmpty()) {
-                log.info("[LocalFeed] All citizen tiers empty — returning empty for userId={}", user.getId());
+                log.info("[LocalFeed] Feed empty for userId={}", user.getId());
                 return PaginationUtils.createEmptyResponse(validLimit);
             }
 
             return buildCitizenFeedResponse(
-                    new ArrayList<>(merged.values()), user, sort,
-                    userPincode, districtPrefix, statePrefix,
-                    validLimit, scopeLabel);
+                    new java.util.ArrayList<>(merged.values()), user, sort,
+                    effectivePincode, districtPrefix, statePrefix,
+                    validLimit, "LOCAL_AREA");
 
         } catch (Exception e) {
             log.error("[LocalFeed] Failed for user={}", user != null ? user.getActualUsername() : "null", e);

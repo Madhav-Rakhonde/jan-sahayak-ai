@@ -235,7 +235,7 @@ public class CommunityChatService {
 
         // Broadcast Real-time WebSocket Event to all community chat participants
         java.util.Map<String, Object> payload = new java.util.HashMap<>();
-        payload.put("messageId", messageId);
+        payload.put("id", messageId);
         payload.put("communityId", communityId);
         payload.put("isDeleted", true);
         payload.put("deletedByType", message.getDeletedByType());
@@ -398,13 +398,13 @@ public class CommunityChatService {
         // Increment report count
         message.setReportCount(message.getReportCount() + 1);
 
-        if (message.getReportCount() >= 3) {
+        if (message.getReportCount() == 3) {
             message.setFlagged(true);
             communityMessageRepo.save(message);
 
             // Broadcast real-time deletion system event
             java.util.Map<String, Object> deletionNotification = new java.util.HashMap<>();
-            deletionNotification.put("messageId", messageId);
+            deletionNotification.put("id", messageId);
             deletionNotification.put("communityId", communityId);
             deletionNotification.put("isDeleted", true);
             deletionNotification.put("reason", "Removed due to community reports.");

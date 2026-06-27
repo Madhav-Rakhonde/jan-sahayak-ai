@@ -30,8 +30,11 @@ public final class CommunityDto {
         private String tags;
         private Community.CommunityPrivacy privacy;
 
+        @Builder.Default
         private Boolean locationRestricted  = false;
+        @Builder.Default
         private Boolean allowMemberPosts    = true;
+        @Builder.Default
         private Boolean requirePostApproval = false;
 
         /**

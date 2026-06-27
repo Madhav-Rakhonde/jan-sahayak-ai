@@ -236,10 +236,18 @@ public class CommunityChatController {
             @AuthenticationPrincipal User user,
             @RequestBody ReportRequest req) {
         try {
-            if (req.getCategory() == null) {
+            if (req.getCategory() == null || req.getCategory().trim().isEmpty()) {
                 return ResponseEntity.badRequest().body(ApiResponse.error("Report failed", "Category is required"));
             }
-            communityChatService.reportMessage(id, messageId, user.getId(), req.getCategory(), req.getDescription());
+            
+            com.JanSahayak.AI.enums.ReportCategory categoryEnum;
+            try {
+                categoryEnum = com.JanSahayak.AI.enums.ReportCategory.valueOf(req.getCategory().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("Report failed", "Invalid category: " + req.getCategory()));
+            }
+
+            communityChatService.reportMessage(id, messageId, user.getId(), categoryEnum, req.getDescription());
             return ResponseEntity.ok(ApiResponse.success("Message reported successfully", null));
         } catch (SecurityException e) {
             return ResponseEntity.status(403).body(ApiResponse.error("Access Denied", e.getMessage()));
@@ -276,7 +284,7 @@ public class CommunityChatController {
 
     @Data
     public static class ReportRequest {
-        private com.JanSahayak.AI.enums.ReportCategory category;
+        private String category;
         private String description;
     }
 }

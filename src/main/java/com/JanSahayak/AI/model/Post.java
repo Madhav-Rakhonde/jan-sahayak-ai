@@ -38,7 +38,8 @@ import java.util.List;
         // fallback for prefix-only LIKE 'value%' patterns.
         @Index(name = "idx_post_target_pincodes",  columnList = "target_pincodes"),
         @Index(name = "idx_post_target_districts", columnList = "target_districts"),
-        @Index(name = "idx_post_target_states",    columnList = "target_states")
+        @Index(name = "idx_post_target_states",    columnList = "target_states"),
+        @Index(name = "idx_post_auto_escalated",   columnList = "is_auto_escalated, broadcast_scope")
 })
 @Getter
 @Setter
@@ -132,6 +133,10 @@ public class Post {
 
     @Column(name = "target_pincodes", length = 5000)
     private String targetPincodes;
+
+    @Builder.Default
+    @Column(name = "is_auto_escalated", nullable = false, columnDefinition = "boolean default false")
+    private boolean isAutoEscalated = false;
 
     // ── Counters (denormalized for fast reads) ────────────────────────────────
 

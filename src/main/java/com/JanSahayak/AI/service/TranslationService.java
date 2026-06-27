@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.cache.annotation.Cacheable;
 
 import java.util.List;
 import java.util.Map;
@@ -71,7 +72,7 @@ public class TranslationService {
                 } else {
                     futures.add(executor.submit(() -> {
                         try {
-                            String translated = translateText(dto.getContent(), targetLanguage);
+                            String translated = self.translateText(dto.getContent(), targetLanguage);
                             if (translated != null && !translated.equals(dto.getContent())) {
                                 dto.setTranslatedContent(translated);
                                 dto.setIsTranslated(true);
@@ -151,7 +152,7 @@ public class TranslationService {
                 } else {
                     futures.add(executor.submit(() -> {
                         try {
-                            String translated = translateText(dto.getContent(), targetLanguage);
+                            String translated = self.translateText(dto.getContent(), targetLanguage);
                             if (translated != null && !translated.equals(dto.getContent())) {
                                 dto.setTranslatedContent(translated);
                                 dto.setIsTranslated(true);
@@ -204,6 +205,7 @@ public class TranslationService {
     /**
      * Translates text using the free unofficial Google Translate API (GTX client).
      */
+    @Cacheable(value = "translationsApi", key = "#text + '_' + #targetLanguage", unless = "#result == null or #result == #text")
     public String translateText(String text, String targetLanguage) {
         if (text == null || text.trim().isEmpty() || targetLanguage == null || targetLanguage.equalsIgnoreCase("en")) {
             return text;

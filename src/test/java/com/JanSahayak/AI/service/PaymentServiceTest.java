@@ -12,6 +12,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.Cache;
 
 import java.util.Optional;
 
@@ -23,6 +25,12 @@ public class PaymentServiceTest {
 
     @Mock
     private UserPassRepository userPassRepository;
+
+    @Mock
+    private CacheManager cacheManager;
+
+    @Mock
+    private Cache cache;
 
     @InjectMocks
     private PaymentService paymentService;
@@ -66,6 +74,7 @@ public class PaymentServiceTest {
                 .build();
                 
         // Act
+        when(cacheManager.getCache("userTiers")).thenReturn(cache);
         ReflectionTestUtils.invokeMethod(paymentService, "activatePass", pendingPass);
 
         // Assert
@@ -73,6 +82,44 @@ public class PaymentServiceTest {
         assertEquals(5, pendingPass.getPrivateCommunityQuota(), "VIP tier should grant 5 private communities");
         assertNotNull(pendingPass.getValidUntil());
         
+        verify(userPassRepository, times(1)).save(pendingPass);
+        verify(cacheManager, times(1)).getCache("userTiers");
+        verify(cache, times(1)).evict(1L);
+    }
+
+    @Test
+    void testActivatePassCarriesOverQuota() {
+        // Arrange
+        String orderId = "order_456";
+        
+        UserPass pendingPass = UserPass.builder()
+                .userId(2L)
+                .tier(PassTier.GOVLYX_VIP)
+                .razorpayOrderId(orderId)
+                .status(UserPassStatus.EXPIRED)
+                .privateCommunityQuota(0)
+                .build();
+                
+        UserPass activePass = UserPass.builder()
+                .userId(2L)
+                .tier(PassTier.GOVLYX_PRO)
+                .status(UserPassStatus.ACTIVE)
+                .privateCommunityQuota(4) // 4 remaining quota
+                .build();
+                
+        when(userPassRepository.findActivePassByUserId(2L)).thenReturn(Optional.of(activePass));
+        when(cacheManager.getCache("userTiers")).thenReturn(cache);
+        
+        // Act
+        ReflectionTestUtils.invokeMethod(paymentService, "activatePass", pendingPass);
+
+        // Assert
+        assertEquals(UserPassStatus.ACTIVE, pendingPass.getStatus());
+        // 5 from VIP + 4 from previous active pass = 9
+        assertEquals(9, pendingPass.getPrivateCommunityQuota(), "VIP tier should grant 5 + previous 4 = 9");
+        assertEquals(UserPassStatus.EXPIRED, activePass.getStatus(), "Previous pass should be expired");
+        
+        verify(userPassRepository, times(1)).save(activePass);
         verify(userPassRepository, times(1)).save(pendingPass);
     }
 }

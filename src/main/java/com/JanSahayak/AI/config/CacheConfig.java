@@ -106,6 +106,18 @@ public class CacheConfig {
     private static final int  COMMUNITIES_MAX_SIZE   = 5_000;
     private static final long COMMUNITIES_TTL_MINUTES = 60L;
 
+    /** Auth user details cache - strict 1 min TTL for quick ban propagation */
+    private static final int  AUTH_USER_DETAILS_MAX_SIZE = 50_000;
+    private static final long AUTH_USER_DETAILS_TTL_MINUTES = 1L;
+
+    /** Subscription tiers cache */
+    private static final int  USER_TIERS_MAX_SIZE = 50_000;
+    private static final long USER_TIERS_TTL_HOURS = 1L;
+
+    /** Translations API cache to prevent duplicate external calls */
+    private static final int  TRANSLATIONS_API_MAX_SIZE = 10_000;
+    private static final long TRANSLATIONS_API_TTL_HOURS = 2L;
+
     @Bean
     public CacheManager cacheManager() {
         CaffeineCache profileCache = buildCache(
@@ -180,12 +192,33 @@ public class CacheConfig {
                 TimeUnit.MINUTES
         );
 
+        CaffeineCache authUserDetailsCache = buildCache(
+                "authUserDetails",
+                AUTH_USER_DETAILS_MAX_SIZE,
+                AUTH_USER_DETAILS_TTL_MINUTES,
+                TimeUnit.MINUTES
+        );
+
+        CaffeineCache userTiersCache = buildCache(
+                "userTiers",
+                USER_TIERS_MAX_SIZE,
+                USER_TIERS_TTL_HOURS,
+                TimeUnit.HOURS
+        );
+
+        CaffeineCache translationsApiCache = buildCache(
+                "translationsApi",
+                TRANSLATIONS_API_MAX_SIZE,
+                TRANSLATIONS_API_TTL_HOURS,
+                TimeUnit.HOURS
+        );
+
         SimpleCacheManager manager = new SimpleCacheManager();
         manager.setCaches(List.of(
                 profileCache, geoDistCache,
                 trendingPostsCache, broadcastFeedsCache, hligFeedCache,
                 notifCountCache, userProfileCache, pincodeCache, communityListCache,
-                communitiesCache
+                communitiesCache, authUserDetailsCache, userTiersCache, translationsApiCache
         ));
         return manager;
     }

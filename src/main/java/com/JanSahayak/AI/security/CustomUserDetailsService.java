@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -58,6 +59,7 @@ public class CustomUserDetailsService implements UserDetailsService {
      * Role is always initialized regardless of transaction boundaries.
      */
     @Transactional
+    @Cacheable(value = "authUserDetails", key = "#id")
     public UserDetails loadUserById(Long id) {
         User user = userRepo.findByIdWithRole(id)
                 .orElseThrow(() -> new UsernameNotFoundException(

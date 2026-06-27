@@ -14,6 +14,8 @@ import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.Cache;
 
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
@@ -25,6 +27,7 @@ import java.util.Optional;
 public class PaymentService {
 
     private final UserPassRepository userPassRepository;
+    private final CacheManager cacheManager;
 
     @Value("${razorpay.key.id}")
     private String razorpayKeyId;
@@ -100,6 +103,14 @@ public class PaymentService {
     }
 
     private void activatePass(UserPass userPass) {
+        // Carry over remaining quota from previous active pass
+        userPassRepository.findActivePassByUserId(userPass.getUserId()).ifPresent(oldPass -> {
+            userPass.setPrivateCommunityQuota(userPass.getPrivateCommunityQuota() + oldPass.getPrivateCommunityQuota());
+            // Optional: Mark old pass as superseded/expired
+            oldPass.setStatus(UserPassStatus.EXPIRED);
+            userPassRepository.save(oldPass);
+        });
+
         userPass.setStatus(UserPassStatus.ACTIVE);
         userPass.setValidUntil(LocalDateTime.now().plusMonths(1)); // 1 month validity default
 
@@ -110,6 +121,12 @@ public class PaymentService {
         }
 
         userPassRepository.save(userPass);
+        
+        Cache cache = cacheManager.getCache("userTiers");
+        if (cache != null) {
+            cache.evict(userPass.getUserId());
+        }
+        
         log.info("Pass activated for user {} with tier {}", userPass.getUserId(), userPass.getTier());
     }
 }

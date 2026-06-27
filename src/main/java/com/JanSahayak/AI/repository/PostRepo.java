@@ -1200,4 +1200,46 @@ public interface PostRepo extends JpaRepository<Post, Long>, JpaSpecificationExe
     List<Post> findAllCitizenPosts(
             @Param("status") PostStatus status,
             Pageable pageable);
+
+    /**
+     * Finds posts for the Location feed using the interaction-based waterfall model.
+     */
+    @Query("""
+            SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r
+            WHERE p.status = 'ACTIVE' 
+              AND r.name = 'ROLE_USER'
+              AND (
+                (p.broadcastScope = 'AREA' AND (u.pincode = :pincode OR p.targetPincodes LIKE CONCAT('%', :pincode, '%'))) OR
+                (p.isAutoEscalated = true AND (
+                   (p.broadcastScope = 'NEARBY' AND u.pincode IN :nearbyPincodes) OR
+                   (p.broadcastScope = 'DISTRICT' AND u.pincode LIKE CONCAT(:districtPrefix, '%')) OR
+                   (p.broadcastScope = 'STATE' AND u.pincode LIKE CONCAT(:statePrefix, '%')) OR
+                   (p.broadcastScope = 'COUNTRY')
+                ))
+              )
+            ORDER BY p.createdAt DESC
+            """)
+    List<Post> findLocationFeedPosts(
+            @Param("pincode") String pincode, 
+            @Param("nearbyPincodes") java.util.Collection<String> nearbyPincodes,
+            @Param("districtPrefix") String districtPrefix,
+            @Param("statePrefix") String statePrefix,
+            Pageable pageable);
+
+    /**
+     * Finds ACTIVE unresolved citizen posts that have reached interaction thresholds for escalation.
+     */
+    @Query("""
+            SELECT p FROM Post p JOIN FETCH p.user u JOIN FETCH u.role r
+            WHERE p.status = 'ACTIVE' 
+              AND p.isResolved = false 
+              AND r.name = 'ROLE_USER'
+              AND (
+                   (p.broadcastScope = 'AREA' AND (p.likeCount * 2 + p.commentCount * 3 + p.shareCount * 4) > 20) OR
+                   (p.broadcastScope = 'NEARBY' AND (p.likeCount * 2 + p.commentCount * 3 + p.shareCount * 4) > 50) OR
+                   (p.broadcastScope = 'DISTRICT' AND (p.likeCount * 2 + p.commentCount * 3 + p.shareCount * 4) > 200) OR
+                   (p.broadcastScope = 'STATE' AND (p.likeCount * 2 + p.commentCount * 3 + p.shareCount * 4) > 1000)
+              )
+            """)
+    List<Post> findPostsEligibleForEscalation();
 }

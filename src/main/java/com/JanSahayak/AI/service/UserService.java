@@ -15,6 +15,7 @@ import com.JanSahayak.AI.payload.PostUtility;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
@@ -378,6 +379,7 @@ public class UserService implements UserDetailsService {
     // ===== User Update Methods =====
 
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "authUserDetails", key = "#user.id")
     public User updateUser(User user) {
         try {
             User existingUser = findById(user.getId());
@@ -566,6 +568,7 @@ public class UserService implements UserDetailsService {
     // ===== Password Update =====
 
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "authUserDetails", key = "#userId")
     public void changePassword(Long userId, String oldPassword, String newPassword) {
         try {
             User user = findById(userId);
@@ -605,6 +608,7 @@ public class UserService implements UserDetailsService {
      *                    admin)
      */
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "authUserDetails", key = "#userId")
     public void deactivateUser(Long userId, User currentUser) {
         try {
             PostUtility.validateUserId(userId);

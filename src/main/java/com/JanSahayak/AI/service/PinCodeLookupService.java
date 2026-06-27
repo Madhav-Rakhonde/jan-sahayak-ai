@@ -306,10 +306,16 @@ public class PinCodeLookupService {
      * Uses a fixed 20km radius and caps at 100 results for speed.
      */
     public java.util.Set<String> getNearbyPincodeStrings(String pincode) {
+        return getNearbyPincodeStrings(pincode, 20.0, 100);
+    }
+
+    /**
+     * Specialized version of nearby search for matchmaking with custom radius.
+     */
+    public java.util.Set<String> getNearbyPincodeStrings(String pincode, double radiusKm, int limit) {
         if (pincode == null) return java.util.Collections.emptySet();
         
-        // Find nearby pincodes with a 20km radius, capped at 100 candidates
-        List<PincodeLookup> nearby = findNearbyPincodes(pincode, 20.0, null, 100).getData();
+        List<PincodeLookup> nearby = findNearbyPincodes(pincode, radiusKm, null, limit).getData();
         
         return nearby.stream()
                 .map(PincodeLookup::getPincode)

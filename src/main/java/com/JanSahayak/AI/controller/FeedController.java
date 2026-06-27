@@ -223,14 +223,16 @@ public class FeedController {
             @CurrentUser        User user,
             @RequestParam(defaultValue = "HOT") FeedSort sort,
             @RequestParam(required = false)  Long beforeId,
-            @RequestParam(defaultValue = "20") int limit) {
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(required = false) String pincode,
+            @RequestParam(required = false) String targetPincode) {
 
         limit = clampSize(limit);
         log.debug("[Feed] LOCAL sort={}: userId={} beforeId={} limit={}", sort, userId(user), beforeId, limit);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
                         .staleWhileRevalidate(30, TimeUnit.SECONDS))
-                .body(postService.getLocalFeed(user, sort, beforeId, limit));
+                .body(postService.getLocalFeed(user, sort, beforeId, limit, pincode, targetPincode));
     }
 
     /**

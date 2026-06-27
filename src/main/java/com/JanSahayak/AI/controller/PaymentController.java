@@ -49,7 +49,17 @@ public class PaymentController {
             @RequestBody Map<String, Object> payload) {
         try {
             String targetTierStr = (String) payload.get("targetTier");
-            PassTier targetTier = PassTier.valueOf(targetTierStr);
+            if (targetTierStr == null) {
+                return ResponseEntity.badRequest().body("Missing targetTier in payload");
+            }
+
+            PassTier targetTier;
+            try {
+                targetTier = PassTier.valueOf(targetTierStr.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body("Invalid target tier: " + targetTierStr);
+            }
+
             int amount = targetTier == PassTier.GOVLYX_VIP ? 149 : 49;
 
             String orderId = paymentService.createOrder(user.getId(), targetTier, amount);

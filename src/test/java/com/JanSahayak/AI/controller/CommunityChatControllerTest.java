@@ -13,6 +13,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import com.JanSahayak.AI.enums.ReportCategory;
 
 import java.util.Map;
 import java.util.Optional;
@@ -129,5 +130,44 @@ public class CommunityChatControllerTest {
 
         assertEquals(403, response.getStatusCodeValue());
         assertEquals("Access Denied", response.getBody().getMessage());
+    }
+
+    @Test
+    void testReportMessage_Success_CaseInsensitiveCategory() {
+        CommunityChatController.ReportRequest request = new CommunityChatController.ReportRequest();
+        request.setCategory("Spam"); // Title case
+        request.setDescription("This is a spam message");
+
+        doNothing().when(communityChatService).reportMessage(100L, 200L, 1L, ReportCategory.SPAM, "This is a spam message");
+
+        ResponseEntity<ApiResponse<Void>> response = communityChatController.reportMessage(100L, 200L, testUser, request);
+
+        assertEquals(200, response.getStatusCodeValue());
+        assertEquals("Message reported successfully", response.getBody().getMessage());
+        verify(communityChatService, times(1)).reportMessage(100L, 200L, 1L, ReportCategory.SPAM, "This is a spam message");
+    }
+
+    @Test
+    void testReportMessage_InvalidCategory() {
+        CommunityChatController.ReportRequest request = new CommunityChatController.ReportRequest();
+        request.setCategory("INVALID_CAT"); 
+
+        ResponseEntity<ApiResponse<Void>> response = communityChatController.reportMessage(100L, 200L, testUser, request);
+
+        assertEquals(400, response.getStatusCodeValue());
+        assertEquals("Invalid category: INVALID_CAT", response.getBody().getError());
+        verify(communityChatService, never()).reportMessage(anyLong(), anyLong(), anyLong(), any(), anyString());
+    }
+
+    @Test
+    void testReportMessage_MissingCategory() {
+        CommunityChatController.ReportRequest request = new CommunityChatController.ReportRequest();
+        request.setCategory(""); // Empty string
+
+        ResponseEntity<ApiResponse<Void>> response = communityChatController.reportMessage(100L, 200L, testUser, request);
+
+        assertEquals(400, response.getStatusCodeValue());
+        assertEquals("Category is required", response.getBody().getError());
+        verify(communityChatService, never()).reportMessage(anyLong(), anyLong(), anyLong(), any(), anyString());
     }
 }

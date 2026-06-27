@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.Optional;
+import org.springframework.cache.annotation.Cacheable;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +21,7 @@ public class PlanEnforcementService {
     private final UserPassRepository userPassRepository;
     private final ChatSessionAuditRepo chatSessionAuditRepo;
 
+    @Cacheable(value = "userTiers", key = "#userId")
     public PassTier getUserTier(Long userId) {
         return userPassRepository.findActivePassByUserId(userId)
                 .map(UserPass::getTier)
