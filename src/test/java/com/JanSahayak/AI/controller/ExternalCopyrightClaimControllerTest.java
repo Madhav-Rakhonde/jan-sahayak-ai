@@ -49,7 +49,7 @@ class ExternalCopyrightClaimControllerTest {
         requestDto.setClaimantEmail("legal@tseries.com");
         requestDto.setClaimantPhone("+91-9876543210");
         requestDto.setPostalAddress("Mumbai, India");
-        requestDto.setInfringingUrls(java.util.List.of("https://govlyx.com/post/123"));
+        requestDto.setInfringingUrls("https://govlyx.com/post/123");
         requestDto.setInfringementDescription("Unauthorized use of song");
         requestDto.setOriginalWorkUrl("https://youtube.com/tseries/song");
         requestDto.setOriginalWorkDescription("Original Song Music Video");
