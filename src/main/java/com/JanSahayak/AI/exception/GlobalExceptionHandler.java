@@ -273,6 +273,24 @@ public class GlobalExceptionHandler {
     }
 
     // =========================================================================
+    // 451 — UNAVAILABLE FOR LEGAL REASONS
+    // =========================================================================
+
+    @ExceptionHandler(ContentTakenDownException.class)
+    public ResponseEntity<ApiResponse<Object>> handleContentTakenDown(
+            ContentTakenDownException ex, WebRequest request) {
+        String requestId = generateRequestId();
+        log.error("Content taken down [{}]: {}", requestId, ex.getMessage());
+
+        ApiResponse<Object> response = ApiResponse.error("Unavailable For Legal Reasons", ex.getMessage());
+        response.setRequestId(requestId);
+        
+        // 451 is not in standard HttpStatus enum in older Spring versions, but UNAVAILABLE_FOR_LEGAL_REASONS is available in newer ones.
+        // Using raw value 451 to ensure compatibility.
+        return ResponseEntity.status(451).body(response);
+    }
+
+    // =========================================================================
     // 409 — CONFLICT
     // =========================================================================
 

@@ -1032,6 +1032,11 @@ public class PostService {
                         postId, currentUser != null ? currentUser.getActualUsername() : "anonymous");
                 throw new PostNotFoundException("Post not found with ID: " + postId);
             }
+            if (post.getStatus() == PostStatus.TAKEN_DOWN) {
+                log.debug("[Access] Taken down post={} denied for user={}",
+                        postId, currentUser != null ? currentUser.getActualUsername() : "anonymous");
+                throw new com.JanSahayak.AI.exception.ContentTakenDownException("This content has been removed due to a legal or copyright claim.");
+            }
             if (post.getStatus() == PostStatus.RESOLVED && !canViewResolvedPost(post, currentUser)) {
                 log.debug("[Access] Resolved post={} denied for user={}",
                         postId, currentUser != null ? currentUser.getActualUsername() : "anonymous");

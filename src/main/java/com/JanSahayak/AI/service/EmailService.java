@@ -117,4 +117,80 @@ public class EmailService {
                 + "</body>"
                 + "</html>";
     }
+
+    @Async
+    public void sendCopyrightTakedownEmail(User user, String postContent, int strikes, String reason) {
+        log.info("Preparing copyright takedown email for {}", user.getEmail());
+        String htmlContent = "<p>Dear " + user.getActualUsername() + ",</p>"
+                + "<p>One of your posts has been removed due to a copyright infringement claim:</p>"
+                + "<blockquote>" + postContent + "</blockquote>"
+                + "<p><strong>Reason:</strong> " + reason + "</p>"
+                + "<p>You currently have <strong>" + strikes + " copyright strike(s)</strong>.</p>"
+                + "<p>Accumulating 3 strikes will result in permanent account suspension.</p>";
+        sendEmail(user.getEmail(), user.getActualUsername(), "Copyright Takedown Notice", htmlContent);
+    }
+
+    @Async
+    public void sendCopyrightBanEmail(User user, String reason) {
+        log.info("Preparing copyright ban email for {}", user.getEmail());
+        String htmlContent = "<p>Dear " + user.getActualUsername() + ",</p>"
+                + "<p>Your account has been permanently suspended due to repeated copyright violations (3 strikes).</p>"
+                + "<p><strong>Reason:</strong> " + reason + "</p>";
+        sendEmail(user.getEmail(), user.getActualUsername(), "Account Suspended - Copyright Violations", htmlContent);
+    }
+
+    @Async
+    public void sendExternalClaimConfirmationEmail(String claimantEmail, String claimantName, String referenceId) {
+        log.info("Preparing external claim confirmation email for {}", claimantEmail);
+        String htmlContent = "<p>Dear " + claimantName + ",</p>"
+                + "<p>We have received your copyright infringement claim.</p>"
+                + "<p>Your reference ID is: <strong>" + referenceId + "</strong></p>"
+                + "<p>Our Grievance Officer will review your claim and acknowledge it within 24 hours.</p>";
+        sendEmail(claimantEmail, claimantName, "Copyright Claim Received - " + referenceId, htmlContent);
+    }
+
+    @Async
+    public void sendExternalClaimAcknowledgedEmail(String claimantEmail, String claimantName, String referenceId) {
+        log.info("Preparing external claim acknowledged email for {}", claimantEmail);
+        String htmlContent = "<p>Dear " + claimantName + ",</p>"
+                + "<p>Your copyright infringement claim (Reference: <strong>" + referenceId + "</strong>) has been acknowledged.</p>"
+                + "<p>Our team is currently reviewing the claim and will take appropriate action as per the Information Technology (Intermediary Guidelines) Rules, 2021.</p>";
+        sendEmail(claimantEmail, claimantName, "Copyright Claim Acknowledged - " + referenceId, htmlContent);
+    }
+
+    private void sendEmail(String toEmail, String toName, String subject, String htmlContent) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("api-key", brevoApiKey);
+            headers.set("accept", "application/json");
+
+            Map<String, Object> sender = new HashMap<>();
+            sender.put("name", "Govlyx Trust & Safety");
+            sender.put("email", fromEmail);
+
+            Map<String, Object> to = new HashMap<>();
+            to.put("email", toEmail);
+            if (toName != null && !toName.isEmpty()) {
+                to.put("name", toName);
+            }
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("sender", sender);
+            requestBody.put("to", List.of(to));
+            requestBody.put("subject", subject);
+            requestBody.put("htmlContent", htmlContent);
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
+            ResponseEntity<String> response = restTemplate.postForEntity(BREVO_API_URL, request, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.info("Email sent successfully to {}", toEmail);
+            } else {
+                log.error("Failed to send email. Response: {}", response.getBody());
+            }
+        } catch (Exception e) {
+            log.error("Failed to send email to {}: {}", toEmail, e.getMessage());
+        }
+    }
 }

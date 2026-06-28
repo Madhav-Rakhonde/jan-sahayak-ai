@@ -331,6 +331,24 @@ public class SocialPost {
     private String flagReason;
 
     // =========================================================================
+    // LEGAL & COPYRIGHT TAKEDOWNS
+    // =========================================================================
+
+    @Column(name = "takedown_reason", length = 500)
+    private String takedownReason;
+
+    @Column(name = "taken_down_at")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date takenDownAt;
+
+    @Column(name = "taken_down_by_id")
+    private Long takenDownById;
+
+    @Column(name = "retention_expires_at")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date retentionExpiresAt;
+
+    // =========================================================================
     // USER MENTIONS
     // =========================================================================
 
@@ -684,6 +702,18 @@ public class SocialPost {
         double currentQuality = (this.qualityScore != null ? this.qualityScore : 100.0);
         this.qualityScore = Math.max(0, currentQuality - 10.0);
         checkAutoFlag();
+    }
+
+    public void takedownForCopyright(String reason, Long adminId) {
+        this.status = PostStatus.TAKEN_DOWN;
+        this.takedownReason = reason;
+        this.takenDownAt = new Date();
+        this.takenDownById = adminId;
+        // Keep media for 180 days for legal investigation
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.add(java.util.Calendar.DAY_OF_YEAR, 180);
+        this.retentionExpiresAt = cal.getTime();
+        this.updatedAt = new Date();
     }
 
     // =========================================================================

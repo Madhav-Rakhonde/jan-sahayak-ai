@@ -292,6 +292,10 @@ public class SocialPostService {
                 log.debug("[Access] Social post={} is {} — access denied", postId, socialPost.getStatus());
                 throw new PostNotFoundException("Social post not found with ID: " + postId);
             }
+            if (socialPost.getStatus() == PostStatus.TAKEN_DOWN) {
+                log.debug("[Access] Taken down social post={} denied", postId);
+                throw new com.JanSahayak.AI.exception.ContentTakenDownException("This content has been removed due to a legal or copyright claim.");
+            }
 
 
             if (socialPost.getCommunityId() != null && user != null && !PostUtility.isAdmin(user)) {

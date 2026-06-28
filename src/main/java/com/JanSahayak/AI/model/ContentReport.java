@@ -72,6 +72,20 @@ public class ContentReport {
     @Column(name = "resolution_notes", length = 1000)
     private String resolutionNotes;
 
+    // ===== Copyright Specific Fields =====
+    
+    @Column(name = "original_content_url", length = 1000)
+    private String originalContentUrl;
+
+    @Column(name = "ownership_declaration", columnDefinition = "boolean")
+    private Boolean ownershipDeclaration;
+
+    @Column(name = "claimant_name", length = 255)
+    private String claimantName;
+
+    @Column(name = "claimant_email", length = 255)
+    private String claimantEmail;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) {
@@ -84,7 +98,8 @@ public class ContentReport {
         if (category == ReportCategory.HARASSMENT ||
             category == ReportCategory.OBSCENITY ||
             category == ReportCategory.IMPERSONATION ||
-            category == ReportCategory.NATIONAL_SECURITY) {
+            category == ReportCategory.NATIONAL_SECURITY ||
+            category == ReportCategory.IP_INFRINGEMENT) {
             isEmergency = true;
         } else {
             isEmergency = false;

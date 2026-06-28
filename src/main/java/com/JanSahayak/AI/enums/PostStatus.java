@@ -15,7 +15,8 @@ public enum PostStatus {
     DELETED("Deleted", false, false, false),
     FLAGGED("Flagged", false, false, false),
     ARCHIVED("Archived", false, true, false),
-    HIDDEN("Hidden", false, false, false);
+    HIDDEN("Hidden", false, false, false),
+    TAKEN_DOWN("Taken Down", false, false, false);
 
     private final String displayName;
     private final boolean allowsUpdates;
@@ -60,7 +61,7 @@ public enum PostStatus {
      * Check if this is a social post status (DELETED, FLAGGED, ARCHIVED, HIDDEN)
      */
     public boolean isSocialPostStatus() {
-        return this == DELETED || this == FLAGGED || this == ARCHIVED || this == HIDDEN;
+        return this == DELETED || this == FLAGGED || this == ARCHIVED || this == HIDDEN || this == TAKEN_DOWN;
     }
 
     /**
@@ -74,7 +75,7 @@ public enum PostStatus {
      * Check if this status hides content from users
      */
     public boolean isHiddenStatus() {
-        return this == DELETED || this == FLAGGED || this == HIDDEN;
+        return this == DELETED || this == FLAGGED || this == HIDDEN || this == TAKEN_DOWN;
     }
 
     // ===== Transition Logic for Issue Posts =====
@@ -105,7 +106,8 @@ public enum PostStatus {
                 return targetStatus == ACTIVE;
 
             case DELETED:
-                // DELETED posts cannot be restored (permanent)
+            case TAKEN_DOWN:
+                // DELETED or TAKEN_DOWN posts cannot be restored (permanent)
                 return false;
 
             case FLAGGED:
@@ -133,13 +135,14 @@ public enum PostStatus {
     public PostStatus[] getPossibleTransitions() {
         switch (this) {
             case ACTIVE:
-                return new PostStatus[]{RESOLVED, DELETED, FLAGGED, ARCHIVED, HIDDEN};
+                return new PostStatus[]{RESOLVED, DELETED, FLAGGED, ARCHIVED, HIDDEN, TAKEN_DOWN};
 
             case RESOLVED:
                 return new PostStatus[]{ACTIVE};
 
             case DELETED:
-                return new PostStatus[0]; // No transitions from DELETED
+            case TAKEN_DOWN:
+                return new PostStatus[0]; // No transitions from DELETED or TAKEN_DOWN
 
             case FLAGGED:
                 return new PostStatus[]{ACTIVE, DELETED};
@@ -212,7 +215,7 @@ public enum PostStatus {
      * Check if content is permanently removed
      */
     public boolean isPermanentlyRemoved() {
-        return this == DELETED;
+        return this == DELETED || this == TAKEN_DOWN;
     }
 
     /**
@@ -249,6 +252,8 @@ public enum PostStatus {
                 return "Published";
             case DELETED:
                 return "Deleted by user";
+            case TAKEN_DOWN:
+                return "Removed for legal/policy violation";
             case FLAGGED:
                 return "Under review";
             case ARCHIVED:
@@ -284,6 +289,7 @@ public enum PostStatus {
             case RESOLVED:
                 return "blue";
             case DELETED:
+            case TAKEN_DOWN:
                 return "red";
             case FLAGGED:
                 return "orange";
@@ -307,6 +313,8 @@ public enum PostStatus {
                 return "✓✓";
             case DELETED:
                 return "✗";
+            case TAKEN_DOWN:
+                return "⚖️";
             case FLAGGED:
                 return "⚠";
             case ARCHIVED:

@@ -77,6 +77,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/search/posts/anonymous").permitAll()
                         .requestMatchers("/api/districts/**").permitAll()
                         .requestMatchers("/api/media/test").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/copyright-claims").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/copyright-claims/status").permitAll()
 
                         // ── WebSocket ─────────────────────────────────────────────────────────────
                         .requestMatchers("/ws/**").permitAll()

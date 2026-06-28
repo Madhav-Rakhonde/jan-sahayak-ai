@@ -31,6 +31,7 @@ public class ContentReportService {
     @Autowired private ContentReportRepository reportRepo;
     @Autowired private SocialPostRepo socialPostRepo;
     @Autowired private UserRepo userRepo;
+    @Autowired private CopyrightModerationService copyrightModerationService;
 
     // ── Helper ────────────────────────────────────────────────────────────────
 
@@ -143,6 +144,15 @@ public class ContentReportService {
                     post.setFlagReason(null);
                     socialPostRepo.save(post);
                 }
+            }
+        }
+        
+        // If removed for IP infringement, apply copyright strike
+        if ("RESOLVED_REMOVED".equals(resolution) && report.getCategory() == ReportCategory.IP_INFRINGEMENT) {
+            if ("SOCIAL_POST".equals(report.getTargetType())) {
+                copyrightModerationService.executeTakedownOnSocialPost(report.getTargetId(), admin.getId(), report.getDescription());
+            } else if ("POST".equals(report.getTargetType())) {
+                copyrightModerationService.executeTakedownOnPost(report.getTargetId(), admin.getId(), report.getDescription());
             }
         }
 

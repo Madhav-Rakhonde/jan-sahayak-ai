@@ -141,6 +141,39 @@ public class Post {
     @Column(name = "is_auto_escalated", nullable = false, columnDefinition = "boolean default false")
     private boolean isAutoEscalated = false;
 
+    // ── Moderation ────────────────────────────────────────────────────────────
+
+    @Builder.Default
+    @Column(name = "report_count", nullable = false, columnDefinition = "integer default 0")
+    private int reportCount = 0;
+
+    @Builder.Default
+    @Column(name = "is_flagged", nullable = false, columnDefinition = "boolean default false")
+    private boolean isFlagged = false;
+
+    @Column(name = "flagged_at")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date flaggedAt;
+
+    @Column(name = "flag_reason", length = 500)
+    private String flagReason;
+
+    // ── Legal & Copyright Takedowns ───────────────────────────────────────────
+
+    @Column(name = "takedown_reason", length = 500)
+    private String takedownReason;
+
+    @Column(name = "taken_down_at")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date takenDownAt;
+
+    @Column(name = "taken_down_by_id")
+    private Long takenDownById;
+
+    @Column(name = "retention_expires_at")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date retentionExpiresAt;
+
     // ── Counters (denormalized for fast reads) ────────────────────────────────
 
     @Builder.Default
@@ -279,6 +312,38 @@ public class Post {
         this.resolvedAt        = null;
         this.resolutionMessage = null;
         this.updatedAt         = new Date();
+    }
+
+    public void incrementReportCount() {
+        this.reportCount++;
+    }
+
+    public void flagPost(String reason) {
+        this.isFlagged = true;
+        this.status = PostStatus.FLAGGED;
+        this.flaggedAt = new Date();
+        this.flagReason = reason;
+        this.updatedAt = new Date();
+    }
+
+    public void unflagPost() {
+        this.isFlagged = false;
+        this.status = PostStatus.ACTIVE;
+        this.flaggedAt = null;
+        this.flagReason = null;
+        this.updatedAt = new Date();
+    }
+
+    public void takedownForCopyright(String reason, Long adminId) {
+        this.status = PostStatus.TAKEN_DOWN;
+        this.takedownReason = reason;
+        this.takenDownAt = new Date();
+        this.takenDownById = adminId;
+        // Keep media for 180 days for legal investigation
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.add(java.util.Calendar.DAY_OF_YEAR, 180);
+        this.retentionExpiresAt = cal.getTime();
+        this.updatedAt = new Date();
     }
 
     // ── PostUtility compatibility helpers ─────────────────────────────────────

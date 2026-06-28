@@ -137,6 +137,19 @@ public class User implements UserDetails {
     @Column(name = "muted_words", length = 1000)
     private String mutedWords;
 
+    // ===== Legal & Moderation =====
+    
+    @Column(name = "copyright_strikes", nullable = false, columnDefinition = "integer default 0")
+    @Builder.Default
+    private Integer copyrightStrikes = 0;
+
+    @Column(name = "banned_at")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date bannedAt;
+
+    @Column(name = "ban_reason", length = 500)
+    private String banReason;
+
     @Column(name = "is_email_verified", columnDefinition = "boolean default false")
     @Builder.Default
     private Boolean isEmailVerified = false;
@@ -428,7 +441,19 @@ public class User implements UserDetails {
 
     @Override
     public boolean isEnabled() {
+        if (bannedAt != null) return false;
         return isActive != null && isActive;
+    }
+
+    public void incrementCopyrightStrikes() {
+        this.copyrightStrikes = (this.copyrightStrikes != null ? this.copyrightStrikes : 0) + 1;
+    }
+
+    public void banUser(String reason) {
+        this.isActive = false;
+        this.bannedAt = new Date();
+        this.banReason = reason;
+        this.updatedAt = new Date();
     }
 
     @PreUpdate

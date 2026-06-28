@@ -100,6 +100,15 @@ public class Poll {
 
     // ===== Status =====
 
+    // ===== Legal & Copyright Takedowns =====
+    
+    @Column(name = "takedown_reason", length = 500)
+    private String takedownReason;
+
+    @Column(name = "taken_down_at")
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date takenDownAt;
+
     @Column(name = "is_active", nullable = false, columnDefinition = "boolean")
     @Builder.Default
     private Boolean isActive = true;
@@ -150,6 +159,13 @@ public class Poll {
 
     public void deactivate() {
         this.isActive = false;
+        this.updatedAt = new Date();
+    }
+
+    public void takedownForCopyright(String reason) {
+        this.isActive = false;
+        this.takedownReason = reason;
+        this.takenDownAt = new Date();
         this.updatedAt = new Date();
     }
 
