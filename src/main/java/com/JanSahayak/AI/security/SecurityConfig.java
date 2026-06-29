@@ -137,6 +137,7 @@ public class SecurityConfig {
                 "https://govlyx.com",
                 "https://www.govlyx.com",
                 "https://govlyx-io.vercel.app",
+                "https://govlyx.vercel.app",
                 "https://govlyxpredeploytesting.vercel.app",
                 "http://localhost:5173",
                 "http://localhost:3000",
