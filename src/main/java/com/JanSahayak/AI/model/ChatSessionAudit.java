@@ -41,6 +41,14 @@ public class ChatSessionAudit {
     @Column(name = "user2_ip", length = 45)
     private String user2Ip;
 
+    @Column(name = "user1_used_media", nullable = false)
+    @Builder.Default
+    private boolean user1UsedMedia = false;
+
+    @Column(name = "user2_used_media", nullable = false)
+    @Builder.Default
+    private boolean user2UsedMedia = false;
+
     @Column(name = "started_at", nullable = false, updatable = false)
     @Temporal(TemporalType.TIMESTAMP)
     @Builder.Default

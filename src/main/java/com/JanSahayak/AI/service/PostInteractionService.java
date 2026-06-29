@@ -184,7 +184,7 @@ public class PostInteractionService {
         }
 
         self.executeLikePostAsync(post.getId(), user.getId());
-        updatePostCountsCache(post.getId(), post);
+        // Cache is evicted asynchronously
         return !currentlyLiked;
     }
 
@@ -218,6 +218,7 @@ public class PostInteractionService {
                 try { notificationService.notifyPostLiked(post, user); } catch (Exception e) {}
                 log.info("[Like] Added (Async): post={} user={}", postId, user.getActualUsername());
             }
+            evictPostCountsCache(postId);
         } catch (DataIntegrityViolationException e) {
             log.debug("[Like] Race condition (DB Async): post={} user={}", postId, user.getActualUsername());
         } catch (Exception e) {
@@ -245,7 +246,7 @@ public class PostInteractionService {
         }
 
         self.executeDislikePostAsync(post.getId(), user.getId());
-        updatePostCountsCache(post.getId(), post);
+        // Cache is evicted asynchronously
         return !currentlyDisliked;
     }
 
@@ -277,6 +278,7 @@ public class PostInteractionService {
                 postRepository.incrementDislikeCount(postId);
                 log.info("[Dislike] Added (Async): post={} user={}", postId, user.getActualUsername());
             }
+            evictPostCountsCache(postId);
         } catch (DataIntegrityViolationException e) {
             log.debug("[Dislike] Race condition (DB Async): post={} user={}", postId, user.getActualUsername());
         } catch (Exception e) {
@@ -304,7 +306,7 @@ public class PostInteractionService {
         }
 
         self.executeLikeSocialPostAsync(socialPost.getId(), user.getId(), socialPost.getCommunity() != null ? socialPost.getCommunity().getId() : null);
-        updateSocialPostCountsCache(socialPost.getId(), socialPost);
+        // Cache is evicted asynchronously
         return !currentlyLiked;
     }
 
@@ -347,6 +349,7 @@ public class PostInteractionService {
                 try { notificationService.notifySocialPostLiked(socialPost, user); } catch (Exception e) {}
                 log.info("[Like] Added (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
             }
+            evictSocialPostCountsCache(socialPostId);
         } catch (DataIntegrityViolationException e) {
             log.debug("[Like] Race condition (DB Async): socialPost={} user={}", socialPostId, user.getActualUsername());
         } catch (Exception e) {
@@ -374,7 +377,7 @@ public class PostInteractionService {
         }
 
         self.executeDislikeSocialPostAsync(socialPost.getId(), user.getId());
-        updateSocialPostCountsCache(socialPost.getId(), socialPost);
+        // Cache is evicted asynchronously
         return !currentlyDisliked;
     }
 
@@ -409,6 +412,7 @@ public class PostInteractionService {
                 fireHligSignal(() -> interestProfileService.onDislike(userId, socialPostId), "DISLIKE", socialPostId, userId);
                 log.info("[Dislike] Added (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
             }
+            evictSocialPostCountsCache(socialPostId);
         } catch (DataIntegrityViolationException e) {
             log.debug("[Dislike] Race condition (DB Async): socialPost={} user={}", socialPostId, user.getActualUsername());
         } catch (Exception e) {
@@ -480,31 +484,17 @@ public class PostInteractionService {
     }
 
     
-    private void updatePostCountsCache(Long postId, Post post) {
+    private void evictPostCountsCache(Long postId) {
         org.springframework.cache.Cache cache = cacheManager.getCache("postCounts");
         if (cache != null) {
-            cache.put("POST_" + postId, java.util.Map.of(
-                "likeCount", post.getLikeCount(),
-                "dislikeCount", post.getDislikeCount(),
-                "saveCount", post.getSaveCount(),
-                "viewCount", post.getViewCount(),
-                "commentCount", post.getCommentCount(),
-                "shareCount", post.getShareCount()
-            ));
+            cache.evict("POST_" + postId);
         }
     }
 
-    private void updateSocialPostCountsCache(Long socialPostId, SocialPost post) {
+    private void evictSocialPostCountsCache(Long socialPostId) {
         org.springframework.cache.Cache cache = cacheManager.getCache("postCounts");
         if (cache != null) {
-            cache.put("SOCIAL_" + socialPostId, java.util.Map.of(
-                "likeCount", post.getLikeCount(),
-                "dislikeCount", post.getDislikeCount(),
-                "saveCount", post.getSaveCount(),
-                "viewCount", post.getViewCount(),
-                "commentCount", post.getCommentCount(),
-                "shareCount", post.getShareCount()
-            ));
+            cache.evict("SOCIAL_" + socialPostId);
         }
     }
 
@@ -634,7 +624,7 @@ public class PostInteractionService {
         }
 
         self.executeToggleSocialPostSaveAsync(socialPost.getId(), user.getId());
-        updateSocialPostCountsCache(socialPost.getId(), socialPost);
+        // Cache is evicted asynchronously
         return !currentlySaved;
     }
 
@@ -659,6 +649,7 @@ public class PostInteractionService {
                 fireHligSignal(() -> interestProfileService.onSave(userId, socialPostId), "SAVE", socialPostId, userId);
                 log.info("[Save] Added (Async): socialPost={} user={}", socialPostId, user.getActualUsername());
             }
+            evictSocialPostCountsCache(socialPostId);
         } catch (DataIntegrityViolationException e) {
             log.debug("[Save] Race condition (DB Async): socialPost={} user={}", socialPostId, user.getActualUsername());
         } catch (Exception e) {
@@ -690,7 +681,7 @@ public class PostInteractionService {
         }
 
         self.executeToggleBroadcastPostSaveAsync(post.getId(), user.getId());
-        updatePostCountsCache(post.getId(), post);
+        // Cache is evicted asynchronously
         return !currentlySaved;
     }
 
@@ -713,6 +704,7 @@ public class PostInteractionService {
                 postRepository.incrementSaveCount(postId);
                 log.info("[Save] Added (Async): broadcastPost={} user={}", postId, user.getActualUsername());
             }
+            evictPostCountsCache(postId);
         } catch (DataIntegrityViolationException e) {
             log.debug("[Save] Race condition (DB Async): broadcastPost={} user={}", postId, user.getActualUsername());
         } catch (Exception e) {

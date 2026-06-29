@@ -326,6 +326,26 @@ public class ChatSessionService {
         return mediaCache.remove(fileId) != null;
     }
 
+    public void markMediaUsedInAudit(String sessionId, Long userId) {
+        try {
+            chatSessionAuditRepo.findBySessionId(sessionId).ifPresent(audit -> {
+                boolean changed = false;
+                if (userId.equals(audit.getUser1Id()) && !audit.isUser1UsedMedia()) {
+                    audit.setUser1UsedMedia(true);
+                    changed = true;
+                } else if (userId.equals(audit.getUser2Id()) && !audit.isUser2UsedMedia()) {
+                    audit.setUser2UsedMedia(true);
+                    changed = true;
+                }
+                if (changed) {
+                    chatSessionAuditRepo.save(audit);
+                }
+            });
+        } catch (Exception e) {
+            log.error("Failed to mark media used in audit for session {}", sessionId, e);
+        }
+    }
+
     private void cleanupSessionMedia(String sessionId) {
         List<String> fileIds = sessionMediaMap.remove(sessionId);
         if (fileIds != null) {

@@ -346,11 +346,13 @@ public class ChatController {
             @RequestParam(value = "replyToId", required = false) String replyToId,
             @AuthenticationPrincipal User user) {
         try {
-            if (!planEnforcementService.canSendChatMedia(user.getId())) {
-                throw new RuntimeException("Upgrade to Govlyx Pro or VIP to send rich media.");
-            }
-
             ChatMessage.MessageType type = parseMediaType(typeRaw);
+
+            if (type != ChatMessage.MessageType.STICKER) {
+                if (!planEnforcementService.canSendChatMedia(user.getId(), sessionId)) {
+                    throw new RuntimeException("Upgrade to Govlyx Pro or VIP to send rich media.");
+                }
+            }
 
             // Clamp timer to valid range (0–60 s)
             viewTimer = Math.max(0, Math.min(viewTimer, 60));
@@ -372,6 +374,10 @@ public class ChatController {
                     replyToId);
 
             chatMessagingService.sendMediaToSession(sessionId, msg);
+            
+            if (type != ChatMessage.MessageType.STICKER) {
+                chatSessionService.markMediaUsedInAudit(sessionId, user.getId());
+            }
 
             Map<String, Object> response = new HashMap<>();
             response.put("messageId", msg.getMessageId());

@@ -7,6 +7,7 @@ import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.support.SimpleCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.cache.transaction.TransactionAwareCacheManagerProxy;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -114,6 +115,10 @@ public class CacheConfig {
     private static final int  USER_TIERS_MAX_SIZE = 50_000;
     private static final long USER_TIERS_TTL_HOURS = 1L;
 
+    /** Post interaction counts cache */
+    private static final int  POST_COUNTS_MAX_SIZE = 100_000;
+    private static final long POST_COUNTS_TTL_MINUTES = 5L;
+
     /** Translations API cache to prevent duplicate external calls */
     private static final int  TRANSLATIONS_API_MAX_SIZE = 10_000;
     private static final long TRANSLATIONS_API_TTL_HOURS = 2L;
@@ -213,14 +218,22 @@ public class CacheConfig {
                 TimeUnit.HOURS
         );
 
+        CaffeineCache postCountsCache = buildCache(
+                "postCounts",
+                POST_COUNTS_MAX_SIZE,
+                POST_COUNTS_TTL_MINUTES,
+                TimeUnit.MINUTES
+        );
+
         SimpleCacheManager manager = new SimpleCacheManager();
         manager.setCaches(List.of(
                 profileCache, geoDistCache,
                 trendingPostsCache, broadcastFeedsCache, hligFeedCache,
                 notifCountCache, userProfileCache, pincodeCache, communityListCache,
-                communitiesCache, authUserDetailsCache, userTiersCache, translationsApiCache
+                communitiesCache, authUserDetailsCache, userTiersCache, translationsApiCache,
+                postCountsCache
         ));
-        return manager;
+        return new TransactionAwareCacheManagerProxy(manager);
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────

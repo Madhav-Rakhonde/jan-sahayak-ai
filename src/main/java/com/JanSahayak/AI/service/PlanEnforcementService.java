@@ -43,9 +43,29 @@ public class PlanEnforcementService {
         return passOpt.isPresent() && passOpt.get().getPrivateCommunityQuota() > 0;
     }
 
-    public boolean canSendChatMedia(Long userId) {
+    public boolean canSendChatMedia(Long userId, String sessionId) {
         PassTier tier = getUserTier(userId);
-        return tier == PassTier.GOVLYX_PRO || tier == PassTier.GOVLYX_VIP;
+        if (tier == PassTier.GOVLYX_PRO || tier == PassTier.GOVLYX_VIP) {
+            return true;
+        }
+
+        // For FREE tier:
+        Optional<com.JanSahayak.AI.model.ChatSessionAudit> auditOpt = chatSessionAuditRepo.findBySessionId(sessionId);
+        if (auditOpt.isPresent()) {
+            com.JanSahayak.AI.model.ChatSessionAudit audit = auditOpt.get();
+            // If they already used media in this session, allow
+            if (userId.equals(audit.getUser1Id()) && audit.isUser1UsedMedia()) return true;
+            if (userId.equals(audit.getUser2Id()) && audit.isUser2UsedMedia()) return true;
+        }
+
+        // Otherwise, check if they have used media in < 5 sessions in the last 24h
+        Date since = Date.from(Instant.now().minus(24, ChronoUnit.HOURS));
+        int mediaCount = chatSessionAuditRepo.countMediaSessionsForUserSince(userId, since);
+        if (mediaCount >= 5) {
+            throw new PlanLimitExceededException("You have reached your free daily limit of 5 chats with media. Upgrade to Govlyx Pro for unlimited media in all chats.");
+        }
+
+        return true;
     }
 
     public boolean canUseMatchFilters(Long userId) {
