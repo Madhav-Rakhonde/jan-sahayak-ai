@@ -2,8 +2,8 @@ package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.config.Constant;
 
-import com.JanSahayak.AI.DTO.NotificationDto;
-import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.dto.NotificationDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
 import com.JanSahayak.AI.enums.NotificationType;
 import com.JanSahayak.AI.exception.ServiceException;
 import com.JanSahayak.AI.exception.ValidationException;

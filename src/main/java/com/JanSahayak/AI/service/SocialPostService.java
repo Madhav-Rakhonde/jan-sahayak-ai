@@ -1,9 +1,9 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.SocialPostCreateDto;
-import com.JanSahayak.AI.DTO.SocialPostDto;
-import com.JanSahayak.AI.DTO.SocialPostUpdateDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
+import com.JanSahayak.AI.dto.SocialPostCreateDto;
+import com.JanSahayak.AI.dto.SocialPostDto;
+import com.JanSahayak.AI.dto.SocialPostUpdateDto;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.enums.FeedScope;
 import com.JanSahayak.AI.enums.FeedSort;
@@ -345,13 +345,13 @@ public class SocialPostService {
 
         try {
             // PostInteractionService.getSavedPostsForUser returns Page<SavedPostDto>
-            Page<com.JanSahayak.AI.DTO.SavedPostDto> page =
+            Page<com.JanSahayak.AI.dto.SavedPostDto> page =
                     postInteractionService.getSavedPostsForUser(user, 0, validLimit);
 
             // Collect social post IDs from the DTO page
             List<Long> socialPostIds = page.getContent().stream()
                     .filter(dto -> dto.getSocialPostId() != null)
-                    .map(com.JanSahayak.AI.DTO.SavedPostDto::getSocialPostId)
+                    .map(com.JanSahayak.AI.dto.SavedPostDto::getSocialPostId)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
 

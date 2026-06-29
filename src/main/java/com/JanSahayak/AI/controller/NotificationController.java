@@ -1,7 +1,7 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.NotificationDto;
-import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.dto.NotificationDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.service.NotificationService;
 import com.JanSahayak.AI.service.UserService;

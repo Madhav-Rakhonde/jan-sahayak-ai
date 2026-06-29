@@ -1,9 +1,9 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.CommentCreateDto;
-import com.JanSahayak.AI.DTO.CommentDto;
-import com.JanSahayak.AI.DTO.CommentUpdateDto;
-import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.dto.CommentCreateDto;
+import com.JanSahayak.AI.dto.CommentDto;
+import com.JanSahayak.AI.dto.CommentUpdateDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.exception.CommentNotFoundException;
 import com.JanSahayak.AI.exception.ResourceNotFoundException;

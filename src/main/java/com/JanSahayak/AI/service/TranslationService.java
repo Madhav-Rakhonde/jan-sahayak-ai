@@ -1,7 +1,7 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.PostResponse;
-import com.JanSahayak.AI.DTO.SocialPostDto;
+import com.JanSahayak.AI.dto.PostResponse;
+import com.JanSahayak.AI.dto.SocialPostDto;
 import com.JanSahayak.AI.model.PostTranslation;
 import com.JanSahayak.AI.repository.PostTranslationRepository;
 import com.fasterxml.jackson.databind.JsonNode;

@@ -1,6 +1,6 @@
 package com.JanSahayak.AI.exception;
 
-import com.JanSahayak.AI.DTO.PostResponse;
+import com.JanSahayak.AI.dto.PostResponse;
 import lombok.Getter;
 
 @Getter

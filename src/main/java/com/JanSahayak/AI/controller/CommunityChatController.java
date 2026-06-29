@@ -1,6 +1,6 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.CommunityMessageDto;
+import com.JanSahayak.AI.dto.CommunityMessageDto;
 import com.JanSahayak.AI.exception.ApiResponse;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.service.CommunityChatService;

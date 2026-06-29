@@ -1,9 +1,9 @@
 package com.JanSahayak.AI.controller;
 
 import com.JanSahayak.AI.config.Constant;
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.PostResponse;
-import com.JanSahayak.AI.DTO.SocialPostDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
+import com.JanSahayak.AI.dto.PostResponse;
+import com.JanSahayak.AI.dto.SocialPostDto;
 import com.JanSahayak.AI.enums.FeedScope;
 import com.JanSahayak.AI.enums.FeedSort;
 import com.JanSahayak.AI.model.User;

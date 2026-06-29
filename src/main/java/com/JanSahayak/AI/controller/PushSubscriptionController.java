@@ -1,6 +1,6 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.PushSubscriptionDto;
+import com.JanSahayak.AI.dto.PushSubscriptionDto;
 import com.JanSahayak.AI.model.PushSubscription;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.repository.PushSubscriptionRepository;

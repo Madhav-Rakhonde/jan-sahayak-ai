@@ -1,6 +1,6 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.ChatMessageDto;
+import com.JanSahayak.AI.dto.ChatMessageDto;
 import com.JanSahayak.AI.model.ChatMessage;
 import com.JanSahayak.AI.model.ChatSession;
 import lombok.RequiredArgsConstructor;

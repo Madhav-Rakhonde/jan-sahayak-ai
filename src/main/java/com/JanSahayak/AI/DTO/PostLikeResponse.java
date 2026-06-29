@@ -1,5 +1,5 @@
 // File: src/main/java/com/JanSahayak/AI/DTO/PostLikeResponse.java
-package com.JanSahayak.AI.DTO;
+package com.JanSahayak.AI.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

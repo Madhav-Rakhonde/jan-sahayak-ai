@@ -1,8 +1,8 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.CommunityDto.CommunityInviteDto.*;
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.CommunityDto.*;
+import com.JanSahayak.AI.dto.CommunityDto.CommunityInviteDto.*;
+import com.JanSahayak.AI.dto.PaginatedResponse;
+import com.JanSahayak.AI.dto.CommunityDto.*;
 import com.JanSahayak.AI.exception.ApiResponse;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.service.CommunityInviteService;

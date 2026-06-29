@@ -1,7 +1,7 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.UserTagSuggestionDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
+import com.JanSahayak.AI.dto.UserTagSuggestionDto;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.exception.*;

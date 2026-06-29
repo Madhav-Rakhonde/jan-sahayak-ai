@@ -1,8 +1,8 @@
 package com.JanSahayak.AI.payload;
 
-import com.JanSahayak.AI.DTO.CommentDto;
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.SocialPostDto;
+import com.JanSahayak.AI.dto.CommentDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
+import com.JanSahayak.AI.dto.SocialPostDto;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.model.SocialPost;
 import com.JanSahayak.AI.model.User;

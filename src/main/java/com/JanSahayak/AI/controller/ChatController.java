@@ -1,7 +1,7 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.ChatMessageDto;
-import com.JanSahayak.AI.DTO.ChatSessionDto;
+import com.JanSahayak.AI.dto.ChatMessageDto;
+import com.JanSahayak.AI.dto.ChatSessionDto;
 import com.JanSahayak.AI.exception.ApiResponse;
 import com.JanSahayak.AI.model.ChatMessage;
 import com.JanSahayak.AI.model.ChatSession;

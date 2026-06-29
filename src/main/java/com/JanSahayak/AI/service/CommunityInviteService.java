@@ -1,7 +1,7 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.CommunityDto.CommunityInviteDto.*;
-import com.JanSahayak.AI.DTO.PaginatedResponse;
+import com.JanSahayak.AI.dto.CommunityDto.CommunityInviteDto.*;
+import com.JanSahayak.AI.dto.PaginatedResponse;
 import com.JanSahayak.AI.exception.ValidationException;
 import com.JanSahayak.AI.model.*;
 import com.JanSahayak.AI.repository.*;

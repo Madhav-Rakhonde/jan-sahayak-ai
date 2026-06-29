@@ -1,8 +1,8 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.AuthRequest;
-import com.JanSahayak.AI.DTO.AuthResponse;
-import com.JanSahayak.AI.DTO.RegisterRequest;
+import com.JanSahayak.AI.dto.AuthRequest;
+import com.JanSahayak.AI.dto.AuthResponse;
+import com.JanSahayak.AI.dto.RegisterRequest;
 import com.JanSahayak.AI.exception.ApiResponse;
 import com.JanSahayak.AI.exception.ServiceException;
 import com.JanSahayak.AI.model.User;

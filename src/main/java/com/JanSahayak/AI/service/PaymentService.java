@@ -3,7 +3,9 @@ package com.JanSahayak.AI.service;
 import com.JanSahayak.AI.enums.PassTier;
 import com.JanSahayak.AI.enums.UserPassStatus;
 import com.JanSahayak.AI.model.UserPass;
+import com.JanSahayak.AI.model.TransactionHistory;
 import com.JanSahayak.AI.repository.UserPassRepository;
+import com.JanSahayak.AI.repository.TransactionHistoryRepository;
 import com.razorpay.Order;
 import com.razorpay.RazorpayClient;
 import com.razorpay.RazorpayException;
@@ -27,6 +29,7 @@ import java.util.Optional;
 public class PaymentService {
 
     private final UserPassRepository userPassRepository;
+    private final TransactionHistoryRepository transactionHistoryRepository;
     private final CacheManager cacheManager;
 
     @Value("${razorpay.key.id}")
@@ -34,6 +37,9 @@ public class PaymentService {
 
     @Value("${razorpay.key.secret}")
     private String razorpayKeySecret;
+
+    @Value("${razorpay.webhook.secret:}")
+    private String razorpayWebhookSecret;
 
     private RazorpayClient razorpayClient;
 
@@ -71,6 +77,17 @@ public class PaymentService {
                 .build();
         userPassRepository.save(userPass);
 
+        // Save transaction history
+        TransactionHistory transaction = TransactionHistory.builder()
+                .userId(userId)
+                .amount(amount * 100)
+                .currency("INR")
+                .targetTier(targetTier)
+                .razorpayOrderId(orderId)
+                .status("CREATED")
+                .build();
+        transactionHistoryRepository.save(transaction);
+
         return orderId;
     }
 
@@ -85,15 +102,35 @@ public class PaymentService {
             boolean isValid = Utils.verifyPaymentSignature(options, razorpayKeySecret);
 
             if (isValid) {
-                Optional<UserPass> passOpt = userPassRepository.findByRazorpayOrderId(orderId);
+                // Use Pessimistic Lock to strictly prevent race conditions
+                Optional<UserPass> passOpt = userPassRepository.findByRazorpayOrderIdForUpdate(orderId);
                 if (passOpt.isPresent()) {
                     UserPass userPass = passOpt.get();
+                    
+                    // IDEMPOTENCY CHECK: Prevent double activation
+                    if (userPass.getStatus() == UserPassStatus.ACTIVE) {
+                        log.info("Order ID {} is already active. Skipping double activation.", orderId);
+                        return true;
+                    }
+                    
                     userPass.setRazorpayPaymentId(paymentId);
                     activatePass(userPass);
+                    
+                    transactionHistoryRepository.findByRazorpayOrderId(orderId).ifPresent(tx -> {
+                        tx.setRazorpayPaymentId(paymentId);
+                        tx.setStatus("SUCCESS");
+                        transactionHistoryRepository.save(tx);
+                    });
                 } else {
                     log.error("Order ID {} verified but UserPass record not found", orderId);
                     return false;
                 }
+            } else {
+                transactionHistoryRepository.findByRazorpayOrderId(orderId).ifPresent(tx -> {
+                    tx.setRazorpayPaymentId(paymentId);
+                    tx.setStatus("FAILED");
+                    transactionHistoryRepository.save(tx);
+                });
             }
             return isValid;
         } catch (RazorpayException e) {
@@ -128,5 +165,62 @@ public class PaymentService {
         }
         
         log.info("Pass activated for user {} with tier {}", userPass.getUserId(), userPass.getTier());
+    }
+
+    @Transactional
+    public void processWebhook(String payload, String signature) {
+        if (razorpayWebhookSecret == null || razorpayWebhookSecret.isEmpty()) {
+            log.error("Webhook secret is not configured.");
+            return;
+        }
+        
+        try {
+            boolean isValid = Utils.verifyWebhookSignature(payload, signature, razorpayWebhookSecret);
+            if (!isValid) {
+                log.error("Invalid webhook signature received.");
+                return;
+            }
+
+            JSONObject webhookBody = new JSONObject(payload);
+            String event = webhookBody.getString("event");
+
+            if ("payment.captured".equals(event) || "order.paid".equals(event)) {
+                JSONObject paymentEntity = webhookBody.getJSONObject("payload").getJSONObject("payment").getJSONObject("entity");
+                String orderId = paymentEntity.getString("order_id");
+                String paymentId = paymentEntity.getString("id");
+                
+                log.info("Webhook received for order {} and payment {}", orderId, paymentId);
+                
+                // Use Pessimistic Lock to strictly prevent race conditions
+                Optional<UserPass> passOpt = userPassRepository.findByRazorpayOrderIdForUpdate(orderId);
+                if (passOpt.isPresent()) {
+                    UserPass userPass = passOpt.get();
+                    
+                    // IDEMPOTENCY CHECK
+                    if (userPass.getStatus() == UserPassStatus.ACTIVE) {
+                        log.info("Webhook: Order ID {} already active. Skipping.", orderId);
+                        return;
+                    }
+                    
+                    // Extra security: Verify amount matches
+                    int amountPaid = paymentEntity.getInt("amount"); // in paise
+                    transactionHistoryRepository.findByRazorpayOrderId(orderId).ifPresent(tx -> {
+                        if (tx.getAmount() == amountPaid) {
+                            userPass.setRazorpayPaymentId(paymentId);
+                            activatePass(userPass);
+                            
+                            tx.setRazorpayPaymentId(paymentId);
+                            tx.setStatus("SUCCESS");
+                            transactionHistoryRepository.save(tx);
+                            log.info("Webhook: Activated pass for user {}", userPass.getUserId());
+                        } else {
+                            log.error("Webhook: Amount mismatch for order {}. Expected {}, got {}", orderId, tx.getAmount(), amountPaid);
+                        }
+                    });
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error processing Razorpay webhook", e);
+        }
     }
 }

@@ -1,9 +1,9 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.PostResponse;
-import com.JanSahayak.AI.DTO.SocialPostDto;
-import com.JanSahayak.AI.DTO.SearchDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
+import com.JanSahayak.AI.dto.PostResponse;
+import com.JanSahayak.AI.dto.SocialPostDto;
+import com.JanSahayak.AI.dto.SearchDto;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.model.Community;
 import com.JanSahayak.AI.model.Post;

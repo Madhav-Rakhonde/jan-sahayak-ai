@@ -1,9 +1,9 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.PostContentUpdateDto;
-import com.JanSahayak.AI.DTO.PostCreateDto;
-import com.JanSahayak.AI.DTO.PostResponse;
+import com.JanSahayak.AI.dto.PaginatedResponse;
+import com.JanSahayak.AI.dto.PostContentUpdateDto;
+import com.JanSahayak.AI.dto.PostCreateDto;
+import com.JanSahayak.AI.dto.PostResponse;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.enums.BroadcastScope;

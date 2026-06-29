@@ -1,6 +1,6 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.*;
+import com.JanSahayak.AI.dto.*;
 import com.JanSahayak.AI.exception.ApiResponse;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.security.CurrentUser;

@@ -1,6 +1,6 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.*;
+import com.JanSahayak.AI.dto.*;
 import com.JanSahayak.AI.enums.PostStatus;
 import com.JanSahayak.AI.exception.ResourceNotFoundException;
 import com.JanSahayak.AI.exception.ServiceException;

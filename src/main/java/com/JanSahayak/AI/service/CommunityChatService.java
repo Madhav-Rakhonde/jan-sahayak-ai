@@ -1,7 +1,7 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.AuthorDto;
-import com.JanSahayak.AI.DTO.CommunityMessageDto;
+import com.JanSahayak.AI.dto.AuthorDto;
+import com.JanSahayak.AI.dto.CommunityMessageDto;
 import com.JanSahayak.AI.exception.ValidationException;
 import com.JanSahayak.AI.model.Community;
 import com.JanSahayak.AI.model.CommunityMember;

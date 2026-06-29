@@ -1,8 +1,8 @@
 package com.JanSahayak.AI.controller;
 
-import com.JanSahayak.AI.DTO.PaginatedResponse;
-import com.JanSahayak.AI.DTO.UserMeResponse;
-import com.JanSahayak.AI.DTO.UserTagSuggestionDto;
+import com.JanSahayak.AI.dto.PaginatedResponse;
+import com.JanSahayak.AI.dto.UserMeResponse;
+import com.JanSahayak.AI.dto.UserTagSuggestionDto;
 import com.JanSahayak.AI.exception.ApiResponse;
 import com.JanSahayak.AI.exception.ServiceException;
 import com.JanSahayak.AI.exception.UserNotFoundException;

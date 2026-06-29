@@ -1,4 +1,4 @@
-package com.JanSahayak.AI.DTO;
+package com.JanSahayak.AI.dto;
 
 import com.JanSahayak.AI.model.User;
 import lombok.AllArgsConstructor;

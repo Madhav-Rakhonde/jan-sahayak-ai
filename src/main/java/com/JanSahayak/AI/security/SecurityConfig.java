@@ -74,6 +74,7 @@ public class SecurityConfig {
                         // ── Auth & Public ─────────────────────────────────────────────────────────
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
+                        .requestMatchers("/api/webhooks/**").permitAll() // Industry Standard: Open webhook namespace
                         .requestMatchers("/api/search/posts/anonymous").permitAll()
                         .requestMatchers("/api/districts/**").permitAll()
                         .requestMatchers("/api/media/test").permitAll()
@@ -133,6 +134,8 @@ public class SecurityConfig {
 
         // ✅ Exact origins instead of "*" with allowCredentials
         configuration.setAllowedOrigins(List.of(
+                "https://govlyx.com",
+                "https://www.govlyx.com",
                 "https://govlyx-io.vercel.app",
                 "https://govlyxpredeploytesting.vercel.app",
                 "http://localhost:5173",

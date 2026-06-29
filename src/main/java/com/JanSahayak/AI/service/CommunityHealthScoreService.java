@@ -1,6 +1,6 @@
 package com.JanSahayak.AI.service;
 
-import com.JanSahayak.AI.DTO.CommunityDto.HealthInsightResponse;
+import com.JanSahayak.AI.dto.CommunityDto.HealthInsightResponse;
 import com.JanSahayak.AI.config.Constant;
 import com.JanSahayak.AI.model.Community;
 import com.JanSahayak.AI.repository.CommunityRepo;

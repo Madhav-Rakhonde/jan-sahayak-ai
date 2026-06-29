@@ -1,4 +1,4 @@
-package com.JanSahayak.AI.DTO;
+package com.JanSahayak.AI.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
