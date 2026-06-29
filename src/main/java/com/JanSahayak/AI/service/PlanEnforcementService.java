@@ -15,11 +15,21 @@ import java.util.Optional;
 import org.springframework.cache.annotation.Cacheable;
 
 @Service
-@RequiredArgsConstructor
 public class PlanEnforcementService {
 
     private final UserPassRepository userPassRepository;
     private final ChatSessionAuditRepo chatSessionAuditRepo;
+    private final int freeDailyMatchLimit;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PlanEnforcementService(
+            UserPassRepository userPassRepository,
+            ChatSessionAuditRepo chatSessionAuditRepo,
+            @org.springframework.beans.factory.annotation.Value("${govlyx.monetization.free-daily-match-limit:5}") int freeDailyMatchLimit) {
+        this.userPassRepository = userPassRepository;
+        this.chatSessionAuditRepo = chatSessionAuditRepo;
+        this.freeDailyMatchLimit = freeDailyMatchLimit;
+    }
 
     @Cacheable(value = "userTiers", key = "#userId")
     public PassTier getUserTier(Long userId) {
@@ -56,8 +66,8 @@ public class PlanEnforcementService {
         if (tier == PassTier.GOVLYX_FREE) {
             Date since = Date.from(Instant.now().minus(24, ChronoUnit.HOURS));
             int matchCount = chatSessionAuditRepo.countSessionsForUserSince(userId, since);
-            if (matchCount >= 3) {
-                throw new PlanLimitExceededException("You have reached your daily matchmaking limit of 3. Upgrade to Govlyx Pro for unlimited matches.");
+            if (matchCount >= freeDailyMatchLimit) {
+                throw new PlanLimitExceededException("You have reached your daily matchmaking limit of " + freeDailyMatchLimit + ". Upgrade to Govlyx Pro for unlimited matches.");
             }
         }
     }
