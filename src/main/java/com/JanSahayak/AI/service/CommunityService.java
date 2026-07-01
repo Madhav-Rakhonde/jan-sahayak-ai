@@ -136,6 +136,7 @@ public class CommunityService {
 
     @Caching(evict = {
         @CacheEvict(value = "communities", key = "#communityId"),
+        @CacheEvict(value = "communities", key = "#result.slug", condition = "#result != null"),
         @CacheEvict(value = Constant.CACHE_COMMUNITY_LIST, key = "#requesterId")
     })
     public CommunityDetailResponse updateCommunity(Long communityId, Long requesterId,
@@ -203,6 +204,7 @@ public class CommunityService {
 
     @Caching(evict = {
         @CacheEvict(value = "communities", key = "#communityId"),
+        @CacheEvict(value = "communities", key = "#result.slug", condition = "#result != null"),
         @CacheEvict(value = Constant.CACHE_COMMUNITY_LIST, key = "#requesterId")
     })
     public CommunityDetailResponse uploadCommunityImage(Long communityId, Long requesterId, MultipartFile file, String imageType) {
