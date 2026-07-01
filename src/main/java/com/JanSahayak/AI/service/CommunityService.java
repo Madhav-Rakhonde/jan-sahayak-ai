@@ -56,6 +56,19 @@ public class CommunityService {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private org.springframework.cache.CacheManager cacheManager;
+
+    private void evictCommunityCache(Community community) {
+        if (cacheManager != null && community != null) {
+            org.springframework.cache.Cache cache = cacheManager.getCache("communities");
+            if (cache != null) {
+                if (community.getId() != null) cache.evict(community.getId());
+                if (community.getSlug() != null) cache.evict(community.getSlug());
+            }
+        }
+    }
+
     // ── Feed surfacing thresholds (used by feed query callers) ────────────────
 
     // =========================================================================
@@ -238,6 +251,7 @@ public class CommunityService {
         community.setStatus(Community.CommunityStatus.ARCHIVED);
         communityRepo.save(community);
         socialPostRepo.removeCommunityPostsFromFeed(communityId);
+        evictCommunityCache(community);
         log.info("Community {} archived — posts removed from main feed", communityId);
     }
 
@@ -632,7 +646,7 @@ public class CommunityService {
 
         Community community = findCommunityOrThrow(communityId);
         
-        if (requesterId == null || !memberRepo.isModeratorOrAbove(communityId, requesterId)) {
+        if (requesterId == null || !this.isModeratorOrAbove(communityId, requesterId)) {
             throw new SecurityException("Only community moderators can view pending posts");
         }
 
@@ -655,7 +669,7 @@ public class CommunityService {
     @Transactional(rollbackFor = Exception.class)
     public void approveCommunityPost(Long communityId, Long postId, User user) {
         CommunityValidationUtil.validateUser(user);
-        if (!memberRepo.isModeratorOrAbove(communityId, user.getId())) {
+        if (!this.isModeratorOrAbove(communityId, user.getId())) {
             throw new SecurityException("Only community moderators can approve posts");
         }
 
@@ -684,7 +698,7 @@ public class CommunityService {
     @Transactional(rollbackFor = Exception.class)
     public void rejectCommunityPost(Long communityId, Long postId, User user) {
         CommunityValidationUtil.validateUser(user);
-        if (!memberRepo.isModeratorOrAbove(communityId, user.getId())) {
+        if (!this.isModeratorOrAbove(communityId, user.getId())) {
             throw new SecurityException("Only community moderators can reject posts");
         }
 
@@ -951,8 +965,14 @@ public class CommunityService {
     // AUTHORIZATION
     // =========================================================================
 
+    @Cacheable(value = "community-membership", key = "#communityId + '_' + #userId")
     public boolean isMember(Long communityId, Long userId) {
         return userId != null && memberRepo.existsByCommunityIdAndUserIdAndIsActiveTrue(communityId, userId);
+    }
+
+    @Cacheable(value = "community-membership", key = "'MOD_' + #communityId + '_' + #userId")
+    public boolean isModeratorOrAbove(Long communityId, Long userId) {
+        return userId != null && memberRepo.isModeratorOrAbove(communityId, userId);
     }
 
     private void assertAdminOrOwner(Community community, Long userId) {

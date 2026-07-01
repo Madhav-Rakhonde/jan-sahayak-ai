@@ -96,11 +96,10 @@ public class PostInteractionService {
             view.setPost(post);
             view.setUser(user);
             view.setViewedAt(new Date());
-            post.incrementViewCount();
 
             PostView saved = postViewRepository.save(view);
-            postRepository.incrementViewCount(post.getId());
-            postRepository.save(post);
+            self.executeIncrementPostViewAsync(post.getId());
+
 
             log.info("View recorded: post={} user={} viewCount={}", post.getId(), user.getActualUsername(), post.getViewCount());
             return saved;
@@ -142,11 +141,9 @@ public class PostInteractionService {
             view.setSocialPost(socialPost);
             view.setUser(user);
             view.setViewedAt(new Date());
-            socialPost.incrementViewCount();
 
             PostView saved = postViewRepository.save(view);
-            socialPostRepository.incrementViewCount(socialPost.getId());
-            socialPostRepository.save(socialPost);
+            self.executeIncrementSocialPostViewAsync(socialPost.getId());
 
             fireHligSignal(() -> interestProfileService.onView(user.getId(), socialPost.getId()),
                     "VIEW", socialPost.getId(), user.getId());
@@ -223,6 +220,17 @@ public class PostInteractionService {
             log.debug("[Like] Race condition (DB Async): post={} user={}", postId, user.getActualUsername());
         } catch (Exception e) {
             log.error("[Like] Failed Async: post={} user={}", postId, user.getActualUsername(), e);
+        }
+    }
+
+    @org.springframework.scheduling.annotation.Async("taskExecutor")
+    @Transactional(rollbackFor = Exception.class)
+    public void executeIncrementPostViewAsync(Long postId) {
+        try {
+            postRepository.incrementViewCount(postId);
+            evictPostCountsCache(postId);
+        } catch (Exception e) {
+            log.error("[View] Failed Async: post={}", postId, e);
         }
     }
 
@@ -354,6 +362,17 @@ public class PostInteractionService {
             log.debug("[Like] Race condition (DB Async): socialPost={} user={}", socialPostId, user.getActualUsername());
         } catch (Exception e) {
             log.error("[Like] Failed Async: socialPost={} user={}", socialPostId, user.getActualUsername(), e);
+        }
+    }
+
+    @org.springframework.scheduling.annotation.Async("taskExecutor")
+    @Transactional(rollbackFor = Exception.class)
+    public void executeIncrementSocialPostViewAsync(Long socialPostId) {
+        try {
+            socialPostRepository.incrementViewCount(socialPostId);
+            evictSocialPostCountsCache(socialPostId);
+        } catch (Exception e) {
+            log.error("[View] Failed Async: socialPost={}", socialPostId, e);
         }
     }
 

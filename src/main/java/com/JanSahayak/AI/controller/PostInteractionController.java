@@ -66,13 +66,13 @@ public class PostInteractionController {
                 // FIX: re-use the already-loaded entity from inside the service transaction
                 // instead of calling getPostById(id) again for a 2nd SELECT.
                 Post post = interactionService.getPostById(id);
-                return ok("View recorded", Map.of("viewCount", post.getViewCount()));
+                return ok("View recorded", Map.of("viewCount", post.getViewCount() + 1));
 
             } else if (Constant.INTERACTION_TYPE_SOCIAL_POSTS.equals(postType)) {
                 PostView view = interactionService.recordSocialPostViewById(id, currentUser);
                 if (view == null) return ResponseEntity.noContent().build();
                 SocialPost sp = interactionService.getSocialPostById(id);
-                return ok("View recorded", Map.of("viewCount", sp.getViewCount()));
+                return ok("View recorded", Map.of("viewCount", sp.getViewCount() + 1));
 
             } else {
                 return badPostType(postType);

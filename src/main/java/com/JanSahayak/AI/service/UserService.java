@@ -682,6 +682,14 @@ public class UserService implements UserDetailsService {
             user.setUsername(newUsername + timeSuffix);
 
             userRepository.save(user);
+            
+            if (cacheManager != null && originalEmail != null) {
+                org.springframework.cache.Cache profileCache = cacheManager.getCache(Constant.CACHE_USER_PROFILE);
+                if (profileCache != null) {
+                    profileCache.evict(originalEmail);
+                }
+            }
+            
             log.info("User account deactivated: id={} by user={}", userId, currentUser.getActualUsername());
 
         } catch (SecurityException | ValidationException e) {

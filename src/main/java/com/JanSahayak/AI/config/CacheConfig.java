@@ -60,12 +60,12 @@ public class CacheConfig {
      *   100k entries ≈ 48 MB worst-case (well within standard JVM heap).
      *   For > 1M DAU, increase to 500_000 or use Caffeine's softValues().
      */
-    private static final int  UIP_MAX_SIZE_ENTRIES = 100_000;
+    private static final int  UIP_MAX_SIZE_ENTRIES = 10_000;
 
     /** Profile TTL — acts as a safety net if @CacheEvict somehow misses. */
     private static final long UIP_EXPIRE_AFTER_WRITE_MINUTES = 5L;
 
-    private static final int  GEO_DIST_MAX_SIZE_ENTRIES = 50_000;
+    private static final int  GEO_DIST_MAX_SIZE_ENTRIES = 10_000;
     private static final long GEO_DIST_EXPIRE_AFTER_WRITE_MINUTES = 30L;
 
     // ── Caches targeting hot frontend polling patterns ────────────────────────
@@ -75,7 +75,7 @@ public class CacheConfig {
      * With 1000 DAU this is 1000 DB SELECTs/min on a simple COUNT(*). Cache for 30 s.
      * Evicted eagerly by @CacheEvict in NotificationService on mark-read / delete.
      */
-    private static final int  NOTIF_COUNT_MAX_SIZE  = 100_000;
+    private static final int  NOTIF_COUNT_MAX_SIZE  = 10_000;
     private static final long NOTIF_COUNT_TTL_SECS  = 30L;
 
     /**
@@ -83,7 +83,7 @@ public class CacheConfig {
      * Most frequent DB lookup in the entire system. Cache for 10 min.
      * Evicted on profile update / password change.
      */
-    private static final int  USER_PROFILE_MAX_SIZE   = 50_000;
+    private static final int  USER_PROFILE_MAX_SIZE   = 10_000;
     private static final long USER_PROFILE_TTL_MINUTES = 10L;
 
     /**
@@ -91,17 +91,17 @@ public class CacheConfig {
      * broadcast creation and Settings page. Data is read-only government reference;
      * virtually never changes. Cache for 24 h.
      */
-    private static final int  PINCODE_MAX_SIZE     = 200_000;
+    private static final int  PINCODE_MAX_SIZE     = 30_000;
     private static final long PINCODE_TTL_HOURS    = 24L;
 
     /**
      * Community list — browse page calls GET /api/communities on every mount.
      * Cache for 5 min; evicted on community create/archive.
      */
-    private static final int  COMMUNITY_LIST_MAX_SIZE   = 10_000;
+    private static final int  COMMUNITY_LIST_MAX_SIZE   = 5_000;
     private static final long COMMUNITY_LIST_TTL_MINUTES = 5L;
 
-    private static final int  COMMUNITIES_MAX_SIZE   = 5_000;
+    private static final int  COMMUNITIES_MAX_SIZE   = 2_000;
     private static final long COMMUNITIES_TTL_MINUTES = 60L;
 
     /**
@@ -109,15 +109,15 @@ public class CacheConfig {
      * Strict 1-minute TTL so bans/deactivations propagate quickly.
      * Evicted eagerly by @CacheEvict in UserService on role/status changes.
      */
-    private static final int  AUTH_USER_DETAILS_MAX_SIZE = 50_000;
+    private static final int  AUTH_USER_DETAILS_MAX_SIZE = 10_000;
     private static final long AUTH_USER_DETAILS_TTL_MINUTES = 1L;
 
     /** Subscription tiers cache */
-    private static final int  USER_TIERS_MAX_SIZE = 50_000;
+    private static final int  USER_TIERS_MAX_SIZE = 10_000;
     private static final long USER_TIERS_TTL_HOURS = 1L;
 
     /** Post interaction counts cache */
-    private static final int  POST_COUNTS_MAX_SIZE = 100_000;
+    private static final int  POST_COUNTS_MAX_SIZE = 10_000;
     private static final long POST_COUNTS_TTL_MINUTES = 5L;
 
     /** Translations API cache to prevent duplicate external calls */
@@ -205,12 +205,41 @@ public class CacheConfig {
                 TimeUnit.MINUTES
         );
 
+        CaffeineCache broadcastFeedsCache = buildCache(
+                "broadcast-feeds",
+                1_000,
+                2L,
+                TimeUnit.MINUTES
+        );
+
+        CaffeineCache socialPostsCache = buildCache(
+                "social-posts",
+                5_000,
+                5L,
+                TimeUnit.MINUTES
+        );
+
+        CaffeineCache regularPostsCache = buildCache(
+                "regular-posts",
+                5_000,
+                5L,
+                TimeUnit.MINUTES
+        );
+
+        CaffeineCache communityMembershipCache = buildCache(
+                "community-membership",
+                10_000,
+                5L,
+                TimeUnit.MINUTES
+        );
+
         SimpleCacheManager manager = new SimpleCacheManager();
         manager.setCaches(List.of(
                 profileCache, geoDistCache,
                 notifCountCache, userProfileCache, pincodeCache,
                 communityListCache, communitiesCache, authUserDetailsCache, userTiersCache,
-                translationsApiCache, postCountsCache
+                translationsApiCache, postCountsCache, broadcastFeedsCache, socialPostsCache, 
+                regularPostsCache, communityMembershipCache
         ));
 
         // CRITICAL: SimpleCacheManager is NOT a Spring-managed bean — it is created

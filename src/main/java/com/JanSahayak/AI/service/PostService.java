@@ -541,7 +541,7 @@ public class PostService {
     }
 
     @Transactional(readOnly = true)
-    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'state:' + #state + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'state:' + #state + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit", sync = true, condition = "#beforeId == null")
     public PaginatedResponse<Post> getStateLevelBroadcasts(String state, Long beforeId, Integer limit) {
         try {
             if (state == null || state.trim().isEmpty()) throw new ValidationException("State cannot be empty");
@@ -565,7 +565,7 @@ public class PostService {
     }
 
     @Transactional(readOnly = true)
-    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'district:' + #district + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'district:' + #district + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit", sync = true, condition = "#beforeId == null")
     public PaginatedResponse<Post> getDistrictLevelBroadcasts(String district, Long beforeId, Integer limit) {
         try {
             if (district == null || district.trim().isEmpty()) throw new ValidationException("District cannot be empty");
@@ -590,7 +590,7 @@ public class PostService {
     }
 
     @Transactional(readOnly = true)
-    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'area:' + #pincode + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit")
+    @org.springframework.cache.annotation.Cacheable(value = "broadcast-feeds", key = "'area:' + #pincode + ':' + (#beforeId != null ? #beforeId : 'first') + ':' + #limit", sync = true, condition = "#beforeId == null")
     public PaginatedResponse<Post> getAreaLevelBroadcasts(String pincode, Long beforeId, Integer limit) {
         try {
             if (!Constant.isValidIndianPincode(pincode)) throw new ValidationException("Invalid Indian pincode format");
