@@ -25,6 +25,8 @@ public enum NotificationType {
     // Community notifications
     COMMUNITY_INVITE("You've been invited to a community", "community"),
     COMMUNITY_NEW_POST("New post in your community", "community"),
+    COMMUNITY_POST_APPROVED("Your community post was approved", "community"),
+    COMMUNITY_POST_REJECTED("Your community post was rejected", "community"),
 
     // Department notifications
     DEPARTMENT_MESSAGE("Message from department", "department"),

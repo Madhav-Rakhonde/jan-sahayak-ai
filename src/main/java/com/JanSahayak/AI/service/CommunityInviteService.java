@@ -68,10 +68,7 @@ public class CommunityInviteService {
         // ── 1. Load & validate community ──────────────────────────────────────
         Community community = findCommunityOrThrow(communityId);
 
-        if (community.isPublic()) {
-            throw new ValidationException(
-                    "Invites are not needed for PUBLIC communities — anyone can join directly.");
-        }
+
         if (!community.isActive()) {
             throw new ValidationException("Cannot send invites to an archived or suspended community.");
         }

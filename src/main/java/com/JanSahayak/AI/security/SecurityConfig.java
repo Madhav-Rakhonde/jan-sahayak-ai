@@ -94,12 +94,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/recommendations/posts").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/feedback").permitAll()
 
-                        // ── Communities ───────────────────────────────────────────────────────────
-                        .requestMatchers(HttpMethod.GET,  "/api/communities").permitAll()
-                        .requestMatchers(HttpMethod.GET,  "/api/communities/search").permitAll()
-                        .requestMatchers(HttpMethod.GET,  "/api/communities/{slug}").permitAll()
-                        .requestMatchers(HttpMethod.GET,  "/api/communities/slug/{slug}/posts").permitAll()
-                        .requestMatchers(HttpMethod.GET,  "/api/communities/invites/preview/{token}").permitAll()
+                        // ── Communities, Social & Polls ───────────────────────────────────────────
+                        .requestMatchers(HttpMethod.GET,  "/api/communities/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/social-posts/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,  "/api/polls/**").permitAll()
 
                         // ── Admin-only ────────────────────────────────────────────────────────────
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
@@ -110,6 +108,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/users/{userId}/activate").hasRole("ADMIN")
 
                         // ── Authenticated endpoints ───────────────────────────────────────────────
+                        .requestMatchers(HttpMethod.GET, "/api/comments/**").permitAll()
                         .requestMatchers("/api/posts").authenticated()
                         .requestMatchers("/api/comments/**").authenticated()
                         .requestMatchers("/api/notifications/**").authenticated()

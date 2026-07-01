@@ -298,10 +298,10 @@ public class SocialPostService {
             }
 
 
-            if (socialPost.getCommunityId() != null && user != null && !PostUtility.isAdmin(user)) {
+            if (socialPost.getCommunityId() != null && (user == null || !PostUtility.isAdmin(user))) {
                 String privacy = socialPost.getCommunityPrivacy();
                 if ("PRIVATE".equalsIgnoreCase(privacy) || "SECRET".equalsIgnoreCase(privacy)) {
-                    if (!communityMemberRepository.existsByCommunityIdAndUserIdAndIsActiveTrue(
+                    if (user == null || !communityMemberRepository.existsByCommunityIdAndUserIdAndIsActiveTrue(
                             socialPost.getCommunityId(), user.getId())) {
                         throw new SecurityException("User does not have permission to view this private community post");
                     }
@@ -575,6 +575,11 @@ public class SocialPostService {
                     user, scope, sort, lastPostId, size + 1);
 
             if (posts == null || posts.isEmpty()) {
+                if (lastPostId != null) {
+                    log.debug("[HLIG] getBrowseFeed empty on page 2+ scope={} sort={} userId={} — returning empty",
+                            scope, sort, user.getId());
+                    return PaginatedResponse.of(Collections.emptyList(), false, null, size);
+                }
                 log.debug("[HLIG] getBrowseFeed empty scope={} sort={} userId={} — homeFeed fallback",
                         scope, sort, user.getId());
                 return getHomeFeed(user, lastPostId, size);
@@ -1179,6 +1184,12 @@ public class SocialPostService {
                     .ifPresent(community -> {
                         socialPost.setCommunity(community);
                         socialPost.syncCommunityDenormalizedFields(community);
+                        
+                        if (Boolean.TRUE.equals(community.getRequirePostApproval()) &&
+                                !com.JanSahayak.AI.payload.PostUtility.isAdmin(user) &&
+                                !communityMemberRepository.isModeratorOrAbove(community.getId(), user.getId())) {
+                            socialPost.setStatus(PostStatus.PENDING_APPROVAL);
+                        }
                     });
         }
         // ── End community wiring ──────────────────────────────────────────────

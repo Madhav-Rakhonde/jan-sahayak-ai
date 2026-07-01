@@ -2,6 +2,7 @@ package com.JanSahayak.AI.service;
 
 import com.JanSahayak.AI.enums.PassTier;
 import com.JanSahayak.AI.enums.UserPassStatus;
+import com.JanSahayak.AI.enums.BillingCycle;
 import com.JanSahayak.AI.model.UserPass;
 import com.JanSahayak.AI.model.TransactionHistory;
 import com.JanSahayak.AI.repository.UserPassRepository;
@@ -57,7 +58,7 @@ public class PaymentService {
     }
 
     @Transactional
-    public String createOrder(Long userId, PassTier targetTier, int amount) throws RazorpayException {
+    public String createOrder(Long userId, PassTier targetTier, BillingCycle billingCycle, int amount) throws RazorpayException {
         JSONObject orderRequest = new JSONObject();
         orderRequest.put("amount", amount * 100); // Amount in paise
         orderRequest.put("currency", "INR");
@@ -70,6 +71,7 @@ public class PaymentService {
         UserPass userPass = UserPass.builder()
                 .userId(userId)
                 .tier(targetTier)
+                .billingCycle(billingCycle)
                 .razorpayOrderId(orderId)
                 .status(UserPassStatus.EXPIRED) // Expired until verified
                 .validUntil(LocalDateTime.now()) // Just a placeholder
@@ -83,6 +85,7 @@ public class PaymentService {
                 .amount(amount * 100)
                 .currency("INR")
                 .targetTier(targetTier)
+                .billingCycle(billingCycle)
                 .razorpayOrderId(orderId)
                 .status("CREATED")
                 .build();
@@ -140,21 +143,37 @@ public class PaymentService {
     }
 
     private void activatePass(UserPass userPass) {
-        // Carry over remaining quota from previous active pass
+        final LocalDateTime[] baseDate = {LocalDateTime.now()};
+
+        // Carry over remaining quota and validity from previous active pass
         userPassRepository.findActivePassByUserId(userPass.getUserId()).ifPresent(oldPass -> {
             userPass.setPrivateCommunityQuota(userPass.getPrivateCommunityQuota() + oldPass.getPrivateCommunityQuota());
+            
+            if (oldPass.getValidUntil().isAfter(LocalDateTime.now())) {
+                baseDate[0] = oldPass.getValidUntil();
+            }
+
             // Optional: Mark old pass as superseded/expired
             oldPass.setStatus(UserPassStatus.EXPIRED);
             userPassRepository.save(oldPass);
         });
 
         userPass.setStatus(UserPassStatus.ACTIVE);
-        userPass.setValidUntil(LocalDateTime.now().plusMonths(1)); // 1 month validity default
+        
+        BillingCycle cycle = userPass.getBillingCycle() != null ? userPass.getBillingCycle() : BillingCycle.MONTHLY;
+        
+        if (cycle == BillingCycle.YEARLY) {
+            userPass.setValidUntil(baseDate[0].plusYears(1));
+        } else {
+            userPass.setValidUntil(baseDate[0].plusMonths(1));
+        }
+
+        int quotaMultiplier = (cycle == BillingCycle.YEARLY) ? 12 : 1;
 
         if (userPass.getTier() == PassTier.GOVLYX_PRO) {
-            userPass.setPrivateCommunityQuota(userPass.getPrivateCommunityQuota() + 3);
+            userPass.setPrivateCommunityQuota(userPass.getPrivateCommunityQuota() + (3 * quotaMultiplier));
         } else if (userPass.getTier() == PassTier.GOVLYX_VIP) {
-            userPass.setPrivateCommunityQuota(userPass.getPrivateCommunityQuota() + 5);
+            userPass.setPrivateCommunityQuota(userPass.getPrivateCommunityQuota() + (5 * quotaMultiplier));
         }
 
         userPassRepository.save(userPass);

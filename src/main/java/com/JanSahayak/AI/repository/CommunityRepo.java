@@ -24,6 +24,7 @@ public interface CommunityRepo extends JpaRepository<Community, Long> {
 
     @Override
     @org.springframework.cache.annotation.Cacheable(value = "communities", key = "#id")
+    @EntityGraph(attributePaths = {"owner"})
     Optional<Community> findById(Long id);
 
     @EntityGraph(attributePaths = {"owner"})

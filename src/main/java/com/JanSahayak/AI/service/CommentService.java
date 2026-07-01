@@ -578,11 +578,11 @@ public class CommentService {
         if (!socialPost.isEligibleForDisplay()) {
             throw new SecurityException("Social post is not eligible for display");
         }
-        if (socialPost.getCommunityId() != null && user != null && !com.JanSahayak.AI.payload.PostUtility.isAdmin(user)) {
+        if (socialPost.getCommunityId() != null && (user == null || !com.JanSahayak.AI.payload.PostUtility.isAdmin(user))) {
             String privacy = socialPost.getCommunityPrivacy();
             if ("PRIVATE".equalsIgnoreCase(privacy) || "SECRET".equalsIgnoreCase(privacy)) {
-                if (!communityService.isMember(socialPost.getCommunityId(), user.getId())) {
-                    throw new SecurityException("User does not have permission to comment on this private community post");
+                if (user == null || !communityService.isMember(socialPost.getCommunityId(), user.getId())) {
+                    throw new SecurityException("User does not have permission to view or comment on this private community post");
                 }
             }
         }

@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.controller;
 
 import com.JanSahayak.AI.enums.PassTier;
+import com.JanSahayak.AI.enums.BillingCycle;
 import com.JanSahayak.AI.model.User;
 import com.JanSahayak.AI.model.UserPass;
 import com.JanSahayak.AI.repository.UserPassRepository;
@@ -26,6 +27,18 @@ public class PaymentController {
     private final com.JanSahayak.AI.repository.UserRepo userRepository;
     private final org.springframework.cache.CacheManager cacheManager;
 
+    @org.springframework.beans.factory.annotation.Value("${pricing.tier.pro.monthly}")
+    private int proMonthlyPrice;
+
+    @org.springframework.beans.factory.annotation.Value("${pricing.tier.pro.yearly}")
+    private int proYearlyPrice;
+
+    @org.springframework.beans.factory.annotation.Value("${pricing.tier.vip.monthly}")
+    private int vipMonthlyPrice;
+
+    @org.springframework.beans.factory.annotation.Value("${pricing.tier.vip.yearly}")
+    private int vipYearlyPrice;
+
     @GetMapping("/config")
     public ResponseEntity<java.util.Map<String, String>> getBillingConfig() {
         return ResponseEntity.ok(java.util.Map.of("keyId", paymentService.getRazorpayKeyId()));
@@ -40,6 +53,7 @@ public class PaymentController {
         userPassRepository.findActivePassByUserId(user.getId()).ifPresent(pass -> {
             response.put("validUntil", pass.getValidUntil().toString());
             response.put("privateCommunityQuota", pass.getPrivateCommunityQuota());
+            response.put("billingCycle", pass.getBillingCycle() != null ? pass.getBillingCycle().name() : "MONTHLY");
         });
         
         return ResponseEntity.ok(response);
@@ -61,10 +75,27 @@ public class PaymentController {
             } catch (IllegalArgumentException e) {
                 return ResponseEntity.badRequest().body("Invalid target tier: " + targetTierStr);
             }
+            
+            String billingCycleStr = (String) payload.get("billingCycle");
+            if (billingCycleStr == null) {
+                billingCycleStr = "MONTHLY";
+            }
+            
+            BillingCycle billingCycle;
+            try {
+                billingCycle = BillingCycle.valueOf(billingCycleStr.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body("Invalid billing cycle: " + billingCycleStr);
+            }
 
-            int amount = targetTier == PassTier.GOVLYX_VIP ? 149 : 49;
+            int amount = 0;
+            if (targetTier == PassTier.GOVLYX_VIP) {
+                amount = (billingCycle == BillingCycle.YEARLY) ? vipYearlyPrice : vipMonthlyPrice;
+            } else if (targetTier == PassTier.GOVLYX_PRO) {
+                amount = (billingCycle == BillingCycle.YEARLY) ? proYearlyPrice : proMonthlyPrice;
+            }
 
-            String orderId = paymentService.createOrder(user.getId(), targetTier, amount);
+            String orderId = paymentService.createOrder(user.getId(), targetTier, billingCycle, amount);
             Map<String, String> response = new HashMap<>();
             response.put("orderId", orderId);
             return ResponseEntity.ok(response);

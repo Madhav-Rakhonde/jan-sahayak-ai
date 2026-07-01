@@ -755,6 +755,7 @@ public class PostService {
             if (!PostUtility.isPostOwner(post, currentUser)) throw new SecurityException("Only post creator can update post media");
             if (!PostUtility.postAllowsUpdates(post)) throw new SecurityException("Cannot update media for posts with status: " + post.getStatus().getDisplayName());
 
+
             // CLOUDINARY: upload new file, delete old one asynchronously
             String fileName = null;
             if (mediaFile != null && !mediaFile.isEmpty()) {

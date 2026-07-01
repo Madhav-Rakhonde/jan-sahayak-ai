@@ -111,8 +111,7 @@ public class FeedController {
         log.debug("[Feed] FOR-YOU sort={}: userId={} lastPostId={} size={}",
                 sort, userId(user), lastPostId, size);
         return ResponseEntity.ok()
-                .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
-                        .staleWhileRevalidate(30, TimeUnit.SECONDS))
+                .cacheControl(CacheControl.noCache())
                 .body(socialPostService.getBrowseFeed(user, FeedScope.FOR_YOU, sort, lastPostId, size));
     }
 
@@ -139,8 +138,7 @@ public class FeedController {
         log.debug("[Feed] LOCATION sort={}: userId={} lastPostId={} size={}",
                 sort, userId(user), lastPostId, size);
         return ResponseEntity.ok()
-                .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
-                        .staleWhileRevalidate(30, TimeUnit.SECONDS))
+                .cacheControl(CacheControl.noCache())
                 .body(socialPostService.getBrowseFeed(user, FeedScope.LOCATION, sort, lastPostId, size));
     }
 
@@ -167,8 +165,7 @@ public class FeedController {
         log.debug("[Feed] FOLLOWING sort={}: userId={} lastPostId={} size={}",
                 sort, userId(user), lastPostId, size);
         return ResponseEntity.ok()
-                .cacheControl(CacheControl.maxAge(15, TimeUnit.SECONDS)
-                        .staleWhileRevalidate(30, TimeUnit.SECONDS))
+                .cacheControl(CacheControl.noCache())
                 .body(socialPostService.getBrowseFeed(user, FeedScope.FOLLOWING, sort, lastPostId, size));
     }
 

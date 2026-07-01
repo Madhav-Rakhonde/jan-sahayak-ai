@@ -36,6 +36,7 @@ public class PlanEnforcementServiceTest {
     void setUp() {
         // Initialize with freeDailyMatchLimit = 10 as per our recent changes
         planEnforcementService = new PlanEnforcementService(userPassRepository, chatSessionAuditRepo, 10);
+        planEnforcementService.setSelf(planEnforcementService);
     }
 
     // ── Cache / Tier Resolution Tests ─────────────────────────────────────────

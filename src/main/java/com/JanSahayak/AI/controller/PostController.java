@@ -820,10 +820,9 @@ public class PostController {
     }
 
     @GetMapping("/{postId}")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PostResponse>> getPostById(
             @PathVariable Long postId,
-            @CurrentUser User user) {
+            @CurrentUser(required = false) User user) {
         try {
             PostResponse response = postService.getPostByIdForUser(postId, user);
             return ResponseEntity.ok(ApiResponse.success("Post retrieved successfully", response));

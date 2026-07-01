@@ -13,6 +13,9 @@ import com.JanSahayak.AI.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -48,6 +51,10 @@ public class CommunityService {
     @Lazy
     @Autowired
     private InterestProfileService interestProfileService;
+    
+    @Lazy
+    @Autowired
+    private NotificationService notificationService;
 
     // ── Feed surfacing thresholds (used by feed query callers) ────────────────
 
@@ -55,6 +62,7 @@ public class CommunityService {
     // 1. CREATE / UPDATE / ARCHIVE
     // =========================================================================
 
+    @CacheEvict(value = Constant.CACHE_COMMUNITY_LIST, key = "#creatorId")
     public CommunityDetailResponse createCommunity(Long creatorId, CreateCommunityRequest req) {
         CommunityValidationUtil.validateUserId(creatorId);
         CommunityValidationUtil.validateCommunityName(req.getName());
@@ -126,6 +134,10 @@ public class CommunityService {
         return toDetailResponse(community, creatorId);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "communities", key = "#communityId"),
+        @CacheEvict(value = Constant.CACHE_COMMUNITY_LIST, key = "#requesterId")
+    })
     public CommunityDetailResponse updateCommunity(Long communityId, Long requesterId,
                                                    UpdateCommunityRequest req) {
         CommunityValidationUtil.validateCommunityId(communityId);
@@ -178,7 +190,7 @@ public class CommunityService {
             community.setFeedEligible(req.getFeedEligible());
         }
 
-        communityRepo.save(community);
+        community = communityRepo.save(community);
 
         boolean privacyChanged     = !community.getPrivacy().equals(oldPrivacy);
         boolean eligibilityChanged = Boolean.TRUE.equals(community.getFeedEligible()) != oldFeedEligible;
@@ -189,6 +201,10 @@ public class CommunityService {
         return toDetailResponse(community, requesterId);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "communities", key = "#communityId"),
+        @CacheEvict(value = Constant.CACHE_COMMUNITY_LIST, key = "#requesterId")
+    })
     public CommunityDetailResponse uploadCommunityImage(Long communityId, Long requesterId, MultipartFile file, String imageType) {
         CommunityValidationUtil.validateCommunityId(communityId);
         CommunityValidationUtil.validateUserId(requesterId);
@@ -204,10 +220,14 @@ public class CommunityService {
             community.setAvatarUrl(imageUrl);
         }
 
-        communityRepo.save(community);
+        community = communityRepo.save(community);
         return toDetailResponse(community, requesterId);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "communities", key = "#communityId"),
+        @CacheEvict(value = Constant.CACHE_COMMUNITY_LIST, key = "#requesterId")
+    })
     public void archiveCommunity(Long communityId, Long requesterId) {
         Community community = findCommunityOrThrow(communityId);
         if (!community.isOwnedBy(requesterId)) {
@@ -223,6 +243,7 @@ public class CommunityService {
     // 2. JOIN / LEAVE
     // =========================================================================
 
+    @CacheEvict(value = Constant.CACHE_COMMUNITY_LIST, key = "#userId")
     public Map<String, Object> joinCommunity(Long communityId, Long userId, JoinCommunityRequest req) {
         CommunityValidationUtil.validateCommunityId(communityId);
         CommunityValidationUtil.validateUserId(userId);
@@ -303,6 +324,7 @@ public class CommunityService {
         }
     }
 
+    @CacheEvict(value = Constant.CACHE_COMMUNITY_LIST, key = "#userId")
     public void leaveCommunity(Long communityId, Long userId) {
         Community community = findCommunityOrThrow(communityId);
         if (community.isOwnedBy(userId)) {
@@ -599,6 +621,93 @@ public class CommunityService {
     }
 
     // =========================================================================
+    // 5.b PENDING POSTS & APPROVALS
+    // =========================================================================
+
+    @Transactional(readOnly = true)
+    public PaginatedResponse<CommunityPostResponse> getPendingCommunityPosts(
+            Long communityId, Long requesterId, Long cursor, Integer limit) {
+
+        Community community = findCommunityOrThrow(communityId);
+        
+        if (requesterId == null || !memberRepo.isModeratorOrAbove(communityId, requesterId)) {
+            throw new SecurityException("Only community moderators can view pending posts");
+        }
+
+        PaginationSetup setup = PaginationUtils.setupSocialPostFeedPagination(
+                "getPendingCommunityPosts", cursor, limit);
+        Pageable pageable = PaginationUtils.createPageable(setup.getValidatedLimit() + 1);
+
+        List<SocialPost> raw = socialPostRepo.findPendingCommunityPostsCursor(
+                communityId, setup.getSanitizedCursor(), pageable);
+
+        List<CommunityPostResponse> mapped = raw.stream()
+                .map(p -> toPostResponse(p, requesterId, false, false))
+                .collect(Collectors.toList());
+
+        return PaginationUtils.createIdBasedResponse(
+                mapped, setup.getValidatedLimit(),
+                dto -> raw.get(mapped.indexOf(dto)).getId());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void approveCommunityPost(Long communityId, Long postId, User user) {
+        CommunityValidationUtil.validateUser(user);
+        if (!memberRepo.isModeratorOrAbove(communityId, user.getId())) {
+            throw new SecurityException("Only community moderators can approve posts");
+        }
+
+        SocialPost post = socialPostRepo.findById(postId)
+                .orElseThrow(() -> new com.JanSahayak.AI.exception.PostNotFoundException("Post not found"));
+        
+        if (!post.getCommunityId().equals(communityId)) {
+            throw new ValidationException("Post does not belong to this community");
+        }
+        
+        if (post.getStatus() != com.JanSahayak.AI.enums.PostStatus.PENDING_APPROVAL) {
+            throw new ValidationException("Post is not pending approval");
+        }
+        
+        post.setStatus(com.JanSahayak.AI.enums.PostStatus.ACTIVE);
+        socialPostRepo.save(post);
+        
+        try {
+            onPostPublished(post, communityId);
+            notificationService.notifyPostApproved(post, post.getCommunity().getName(), user);
+        } catch(Exception e) {
+            log.warn("Failed to trigger post publish hooks for approved post: {}", e.getMessage());
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void rejectCommunityPost(Long communityId, Long postId, User user) {
+        CommunityValidationUtil.validateUser(user);
+        if (!memberRepo.isModeratorOrAbove(communityId, user.getId())) {
+            throw new SecurityException("Only community moderators can reject posts");
+        }
+
+        SocialPost post = socialPostRepo.findById(postId)
+                .orElseThrow(() -> new com.JanSahayak.AI.exception.PostNotFoundException("Post not found"));
+                
+        if (!post.getCommunityId().equals(communityId)) {
+            throw new ValidationException("Post does not belong to this community");
+        }
+        
+        if (post.getStatus() != com.JanSahayak.AI.enums.PostStatus.PENDING_APPROVAL) {
+            throw new ValidationException("Post is not pending approval");
+        }
+        
+        post.setStatus(com.JanSahayak.AI.enums.PostStatus.REJECTED);
+        socialPostRepo.save(post);
+        
+        try {
+            notificationService.notifyPostRejected(post, post.getCommunity().getName(), user);
+        } catch(Exception e) {
+            log.warn("Failed to trigger post rejection notification: {}", e.getMessage());
+        }
+    }
+
+    // =========================================================================
     // 6. DISCOVERY & SEARCH
     // =========================================================================
 
@@ -690,6 +799,7 @@ public class CommunityService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = Constant.CACHE_COMMUNITY_LIST, key = "#userId", condition = "#cursor == null", unless = "#result == null")
     public PaginatedResponse<CommunitySummaryResponse> getMyCommunities(
             Long userId, Long cursor, Integer limit) {
         CommunityValidationUtil.validateUserId(userId);
@@ -927,7 +1037,7 @@ public class CommunityService {
                 // Viewer-context
                 .isLikedByMe(isLiked)
                 .isSavedByMe(isSaved)
-                .isPendingApproval(false)
+                .isPendingApproval(post.getStatus() == com.JanSahayak.AI.enums.PostStatus.PENDING_APPROVAL)
                 .isMyPost(requesterId != null
                         && author != null && requesterId.equals(author.getId()))
                 // Feed reach — map viralTier to feed reach label

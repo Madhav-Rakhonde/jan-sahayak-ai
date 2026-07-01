@@ -947,6 +947,72 @@ public class NotificationService {
         }
     }
 
+    @Async
+    @Transactional(rollbackFor = Exception.class)
+    public void notifyPostApproved(SocialPost post, String communityName, User moderator) {
+        try {
+            if (post == null || post.getUser() == null) return;
+            User targetUser = userRepository.findById(post.getUser().getId()).orElse(post.getUser());
+            
+            String title = "Post Approved";
+            String message = String.format("Your post in \"%s\" has been approved.", communityName);
+            String actionUrl = "/post/" + post.getId();
+            
+            if (post.getCommunity() != null && post.getCommunity().getSlug() != null) {
+                actionUrl = "/communities/" + post.getCommunity().getSlug() + "?postId=" + post.getId();
+            }
+
+            Notification notification = createNotification(
+                    targetUser,
+                    NotificationType.COMMUNITY_POST_APPROVED,
+                    title,
+                    message,
+                    post.getId(),
+                    "SOCIAL_POST",
+                    actionUrl,
+                    moderator
+            );
+
+            sendRealtimeNotification(notification);
+            log.debug("Post approval notification sent to user: {}", targetUser.getActualUsername());
+        } catch (Exception e) {
+            log.error("Failed to send post approval notification", e);
+        }
+    }
+
+    @Async
+    @Transactional(rollbackFor = Exception.class)
+    public void notifyPostRejected(SocialPost post, String communityName, User moderator) {
+        try {
+            if (post == null || post.getUser() == null) return;
+            User targetUser = userRepository.findById(post.getUser().getId()).orElse(post.getUser());
+            
+            String title = "Post Rejected";
+            String message = String.format("Your post in \"%s\" was not approved.", communityName);
+            
+            String actionUrl = "/community/" + post.getCommunityId();
+            if (post.getCommunity() != null && post.getCommunity().getSlug() != null) {
+                actionUrl = "/communities/" + post.getCommunity().getSlug();
+            }
+
+            Notification notification = createNotification(
+                    targetUser,
+                    NotificationType.COMMUNITY_POST_REJECTED,
+                    title,
+                    message,
+                    post.getCommunityId(),
+                    "COMMUNITY",
+                    actionUrl,
+                    moderator
+            );
+
+            sendRealtimeNotification(notification);
+            log.debug("Post rejection notification sent to user: {}", targetUser.getActualUsername());
+        } catch (Exception e) {
+            log.error("Failed to send post rejection notification", e);
+        }
+    }
+
     // ===== NOTIFICATION MANAGEMENT =====
 
     /**

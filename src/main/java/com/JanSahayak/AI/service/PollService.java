@@ -227,7 +227,19 @@ public class PollService {
         Poll poll = pollRepository.findByIdWithOptions(pollId)
                 .orElseThrow(() -> new RuntimeException("Poll not found: " + pollId));
 
-        boolean userHasVoted = pollVoteRepository.existsByPollIdAndUserId(pollId, requestingUser.getId());
+        if (poll.getSocialPost() != null && poll.getSocialPost().getCommunityId() != null) {
+            SocialPost sp = poll.getSocialPost();
+            if (requestingUser == null || !com.JanSahayak.AI.payload.PostUtility.isAdmin(requestingUser)) {
+                String privacy = sp.getCommunityPrivacy();
+                if ("PRIVATE".equalsIgnoreCase(privacy) || "SECRET".equalsIgnoreCase(privacy)) {
+                    if (requestingUser == null || !communityService.isMember(sp.getCommunityId(), requestingUser.getId())) {
+                        throw new SecurityException("User does not have permission to view this poll");
+                    }
+                }
+            }
+        }
+
+        boolean userHasVoted = requestingUser != null && pollVoteRepository.existsByPollIdAndUserId(pollId, requestingUser.getId());
         boolean showResults  = poll.shouldShowResults(userHasVoted);
         List<Long> votedIds  = userHasVoted
                 ? pollVoteRepository.findOptionIdsByPollIdAndUserId(pollId, requestingUser.getId())

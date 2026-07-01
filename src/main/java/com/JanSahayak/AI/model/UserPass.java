@@ -2,6 +2,7 @@ package com.JanSahayak.AI.model;
 
 import com.JanSahayak.AI.enums.PassTier;
 import com.JanSahayak.AI.enums.UserPassStatus;
+import com.JanSahayak.AI.enums.BillingCycle;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -46,6 +47,10 @@ public class UserPass {
     @Column(name = "private_community_quota", nullable = false)
     @Builder.Default
     private Integer privateCommunityQuota = 0;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "billing_cycle", length = 20)
+    private BillingCycle billingCycle;
     
     // Optimistic locking version
     @Version

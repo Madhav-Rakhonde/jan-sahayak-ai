@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
@@ -45,6 +46,14 @@ public class UserService implements UserDetailsService {
     private final PostInteractionService postInteractionService;
     private final RateLimitingService rateLimitingService;
     private final UserPassRepository userPassRepository;
+    private final org.springframework.cache.CacheManager cacheManager;
+
+    private UserService self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy UserService self) {
+        this.self = self;
+    }
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
@@ -63,6 +72,7 @@ public class UserService implements UserDetailsService {
         }
     }
 
+    @Cacheable(value = Constant.CACHE_USER_PROFILE, key = "#authentication.name", unless = "#result == null")
     public User getUserFromAuthentication(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
             throw new ValidationException("User not authenticated");
@@ -338,7 +348,7 @@ public class UserService implements UserDetailsService {
             // Fix: use getUserDistributionByPincode() which is already a DB-aggregate
             // query (GROUP BY pincode, COUNT). We then roll those up to state level
             // in memory — the pincode-count map is far smaller than the user list.
-            Map<String, Long> byPincode = getUserDistributionByPincode(); // DB aggregate
+            Map<String, Long> byPincode = self.getUserDistributionByPincode(); // DB aggregate
 
             Map<String, Long> result = new LinkedHashMap<>();
             Map<String, Long> prefixCounts = new LinkedHashMap<>();
@@ -379,10 +389,10 @@ public class UserService implements UserDetailsService {
     // ===== User Update Methods =====
 
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "authUserDetails", key = "#user.id")
     public User updateUser(User user) {
         try {
             User existingUser = findById(user.getId());
+            String oldEmail = existingUser.getEmail();
 
             if (user.getEmail() != null && !user.getEmail().equals(existingUser.getEmail())) {
                 if (userRepository.findByEmail(user.getEmail()).isPresent()) {
@@ -420,6 +430,18 @@ public class UserService implements UserDetailsService {
             }
 
             User updatedUser = userRepository.save(existingUser);
+
+            // Programmatic cache eviction to prevent orphaned cache keys
+            if (cacheManager != null) {
+                org.springframework.cache.Cache authCache = cacheManager.getCache("authUserDetails");
+                if (authCache != null) authCache.evict(updatedUser.getId());
+
+                org.springframework.cache.Cache profileCache = cacheManager.getCache(Constant.CACHE_USER_PROFILE);
+                if (profileCache != null) {
+                    if (oldEmail != null) profileCache.evict(oldEmail);
+                    if (updatedUser.getEmail() != null) profileCache.evict(updatedUser.getEmail());
+                }
+            }
 
             log.info("Updated user: {} with role: {}, pincode: {}",
                     updatedUser.getUsername(), updatedUser.getRole().getName(),
@@ -463,6 +485,7 @@ public class UserService implements UserDetailsService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = Constant.CACHE_USER_PROFILE, key = "#user.email")
     public void updateProfileImage(User user, String imageUrl) {
         user.setProfileImage(imageUrl);
         userRepository.save(user);

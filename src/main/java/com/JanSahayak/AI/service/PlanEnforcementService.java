@@ -17,6 +17,13 @@ import org.springframework.cache.annotation.Cacheable;
 @Service
 public class PlanEnforcementService {
 
+    private PlanEnforcementService self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy PlanEnforcementService self) {
+        this.self = self;
+    }
+
     private final UserPassRepository userPassRepository;
     private final ChatSessionAuditRepo chatSessionAuditRepo;
     private final int freeDailyMatchLimit;
@@ -44,7 +51,7 @@ public class PlanEnforcementService {
     }
 
     public boolean canSendChatMedia(Long userId, String sessionId) {
-        PassTier tier = getUserTier(userId);
+        PassTier tier = self.getUserTier(userId);
         if (tier == PassTier.GOVLYX_PRO || tier == PassTier.GOVLYX_VIP) {
             return true;
         }
@@ -69,20 +76,20 @@ public class PlanEnforcementService {
     }
 
     public boolean canUseMatchFilters(Long userId) {
-        PassTier tier = getUserTier(userId);
+        PassTier tier = self.getUserTier(userId);
         return tier == PassTier.GOVLYX_PRO || tier == PassTier.GOVLYX_VIP;
     }
 
     public boolean canSetDisappearingMessages(Long userId) {
-        return getUserTier(userId) == PassTier.GOVLYX_VIP;
+        return self.getUserTier(userId) == PassTier.GOVLYX_VIP;
     }
 
     public boolean canPinMessages(Long userId) {
-        return getUserTier(userId) == PassTier.GOVLYX_VIP;
+        return self.getUserTier(userId) == PassTier.GOVLYX_VIP;
     }
 
     public void enforceDailyMatchmakingLimit(Long userId) {
-        PassTier tier = getUserTier(userId);
+        PassTier tier = self.getUserTier(userId);
         if (tier == PassTier.GOVLYX_FREE) {
             Date since = Date.from(Instant.now().minus(24, ChronoUnit.HOURS));
             int matchCount = chatSessionAuditRepo.countSessionsForUserSince(userId, since);
@@ -94,7 +101,7 @@ public class PlanEnforcementService {
 
     // A secret community is frozen if the owner doesn't have an active pass
     public boolean isCommunityFrozen(Long ownerId) {
-        PassTier tier = getUserTier(ownerId);
+        PassTier tier = self.getUserTier(ownerId);
         return tier == PassTier.GOVLYX_FREE; // For now, if owner drops to FREE, frozen
     }
 }

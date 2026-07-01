@@ -161,7 +161,7 @@ public class InterestProfileService {
     }
 
     public List<String> loadCoreTopics(Long userId) {
-        return loadTopN(userId).entrySet().stream()
+        return self.loadTopN(userId).entrySet().stream()
                 .filter(e -> e.getValue() >= Constant.HLIG_PROFILE_CORE_THRESHOLD)
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toList());
@@ -375,13 +375,13 @@ public class InterestProfileService {
         }
     }
 
-    @CacheEvict(value = Constant.HLIG_CACHE_PROFILE, key = "#userId")
     public void evictProfileCache(Long userId) {
         try {
             org.springframework.cache.CacheManager cm =
                     applicationContext.getBean(org.springframework.cache.CacheManager.class);
             org.springframework.cache.Cache cache = cm.getCache(Constant.HLIG_CACHE_PROFILE);
             if (cache != null) {
+                cache.evict(userId);
                 cache.evict("lang::" + userId);
                 cache.evict("nb::"   + userId);
             }

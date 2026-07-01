@@ -93,7 +93,6 @@ public class SocialPostController {
      * GET /api/social-posts/{postId}
      */
     @GetMapping("/{postId}")
-    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<SocialPostDto>> getSocialPostById(
             @PathVariable @NotNull Long postId,
             @CurrentUser(required = false) User currentUser) {

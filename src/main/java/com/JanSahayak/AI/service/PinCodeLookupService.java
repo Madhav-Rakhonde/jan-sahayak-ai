@@ -27,6 +27,13 @@ public class PinCodeLookupService {
 
     private final PincodeLookupRepo pincodeLookupRepository;
 
+    private PinCodeLookupService self;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSelf(@org.springframework.context.annotation.Lazy PinCodeLookupService self) {
+        this.self = self;
+    }
+
     // ===== Basic CRUD Operations =====
 
     public Optional<PincodeLookup> findByPincode(String pincode) {
@@ -526,7 +533,7 @@ public class PinCodeLookupService {
     public List<String> getDistrictsByStates(List<String> states) {
         // ... returns ALL districts at once
         return states.stream()
-                .flatMap(state -> getDistrictsByState(state).stream()) // Gets ALL districts
+                .flatMap(state -> self.getDistrictsByState(state).stream()) // Gets ALL districts
                 .distinct()
                 .sorted()
                 .collect(Collectors.toList()); // Returns complete list

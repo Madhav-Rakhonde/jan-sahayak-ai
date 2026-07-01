@@ -62,11 +62,31 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     // BASIC QUERIES
     // =========================================================================
 
+    @Query("""
+            SELECT sp FROM SocialPost sp
+            WHERE sp.user.id = :userId
+              AND sp.status IN :statuses
+              AND (sp.community IS NULL OR sp.communityPrivacy = 'PUBLIC')
+            ORDER BY sp.createdAt DESC
+            """)
     List<SocialPost> findByUserIdAndStatusInOrderByCreatedAtDesc(
-            Long userId, List<PostStatus> statuses, Pageable pageable);
+            @Param("userId") Long userId, 
+            @Param("statuses") List<PostStatus> statuses, 
+            Pageable pageable);
 
+    @Query("""
+            SELECT sp FROM SocialPost sp
+            WHERE sp.user.id = :userId
+              AND sp.status IN :statuses
+              AND sp.id < :id
+              AND (sp.community IS NULL OR sp.communityPrivacy = 'PUBLIC')
+            ORDER BY sp.createdAt DESC
+            """)
     List<SocialPost> findByUserIdAndStatusInAndIdLessThanOrderByCreatedAtDesc(
-            Long userId, List<PostStatus> statuses, Long id, Pageable pageable);
+            @Param("userId") Long userId, 
+            @Param("statuses") List<PostStatus> statuses, 
+            @Param("id") Long id, 
+            Pageable pageable);
 
     List<SocialPost> findByStatusOrderByCreatedAtDesc(PostStatus status, Pageable pageable);
 
@@ -260,6 +280,18 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
                                               @Param("cursor")      Long cursor,
                                               Pageable pageable);
 
+    @EntityGraph(attributePaths = {"user", "community"})
+    @Query("""
+            SELECT sp FROM SocialPost sp
+            WHERE sp.community.id = :communityId
+              AND sp.status = 'PENDING_APPROVAL'
+              AND (:cursor IS NULL OR sp.id < :cursor)
+            ORDER BY sp.createdAt DESC, sp.id DESC
+            """)
+    List<SocialPost> findPendingCommunityPostsCursor(@Param("communityId") Long communityId,
+                                                     @Param("cursor")      Long cursor,
+                                                     Pageable pageable);
+
     // =========================================================================
     // COMMUNITY DETAIL — ENGAGEMENT SORT ("Top" / "Hot")
     // =========================================================================
@@ -311,6 +343,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
+              AND (sp.community IS NULL OR sp.communityPrivacy = 'PUBLIC')
               AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
                OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY sp.id DESC
@@ -326,6 +359,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
             SELECT sp FROM SocialPost sp
             WHERE sp.status  = :status
               AND sp.pincode = :pincode
+              AND (sp.community IS NULL OR sp.communityPrivacy = 'PUBLIC')
               AND (LOWER(sp.content)  LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
                OR  LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\')
             ORDER BY sp.id DESC
@@ -341,6 +375,7 @@ public interface SocialPostRepo extends JpaRepository<SocialPost, Long> {
     @Query("""
             SELECT sp FROM SocialPost sp
             WHERE sp.status = :status
+              AND (sp.community IS NULL OR sp.communityPrivacy = 'PUBLIC')
               AND LOWER(sp.hashtags) LIKE LOWER(CONCAT('%', :hashtag, '%')) ESCAPE '\\'
             ORDER BY sp.id DESC
             """)

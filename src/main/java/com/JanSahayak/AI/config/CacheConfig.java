@@ -68,10 +68,7 @@ public class CacheConfig {
     private static final int  GEO_DIST_MAX_SIZE_ENTRIES = 50_000;
     private static final long GEO_DIST_EXPIRE_AFTER_WRITE_MINUTES = 30L;
 
-    private static final int  FEED_CACHE_MAX_SIZE_ENTRIES = 5_000;
-    private static final long FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES = 5L;
-
-    // ── New caches targeting hot frontend polling patterns ────────────────────
+    // ── Caches targeting hot frontend polling patterns ────────────────────────
 
     /**
      * Notification unread count — polled every 60 s by useUnreadNotificationsCount hook.
@@ -107,7 +104,11 @@ public class CacheConfig {
     private static final int  COMMUNITIES_MAX_SIZE   = 5_000;
     private static final long COMMUNITIES_TTL_MINUTES = 60L;
 
-    /** Auth user details cache - strict 1 min TTL for quick ban propagation */
+    /**
+     * Auth user details cache — loaded on every authenticated request by the JWT filter.
+     * Strict 1-minute TTL so bans/deactivations propagate quickly.
+     * Evicted eagerly by @CacheEvict in UserService on role/status changes.
+     */
     private static final int  AUTH_USER_DETAILS_MAX_SIZE = 50_000;
     private static final long AUTH_USER_DETAILS_TTL_MINUTES = 1L;
 
@@ -125,101 +126,80 @@ public class CacheConfig {
 
     @Bean
     public CacheManager cacheManager() {
+        // ── Active caches (backed by @Cacheable annotations) ─────────────────
+
         CaffeineCache profileCache = buildCache(
-                Constant.HLIG_CACHE_PROFILE,
+                Constant.HLIG_CACHE_PROFILE,          // "uip_profile"
                 UIP_MAX_SIZE_ENTRIES,
                 UIP_EXPIRE_AFTER_WRITE_MINUTES,
                 TimeUnit.MINUTES
         );
 
         CaffeineCache geoDistCache = buildCache(
-                "user-distribution-pincode",
+                "user-distribution-pincode",           // UserService.getUserDistributionByPincode
                 GEO_DIST_MAX_SIZE_ENTRIES,
                 GEO_DIST_EXPIRE_AFTER_WRITE_MINUTES,
                 TimeUnit.MINUTES
         );
 
-        CaffeineCache trendingPostsCache = buildCache(
-                "trending-posts",
-                FEED_CACHE_MAX_SIZE_ENTRIES,
-                FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES,
-                TimeUnit.MINUTES
-        );
-
-        CaffeineCache broadcastFeedsCache = buildCache(
-                "broadcast-feeds",
-                FEED_CACHE_MAX_SIZE_ENTRIES,
-                FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES,
-                TimeUnit.MINUTES
-        );
-
-        CaffeineCache hligFeedCache = buildCache(
-                "hlig_feed",
-                FEED_CACHE_MAX_SIZE_ENTRIES,
-                FEED_CACHE_EXPIRE_AFTER_WRITE_MINUTES,
-                TimeUnit.MINUTES
-        );
-
-        // ── New performance caches ────────────────────────────────────────────
-
         CaffeineCache notifCountCache = buildCache(
-                Constant.CACHE_NOTIF_UNREAD_COUNT,
+                Constant.CACHE_NOTIF_UNREAD_COUNT,     // "notif-unread-count"
                 NOTIF_COUNT_MAX_SIZE,
                 NOTIF_COUNT_TTL_SECS,
                 TimeUnit.SECONDS
         );
 
         CaffeineCache userProfileCache = buildCache(
-                Constant.CACHE_USER_PROFILE,
+                Constant.CACHE_USER_PROFILE,           // "user-profiles"
                 USER_PROFILE_MAX_SIZE,
                 USER_PROFILE_TTL_MINUTES,
                 TimeUnit.MINUTES
         );
 
         CaffeineCache pincodeCache = buildCache(
-                Constant.CACHE_PINCODE_DATA,
+                Constant.CACHE_PINCODE_DATA,           // "pincode-data"
                 PINCODE_MAX_SIZE,
                 PINCODE_TTL_HOURS,
                 TimeUnit.HOURS
         );
 
         CaffeineCache communityListCache = buildCache(
-                Constant.CACHE_COMMUNITY_LIST,
+                Constant.CACHE_COMMUNITY_LIST,         // "community-list"
                 COMMUNITY_LIST_MAX_SIZE,
                 COMMUNITY_LIST_TTL_MINUTES,
                 TimeUnit.MINUTES
         );
 
         CaffeineCache communitiesCache = buildCache(
-                "communities",
+                "communities",                         // CommunityRepo.findBySlug / findById
                 COMMUNITIES_MAX_SIZE,
                 COMMUNITIES_TTL_MINUTES,
                 TimeUnit.MINUTES
         );
 
         CaffeineCache authUserDetailsCache = buildCache(
-                "authUserDetails",
+                "authUserDetails",                     // CustomUserDetailsService.loadUserById
                 AUTH_USER_DETAILS_MAX_SIZE,
                 AUTH_USER_DETAILS_TTL_MINUTES,
                 TimeUnit.MINUTES
         );
 
         CaffeineCache userTiersCache = buildCache(
-                "userTiers",
+                "userTiers",                           // PlanEnforcementService.getUserTier
                 USER_TIERS_MAX_SIZE,
                 USER_TIERS_TTL_HOURS,
                 TimeUnit.HOURS
         );
 
         CaffeineCache translationsApiCache = buildCache(
-                "translationsApi",
+                "translationsApi",                     // TranslationService.translate
                 TRANSLATIONS_API_MAX_SIZE,
                 TRANSLATIONS_API_TTL_HOURS,
                 TimeUnit.HOURS
         );
 
         CaffeineCache postCountsCache = buildCache(
-                "postCounts",
+                "postCounts",                          // PostInteractionService.getPostCounts
                 POST_COUNTS_MAX_SIZE,
                 POST_COUNTS_TTL_MINUTES,
                 TimeUnit.MINUTES
@@ -228,11 +208,22 @@ public class CacheConfig {
         SimpleCacheManager manager = new SimpleCacheManager();
         manager.setCaches(List.of(
                 profileCache, geoDistCache,
-                trendingPostsCache, broadcastFeedsCache, hligFeedCache,
-                notifCountCache, userProfileCache, pincodeCache, communityListCache,
-                communitiesCache, authUserDetailsCache, userTiersCache, translationsApiCache,
-                postCountsCache
+                notifCountCache, userProfileCache, pincodeCache,
+                communityListCache, communitiesCache, authUserDetailsCache, userTiersCache,
+                translationsApiCache, postCountsCache
         ));
+
+        // CRITICAL: SimpleCacheManager is NOT a Spring-managed bean — it is created
+        // manually inside this @Bean method and wrapped in TransactionAwareCacheManagerProxy.
+        // Spring only calls afterPropertiesSet() on the bean it directly manages
+        // (i.e., the proxy), NOT on the inner SimpleCacheManager.
+        //
+        // SimpleCacheManager.afterPropertiesSet() populates its internal cacheMap
+        // from the List supplied above. Without this call, cacheMap stays empty and
+        // every @Cacheable / @CacheEvict lookup throws:
+        //   IllegalArgumentException: Cannot find cache named '<name>'
+        manager.afterPropertiesSet();
+
         return new TransactionAwareCacheManagerProxy(manager);
     }
 

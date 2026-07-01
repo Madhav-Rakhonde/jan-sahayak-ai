@@ -157,9 +157,15 @@ public class HLIGFeedService {
         }
 
         if (sorted == null || sorted.isEmpty()) {
-            log.debug("[HLIG] BROWSE scope={} sort={}: empty — absoluteFallback userId={}",
-                    scope, sort, user.getId());
-            sorted = absoluteFallback(user, sort, size * 2);
+            if (lastPostId != null) {
+                log.debug("[HLIG] BROWSE scope={} sort={}: empty on page 2+ — skipping absoluteFallback userId={}",
+                        scope, sort, user.getId());
+                sorted = new ArrayList<>();
+            } else {
+                log.debug("[HLIG] BROWSE scope={} sort={}: empty — absoluteFallback userId={}",
+                        scope, sort, user.getId());
+                sorted = absoluteFallback(user, sort, size * 2);
+            }
         }
 
         return applyCursorWindow(sorted, lastPostId, size);
@@ -431,7 +437,7 @@ public class HLIGFeedService {
                 .filter(p -> ownPostIds.contains(p.getId()) || p.isEligibleForRecommendation())
                 .collect(Collectors.toList());
 
-        if (eligible.size() < Math.min(size, 5)) {
+        if (eligible.size() < Math.min(size, 50)) {
             log.debug("[HLIG] COLD eligible pool {} — relaxing to ACTIVE-only", eligible.size());
             eligible = activeOnly(candidates);
         }
@@ -486,8 +492,8 @@ public class HLIGFeedService {
                 .sorted(Comparator.comparingDouble(s -> -s.score))
                 .collect(Collectors.toList());
 
-        if (scored.isEmpty()) {
-            log.debug("[HLIG] WARMING: empty — cold fallback userId={}", user.getId());
+        if (scored.size() < 20) {
+            log.debug("[HLIG] WARMING: pool too small ({}) — cold fallback userId={}", scored.size(), user.getId());
             return getColdFeed(user, size);
         }
 
@@ -564,8 +570,8 @@ public class HLIGFeedService {
                 .sorted(Comparator.comparingDouble(s -> -s.score))
                 .collect(Collectors.toList());
 
-        if (scored.isEmpty()) {
-            log.debug("[HLIG] WARM: zero overlap — cold fallback userId={}", user.getId());
+        if (scored.size() < 20) {
+            log.debug("[HLIG] WARM: pool too small ({}) — cold fallback userId={}", scored.size(), user.getId());
             return getColdFeed(user, size);
         }
 

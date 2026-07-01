@@ -1,6 +1,7 @@
 package com.JanSahayak.AI.model;
 
 import com.JanSahayak.AI.enums.PassTier;
+import com.JanSahayak.AI.enums.BillingCycle;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -43,6 +44,10 @@ public class TransactionHistory {
 
     @Column(name = "status", nullable = false, length = 20)
     private String status; // CREATED, SUCCESS, FAILED
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "billing_cycle", length = 20)
+    private BillingCycle billingCycle;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

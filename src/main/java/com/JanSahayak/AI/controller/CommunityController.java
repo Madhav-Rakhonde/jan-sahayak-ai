@@ -198,6 +198,35 @@ public class CommunityController {
                 communityService.getCommunityPostsById(id, sort, uid, cursor, cursorScore, limit)));
     }
 
+    @GetMapping("/{id}/posts/pending")
+    public ResponseEntity<ApiResponse<PaginatedResponse<CommunityPostResponse>>> pendingCommunityPosts(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(required = false) Integer limit,
+            @AuthenticationPrincipal User currentUser) {
+        Long uid = currentUser != null ? currentUser.getId() : null;
+        return ResponseEntity.ok(ApiResponse.success(
+                communityService.getPendingCommunityPosts(id, uid, cursor, limit)));
+    }
+
+    @PostMapping("/{id}/posts/{postId}/approve")
+    public ResponseEntity<ApiResponse<Void>> approveCommunityPost(
+            @PathVariable Long id,
+            @PathVariable Long postId,
+            @AuthenticationPrincipal User currentUser) {
+        communityService.approveCommunityPost(id, postId, currentUser);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    @PostMapping("/{id}/posts/{postId}/reject")
+    public ResponseEntity<ApiResponse<Void>> rejectCommunityPost(
+            @PathVariable Long id,
+            @PathVariable Long postId,
+            @AuthenticationPrincipal User currentUser) {
+        communityService.rejectCommunityPost(id, postId, currentUser);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
     /**
      * GET /api/communities/slug/{slug}/posts
      *

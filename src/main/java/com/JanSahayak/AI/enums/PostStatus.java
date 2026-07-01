@@ -12,6 +12,8 @@ public enum PostStatus {
     RESOLVED("Resolved", false, true, false),
 
     // ===== Social Post Specific Statuses =====
+    PENDING_APPROVAL("Pending Approval", true, false, false),
+    REJECTED("Rejected", false, false, false),
     DELETED("Deleted", false, false, false),
     FLAGGED("Flagged", false, false, false),
     ARCHIVED("Archived", false, true, false),

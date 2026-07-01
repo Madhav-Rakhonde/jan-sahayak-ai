@@ -19,7 +19,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/polls")
-@PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
 @RequiredArgsConstructor
 public class PollController {
 
@@ -34,6 +33,7 @@ public class PollController {
      * Body: CreatePollRequest
      */
     @PostMapping("/create")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<PollResponse> createPoll(
             @Valid @RequestBody CreatePollRequest request,
             @AuthenticationPrincipal User currentUser) {
@@ -48,6 +48,7 @@ public class PollController {
      * Consumes: multipart/form-data
      */
     @PostMapping(value = "/create-with-media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<PollResponse> createPollWithMedia(
             @RequestPart("poll") @Valid CreatePollRequest request,
             @RequestPart(value = "media", required = false) List<MultipartFile> mediaFiles,
@@ -86,6 +87,7 @@ public class PollController {
      * POST /api/polls/{pollId}/vote
      */
     @PostMapping("/{pollId}/vote")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<PollResponse> vote(
             @PathVariable Long pollId,
             @RequestBody List<Long> optionIds,
@@ -99,6 +101,7 @@ public class PollController {
      * PATCH /api/polls/{pollId}/close
      */
     @PatchMapping("/{pollId}/close")
+    @PreAuthorize("hasAnyRole('ROLE_USER', 'ROLE_DEPARTMENT', 'ROLE_ADMIN')")
     public ResponseEntity<Void> closePoll(
             @PathVariable Long pollId,
             @AuthenticationPrincipal User currentUser) {
