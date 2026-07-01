@@ -22,4 +22,6 @@ public class CreatePollRequest {
     private Boolean allowMultipleVotes = false;
 
     private Boolean showResultsBeforeExpiry = true;
+
+    private Long communityId;
 }

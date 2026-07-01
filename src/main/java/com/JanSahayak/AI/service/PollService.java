@@ -32,6 +32,8 @@ public class PollService {
     private final SocialPostRepo        socialPostRepository;
     private final UserRepo              userRepository;
     private final SocialPostMediaService mediaService;
+    private final CommunityRepo         communityRepository;
+    private final CommunityMemberRepo   communityMemberRepository;
 
     // @Lazy breaks the circular dependency: CommunityService → SocialPostRepo,
     // PollService → CommunityService.
@@ -54,13 +56,28 @@ public class PollService {
             }
         }
 
+        Community community = null;
+        if (req.getCommunityId() != null) {
+            community = communityRepository.findById(req.getCommunityId())
+                    .orElseThrow(() -> new RuntimeException("Community not found"));
+            
+            if (!communityMemberRepository.existsByCommunityIdAndUserIdAndIsActiveTrue(community.getId(), creator.getId())) {
+                throw new SecurityException("User must be an active member to create a poll in this community");
+            }
+        }
+
         SocialPost socialPost = SocialPost.builder()
                 .content(req.getQuestion())
                 .user(creator)
                 .status(PostStatus.ACTIVE)
+                .community(community)
                 .allowComments(true)
                 .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())
                 .build();
+
+        if (community != null) {
+            socialPost.syncCommunityDenormalizedFields(community);
+        }
 
         socialPost.inheritLocationFromUser(creator);
 
@@ -106,13 +123,29 @@ public class PollService {
             uploadedMediaUrls = uploadMediaFilesWithValidation(mediaFiles, creator.getId());
         }
         // 2. Build the parent SocialPost
+        Community community = null;
+        if (req.getCommunityId() != null) {
+            community = communityRepository.findById(req.getCommunityId())
+                    .orElseThrow(() -> new RuntimeException("Community not found"));
+            
+            if (!communityMemberRepository.existsByCommunityIdAndUserIdAndIsActiveTrue(community.getId(), creator.getId())) {
+                throw new SecurityException("User must be an active member to create a poll in this community");
+            }
+        }
+
         SocialPost socialPost = SocialPost.builder()
                 .content(req.getQuestion())
                 .user(creator)
                 .status(PostStatus.ACTIVE)
+                .community(community)
                 .allowComments(true)
                 .ipAddress(com.JanSahayak.AI.util.IpUtils.getClientIpFromContext())
                 .build();
+                
+        if (community != null) {
+            socialPost.syncCommunityDenormalizedFields(community);
+        }
+        
         socialPost.inheritLocationFromUser(creator);
         // 3. Attach media URLs if uploaded
         if (!uploadedMediaUrls.isEmpty()) {
